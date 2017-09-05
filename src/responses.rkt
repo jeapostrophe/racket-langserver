@@ -21,4 +21,6 @@
   [success-response
    ((or/c number? string?) jsexpr? . -> . jsexpr?)]
   [error-response
-   ((or/c number? string? (json-null)) number? string? (or/c jsexpr? void?) . -> . jsexpr?)]))
+   (->* ((or/c number? string? (json-null)) number? string?)
+        ((or/c jsexpr? void?))
+        jsexpr?)]))

@@ -1,28 +1,17 @@
 #lang racket/base
 (require json
+         racket/contract/base
          racket/match
          "error-codes.rkt"
+         "log.rkt"
          "methods.rkt"
          "responses.rkt")
 
 (define (read-message [in (current-input-port)])
-  ;; TODO: Do we want to complain? What happens if the input port is cut off
-  ;; without a shutdown message being sent first?
-  (when (eof-object? (peek-byte in))
-    (exit 1))
-  ;; TODO: Should we be stricter about making sure headers are well-formed?
-  (let loop ()
-    (match (read-line in 'return-linefeed)
-      ["" (with-handlers ([exn:fail:read? (λ (exn) 'parse-json-error)])
-            (read-json in))]
-      [(? eof-object?) 'parse-eof-error]
-      [_ (loop)])))
-
-(define (read-message_ [in (current-input-port)])
   (match (read-line in 'return-linefeed)
-    ["" (with-handlers ([exn:fail:read? (λ (exn) 'parse-json-error)])
+    ["" (with-handlers ([exn:fail:read? (λ (_) 'parse-json-error)])
           (read-json in))]
-    [(? eof-object?) (raise-eof-error)]
+    [(? eof-object?) 'parse-eof-error]
     [_ (read-message in)]))
 
 (define (message->string msg)
@@ -31,41 +20,28 @@
   (define content-length (add1 (bytes-length content))) ; +1 for null byte.
   (format "Content-Length: ~a\r\n\r\n~a" content-length content))
 
-(define (raise-eof-error)
-  (raise (exn:fail:read:eof
-          "The server expected JSON, received EOF."
-          (current-continuation-marks)
-          null)))
+(define (main-loop)
+  (define msg (read-message))
+  (define response 
+    (match msg
+      ['parse-json-error
+       (error-response (json-null)
+                       PARSE-ERROR
+                       "Invalid JSON was received by the server.")]
+      ['parse-eof-error
+       (log! "The server received unexpected EOF. Shutting down...")
+       (exit 1)]
+      [(? jsexpr?)
+       (process-message msg)]))
+  (unless (void? response)
+    (display (message->string response)))
+  (main-loop))
 
-;(module+ main_
-;  (let loop()
-;    (with-handlers 
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-
-(define (parse-json-error)
-  (error-response (json-null)
-                  PARSE-ERROR
-                  "Invalid JSON was received by the server."))
-
-(define (parse-eof-error)
-  (error-response (json-null)
-                  PARSE-ERROR
-                  "The server expected JSON; received EOF."))
-
-#;
-(module+ main
-  (let loop ()
-    (define msg (read-message))
-    (define response
-      (match msg
-        ['parse-json-error
-         (parse-json-error)]
-        ['parse-eof-error
-         (parse-eof-error)]
-        [(? jsexpr?)
-         (process-message msg)]))
-    (unless (void? response)
-      (display (message->string response)))
-    (loop)))
-    
+(provide
+ (contract-out
+  [read-message
+   (input-port? . -> . (or/c jsexpr? 'parse-json-error 'parse-eof-error))]
+  [message->string
+   (jsexpr? . -> . string?)]
+  [main-loop
+   (-> void?)]))
