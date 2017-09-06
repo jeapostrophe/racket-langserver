@@ -2,7 +2,6 @@
 (require json
          racket/contract/base
          racket/match
-         racket/port
          "error-codes.rkt"
          "responses.rkt")
 
