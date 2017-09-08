@@ -8,6 +8,7 @@
 
 (define already-initialized? (make-parameter #f))
 (define already-shutdown? (make-parameter #f))
+(define current-doc-store (make-parameter (hash)))
 
 ;;
 ;; Dispatch
@@ -36,6 +37,7 @@
      (define id (if ((or/c number? string?) id-ref)
                     id-ref
                     (json-null)))
+     (log-warning "invalid request JSON: ~a" (jsexpr->string msg))
      (define err-msg "The JSON sent is not a valid request object")
      (error-response id INVALID-REQUEST err-msg)]))
 
@@ -48,6 +50,7 @@
     ["shutdown"
      (shutdown id)]
     [_
+     (log-warning "invalid request (id: ~a) for method ~v" id method)
      (define err-msg (format "The method ~v was not found" method))
      (error-response id METHOD-NOT-FOUND err-msg)]))
 
@@ -58,8 +61,11 @@
     ["exit"
      (exit (if (already-shutdown?) 0 1))]
     ["textDocument/didOpen"
-     (text-document/did-open params)]
+     (define updated-doc-store (text-document/did-open (current-doc-store) params))
+     (current-doc-store updated-doc-store)
+     (void)]
     [_
+     (log-warning "invalid notification ~v with params: ~a" method (jsexpr->string params))
      (void)]))
 
 ;;
@@ -74,6 +80,7 @@
      (define result (hasheq))
      (success-response id result)]
     [_
+     (log-warning "initialize failed (req id: ~a) (params: ~a)" id (jsexpr->string params))
      (error-response id INVALID-PARAMS "initialize failed")]))
 
 (define (shutdown id)
