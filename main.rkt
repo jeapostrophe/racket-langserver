@@ -3,7 +3,6 @@
          racket/contract/base
          racket/match
          "error-codes.rkt"
-         "log.rkt"
          "methods.rkt"
          "responses.rkt")
 
@@ -29,7 +28,7 @@
                        PARSE-ERROR
                        "Invalid JSON was received by the server.")]
       ['parse-eof-error
-       (log! "The server received unexpected EOF. Shutting down...")
+       (log-fatal "The server received unexpected EOF. Shutting down...")
        (exit 1)]
       [(? jsexpr?)
        (process-message msg)]))

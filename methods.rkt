@@ -3,11 +3,11 @@
          racket/contract/base
          racket/match
          "error-codes.rkt"
-         "responses.rkt")
+         "responses.rkt"
+         (prefix-in text-document/ "text-document.rkt"))
 
 (define already-initialized? (make-parameter #f))
 (define already-shutdown? (make-parameter #f))
-(define open-docs (make-weak-hash))
 
 ;;
 ;; Dispatch
@@ -58,7 +58,7 @@
     ["exit"
      (exit (if (already-shutdown?) 0 1))]
     ["textDocument/didOpen"
-     (did-open-text-document params)]
+     (text-document/did-open params)]
     [_
      (void)]))
 
@@ -79,26 +79,6 @@
 (define (shutdown id)
   (already-shutdown? #t)
   (success-response id (json-null)))
-
-;;
-;; Notifications
-;;;;;;;;;;;;;;;;;;
-
-(define (did-open-text-document params)
-  (match params
-    [(hash-table
-      ['textDocument (hash-table ['uri (? string? uri)] ;; TODO: URI isn't exactly a string...
-                                 ['languageId (? string? language-id)]
-                                 ['version (? number? version)]
-                                 ['text (? string? text)])])
-     ;; TODO: Filter by language ID? Will we get textDocument/didOpen notifications for
-     ;; *all* files, or just racket files?
-     ;; ------------------------------------
-     ;; TODO: Should the keys in this table contain version information? When will we need
-     ;; to distinguish between versions of a document?
-     (hash-set! open-docs uri text)]
-    [_
-     (void)]))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
