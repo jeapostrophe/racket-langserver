@@ -68,7 +68,7 @@
 
 (define (did-open open-docs params)
   (match params
-    [(hash-table ['textDocument (TextDocumentItem uri language-id verison text)])
+    [(hash-table ['textDocument (TextDocumentItem uri language-id version text)])
      (hash-set open-docs (cons uri version) (string->lines text))]
     [_
      (log-warning "invalid textDocument/didOpen params: ~a" (jsexpr->string params))
@@ -89,8 +89,8 @@
           (hash-set ht (cons uri version) (string->lines text))]
          [_
           (log-warning
-           "invalid TextDocumentContentChangeEvent: ~a\n\tDocument: ~v Version: ~a"
-           (jsexpr->string change) uri version)
+           "invalid TextDocumentContentChangeEvent (Doc: ~v) (Ver: ~a) ~a"
+           uri version (jsexpr->string change))
           ht]))]
     [_
      (log-warning "invalid DidChangeTextDocumentParams: ~a" (jsexpr->string params))
