@@ -6,9 +6,9 @@
          "responses.rkt"
          (prefix-in text-document/ "text-document.rkt"))
 
-(define already-initialized? (make-parameter #f))
-(define already-shutdown? (make-parameter #f))
-(define current-doc-store (make-parameter (hash)))
+(define already-initialized? #f)
+(define already-shutdown? #f)
+(define open-docs (hash))
 
 ;;
 ;; Dispatch
@@ -61,8 +61,7 @@
     ["exit"
      (exit (if (already-shutdown?) 0 1))]
     ["textDocument/didOpen"
-     (define updated-doc-store (text-document/did-open (current-doc-store) params))
-     (current-doc-store updated-doc-store)
+     (set! open-docs (text-document/did-open open-docs params))
      (void)]
     [_
      (log-warning "invalid notification ~v with params: ~a" method (jsexpr->string params))
@@ -76,7 +75,7 @@
   (match params
     [(hash-table ['processId (? (or/c number? (json-null)) process-id)]
                  ['capabilities (? jsexpr? capabilities)])
-     (already-initialized? #t)
+     (set! already-initialized? #t)
      (define result (hasheq))
      (success-response id result)]
     [_
@@ -84,7 +83,7 @@
      (error-response id INVALID-PARAMS "initialize failed")]))
 
 (define (shutdown id)
-  (already-shutdown? #t)
+  (set! already-shutdown? #t)
   (success-response id (json-null)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
