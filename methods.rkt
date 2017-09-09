@@ -59,7 +59,7 @@
 (define (process-notification method params)
   (match method
     ["exit"
-     (exit (if (already-shutdown?) 0 1))]
+     (exit (if already-shutdown? 0 1))]
     ["textDocument/didOpen"
      (set! open-docs (text-document/did-open open-docs params))
      (void)]
