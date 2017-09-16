@@ -67,26 +67,13 @@
 (define (string->lines str)
   (string-split str #rx"\n|(\r\n)|\r"))
 
-(define (range-edit doc-lines start-line start-char end-line end-char text)
-  (let* ([before-lines (drop-right doc-lines (- (length doc-lines) start-line 1))]
-         [before-str (substring (last before-lines) 0 start-char)]
-         [after-lines (drop doc-lines end-line)]
-         [after-str (substring (first after-lines) end-char)]
-         [middle (string-append before-str text after-str)])
-    #;
-    (printf "before-lines: ~v\nbefore-str: ~v\nafter-lines: ~v\nafter-str: ~v\nmiddle: ~v\n\n"
-            before-lines before-str after-lines after-str middle)
-    (append (drop-right before-lines 1)
-            (string->lines middle)
-            (drop after-lines 1))))
-
 ;; The start-char and end-char values are specified as counting UTF-16 code points,
 ;; NOT characters or bytes or anything else that would be reasonable. As a result,
 ;; it is necessary to convert the lines being indexed by these values into UTF-16
 ;; byte arrays before indexing into them. These byte arrays, after being split,
 ;; are then immediately re-encoded into normal UTF-8 strings before being joined with
 ;; the new text. 
-(define (range-edit/unicode doc-lines start-line start-char end-line end-char text)
+(define (range-edit doc-lines start-line start-char end-line end-char text)
   (let* ([before-lines (drop-right doc-lines (- (length doc-lines) start-line 1))]
          [last-before-line (utf-8->utf-16 (last before-lines))]
          [before-str (utf-16->utf-8 (subbytes last-before-line 0 (* 2 start-char)))]
@@ -123,7 +110,7 @@
             (match change
               [(ContentChangeEvent+Range start-line start-char end-line end-char range-length text)
                ;; Range edit
-               (range-edit/unicode doc-lines start-line start-char end-line end-char)]
+               (range-edit doc-lines start-line start-char end-line end-char)]
               [(ContentChangeEvent text)
                ;; Full replace
                (string->lines text)]
@@ -150,13 +137,6 @@
                   exact-nonnegative-integer?
                   string?
                   (listof string?))]
-  [range-edit/unicode (-> (listof string?)
-                          exact-nonnegative-integer?
-                          exact-nonnegative-integer?
-                          exact-nonnegative-integer?
-                          exact-nonnegative-integer?
-                          string?
-                          (listof string?))]
   [did-open (doc-store/c jsexpr? . -> . doc-store/c)]
   [did-change (doc-store/c jsexpr? . -> . doc-store/c)])
  doc-store/c)

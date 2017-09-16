@@ -28,25 +28,25 @@
 
 (define (test-range-edit)
   (define test-lines '("line one" "line two" "line three" "line four" "line five"))
-  (chk (range-edit/unicode test-lines 1 5 2 4 "TWO\nLINE")
+  (chk (range-edit test-lines 1 5 2 4 "TWO\nLINE")
        '("line one" "line TWO" "LINE three" "line four" "line five"))
-  (chk (range-edit/unicode test-lines 0 5 1 4 "ONE\nLINE")
+  (chk (range-edit test-lines 0 5 1 4 "ONE\nLINE")
        '("line ONE" "LINE two" "line three" "line four" "line five"))
-  (chk (range-edit/unicode test-lines 1 5 3 4 "TWO\nLINE THREE\nLINE")
+  (chk (range-edit test-lines 1 5 3 4 "TWO\nLINE THREE\nLINE")
        '("line one" "line TWO" "LINE THREE" "LINE four" "line five"))
-  (chk (range-edit/unicode test-lines 0 0 1 0 "LINE ONE\n")
+  (chk (range-edit test-lines 0 0 1 0 "LINE ONE\n")
        '("LINE ONE" "line two" "line three" "line four" "line five"))
-  (chk (range-edit/unicode '("line one") 0 5 0 8 "ONE")
+  (chk (range-edit '("line one") 0 5 0 8 "ONE")
        '("line ONE"))
   ;; Unicode specific tests - '𐐀' (Deseret Capital Long Letter I) is used as an
   ;; example of a unicode character which, when encoded as a UTF-16 string,
   ;; requires 2 code points to represent.
-  (chk (range-edit/unicode '("abc" "wx𐐀yz" "asdf") 1 1 1 5 "NEW")
+  (chk (range-edit '("abc" "wx𐐀yz" "asdf") 1 1 1 5 "NEW")
        '("abc" "wNEWz" "asdf"))
   ;; This is an invalid request, as the 'start-char' index is in the middle of
   ;; the multi-code-point UTF-16 character. It is expected to error due to an
   ;; invalid unicode conversion.
-  (chk #:x (range-edit/unicode '("wx𐐀yz") 0 3 0 5 "NEW") #rx".*abort")
+  (chk #:x (range-edit '("wx𐐀yz") 0 3 0 5 "NEW") #rx".*abort")
   )
 
 (module+ test
