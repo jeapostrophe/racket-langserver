@@ -12,13 +12,15 @@
 (define (utf-8->utf-16 str)
   (match-define-values (bytes-16 _ result)
                        (bytes-convert 8->16 (string->bytes/utf-8 str)))
-  (conversion-error 'utf-8->utf-16 bytes-16 result)
+  (unless (eq? 'complete result)
+    (conversion-error 'utf-8->utf-16 bytes-16 result))
   bytes-16)
 
 (define (utf-16->utf-8 bytes-16)
   (match-define-values (bytes-8 _ result)
                        (bytes-convert 16->8 bytes-16))
-  (conversion-error 'utf-16->utf-8 bytes-8 result)
+  (unless (eq? 'complete result)
+    (conversion-error 'utf-16->utf-8 bytes-8 result))
   (bytes->string/utf-8 bytes-8))
 
 (provide
