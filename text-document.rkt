@@ -5,7 +5,8 @@
          racket/list
          racket/match
          racket/string
-         syntax/parse/define)
+         syntax/parse/define
+         "unicode-util.rkt")
 ;;
 ;; Match Expanders
 ;;;;;;;;;;;;;;;;;;;;
@@ -78,24 +79,6 @@
     (append (drop-right before-lines 1)
             (string->lines middle)
             (drop after-lines 1))))
-
-(define utf-8->utf-16
-  (let ([converter (bytes-open-converter "platform-UTF-8" "platform-UTF-16")])
-    (λ (str)
-      (match-define-values (bytes-16 _ result)
-                           (bytes-convert converter (string->bytes/utf-8 str)))
-      (unless (eq? 'complete result)
-        (error 'utf-8->utf-16 "conversion failed with output ~v and result ~a"
-               bytes-16 result))
-      bytes-16)))
-
-(define utf-16->utf-8
-  (let ([converter (bytes-open-converter "platform-UTF-16" "platform-UTF-8")])
-    (λ (bytes-16)
-      (match-define-values (bytes-8 _ result) (bytes-convert converter bytes-16))
-      (unless (eq? 'complete result)
-        (error 'utf-16->utf-8 "conversion failed with output ~v and result ~a" bytes-8 result))
-      (bytes->string/utf-8 bytes-8))))
 
 ;; The start-char and end-char values are specified as counting UTF-16 code points,
 ;; NOT characters or bytes or anything else that would be reasonable. As a result,
