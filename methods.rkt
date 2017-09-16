@@ -1,6 +1,7 @@
 #lang racket/base
 (require json
          racket/contract/base
+         racket/list
          racket/match
          "error-codes.rkt"
          "responses.rkt"
@@ -30,7 +31,7 @@
      (process-notification method params)]
     ;; Batch Request
     [(? (non-empty-listof (and/c hash? jsexpr?)))
-     (filter (not/c void?) (map process-message msg))]
+     (filter-not void? (map process-message msg))]
     ;; Invalid Message
     [_
      (define id-ref (hash-ref msg 'id void))
