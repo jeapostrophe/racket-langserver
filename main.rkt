@@ -14,9 +14,8 @@
     [_ (read-message in)]))
 
 (define (message->string msg)
-  ;; TODO: are bytes implicitly UTF-8?
   (define content (jsexpr->bytes msg))
-  (define content-length (add1 (bytes-length content))) ; +1 for null byte.
+  (define content-length (bytes-length content))
   (format "Content-Length: ~a\r\n\r\n~a" content-length content))
 
 (define (main-loop)
