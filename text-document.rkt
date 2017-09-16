@@ -110,7 +110,7 @@
             (match change
               [(ContentChangeEvent+Range start-line start-char end-line end-char range-length text)
                ;; Range edit
-               (range-edit doc-lines start-line start-char end-line end-char)]
+               (range-edit doc-lines start-line start-char end-line end-char text)]
               [(ContentChangeEvent text)
                ;; Full replace
                (string->lines text)]
