@@ -2,7 +2,6 @@
 (require (for-syntax racket/base)
          json
          racket/contract/base
-         racket/function
          racket/list
          racket/match
          racket/string
