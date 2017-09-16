@@ -48,7 +48,7 @@
   ;; invalid unicode conversion.
   (chk #:x (range-edit/unicode (list (string-append "ab" mb-utf-16 "cd"))
                                0 3 0 5 "NEW")
-       exn:fail?)
+       #rx".*abort")
   )
 
 (module+ test
