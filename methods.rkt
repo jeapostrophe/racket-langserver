@@ -62,17 +62,13 @@
     ["exit"
      (exit (if already-shutdown? 0 1))]
     ["textDocument/didOpen"
-     (set! open-docs (text-document/did-open open-docs params))
-     (void)]
+     (set! open-docs (text-document/did-open open-docs params))]
     ["textDocument/didClose"
-     (set! open-docs (text-document/did-close open-docs params))
-     (void)]
+     (set! open-docs (text-document/did-close open-docs params))]
     ["textDocument/didChange"
-     (set! open-docs (text-document/did-change open-docs params))
-     (void)]
+     (set! open-docs (text-document/did-change open-docs params))]
     [_
-     (log-warning "invalid notification ~v with params: ~a" method (jsexpr->string params))
-     (void)]))
+     (log-warning "invalid notification ~v with params: ~a" method (jsexpr->string params))]))
 
 ;;
 ;; Requests
