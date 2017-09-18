@@ -67,6 +67,9 @@
     ["textDocument/didClose"
      (set! open-docs (text-document/did-close open-docs params))
      (void)]
+    ["textDocument/didChange"
+     (set! open-docs (text-document/did-change open-docs params))
+     (void)]
     [_
      (log-warning "invalid notification ~v with params: ~a" method (jsexpr->string params))
      (void)]))
