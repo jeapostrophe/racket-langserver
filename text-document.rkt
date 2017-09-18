@@ -62,7 +62,7 @@
 ;; Helpers
 ;;;;;;;;;;;;
 
-(define doc-store/c (hash/c (cons/c string? number?) (listof string?)))
+(define doc-store/c (hash/c string? (listof string?)))
 
 (define (string->lines str)
   (string-split str #rx"\n|(\r\n)|\r"))
@@ -92,7 +92,7 @@
 (define (did-open open-docs params)
   (match params
     [(hash-table ['textDocument (TextDocumentItem uri language-id version text)])
-     (hash-set open-docs (cons uri version) (string->lines text))]
+     (hash-set open-docs uri (string->lines text))]
     [_
      (log-warning "invalid DidOpenTextDocumentParams: ~a" (jsexpr->string params))
      open-docs]))
@@ -101,7 +101,7 @@
   (match params
     [(hash-table ['textDocument (VersionedTextDocumentIdentifier version uri)]
                  ['contentChanges (list content-changes ...)])
-     (define doc-lines (hash-ref open-docs (cons uri version) #f))
+     (define doc-lines (hash-ref open-docs uri #f))
      (cond
        [doc-lines
         (define changed-lines
@@ -119,7 +119,7 @@
                 "invalid TextDocumentContentChangeEvent (Doc: ~v) (Ver: ~a) ~a"
                 uri version (jsexpr->string change))
                doc-lines])))
-        (hash-set open-docs (cons uri version) changed-lines)]
+        (hash-set open-docs uri changed-lines)]
        [else
         (log-warning "couldn't find document ~v (version: ~a)" uri version)
         doc-lines])]

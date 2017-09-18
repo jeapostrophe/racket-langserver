@@ -10,7 +10,7 @@
                     'version 1
                     'text "I am a banana!\r\nOne!\nTwo!!"}})
   (chk (did-open (hash) params)
-       (hash (cons "/tmp/blank" 1) '("I am a banana!" "One!" "Two!!"))))
+       (hash "/tmp/blank" '("I am a banana!" "One!" "Two!!"))))
 
 (define (test-did-change)
   (define params
@@ -18,8 +18,8 @@
                     'version 1}
      'contentChanges [{'text "Some more text"}
                       {'text "More text again\r\nNew line!"}]})
-  (chk (did-change (hash (cons "/tmp/blank" 1) '("default" "text")) params)
-       (hash (cons "/tmp/blank" 1) '("More text again" "New line!"))))
+  (chk (did-change (hash "/tmp/blank" '("default" "text")) params)
+       (hash "/tmp/blank" '("More text again" "New line!"))))
 
 (define (test-string->lines)
   (chk (string->lines "a\nb") '("a" "b"))
