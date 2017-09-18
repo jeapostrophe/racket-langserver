@@ -12,6 +12,11 @@
   (chk (did-open (hash) params)
        (hash "/tmp/blank" '("I am a banana!" "One!" "Two!!"))))
 
+(define (test-did-close)
+  (define params {'textDocument {'uri "/tmp/blank"}})
+  (chk (did-close (hash "/tmp/blank" '("placeholder" "text")) params)
+       (hash)))
+
 (define (test-did-change)
   (define params
     {'textDocument {'uri "/tmp/blank"
@@ -51,6 +56,7 @@
 
 (module+ test
   (test-did-open)
+  (test-did-close)
   (test-did-change)
   (test-string->lines)
   (test-range-edit)

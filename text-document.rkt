@@ -97,6 +97,14 @@
      (log-warning "invalid DidOpenTextDocumentParams: ~a" (jsexpr->string params))
      open-docs]))
 
+(define (did-close open-docs params)
+  (match params
+    [(hash-table ['textDocument (hash-table ['uri (? string? uri)])])
+     (hash-remove open-docs uri)]
+    [_
+     (log-warning "invalid DidCloseTextDocumentParams: ~a" (jsexpr->string params))
+     open-docs]))
+
 (define (did-change open-docs params)
   (match params
     [(hash-table ['textDocument (VersionedTextDocumentIdentifier version uri)]
@@ -138,5 +146,6 @@
                   string?
                   (listof string?))]
   [did-open (doc-store/c jsexpr? . -> . doc-store/c)]
+  [did-close (doc-store/c jsexpr? . -> . doc-store/c)]
   [did-change (doc-store/c jsexpr? . -> . doc-store/c)])
  doc-store/c)
