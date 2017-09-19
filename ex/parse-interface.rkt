@@ -1,6 +1,7 @@
 #lang racket/base
 (require
  (for-syntax racket/base
+             compiler/cm-accomplice
              racket/list
              racket/syntax
              syntax/parse
@@ -74,6 +75,7 @@
 
   (define (parse-interface f)
     (parameterize ([file-path f])
+      (register-external-file f)
       (call-with-input-file f
         (λ (ip)
           (port-count-lines! ip)

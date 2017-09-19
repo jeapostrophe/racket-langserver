@@ -13,5 +13,5 @@ interface Z {
  y: Y;
  a: int;
  z: int;
- eggs: int;
+ foo: int;
 };
