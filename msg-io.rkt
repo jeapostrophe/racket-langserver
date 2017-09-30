@@ -20,5 +20,9 @@
 
 (provide
  (contract-out
-  [read-message (input-port? . -> . (or/c jsexpr? 'parse-json-error 'parse-eof-error))]
-  [display-message (jsexpr? output-port? . -> . void?)]))
+  [read-message (->* ()
+                     (input-port?)
+                     (or/c jsexpr? 'parse-json-error 'parse-eof-error))]
+  [display-message (->* (jsexpr?)
+                        (output-port?)
+                        void?)]))
