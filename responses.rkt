@@ -4,12 +4,15 @@
 
 ;; Constructor for a response object representing success.
 (define (success-response id result)
-  (hasheq 'id id 'result result))
+  (hasheq 'jsonrpc "2.0"
+          'id id
+          'result result))
 
 ;; Constructor for a response object representing failure.
 (define (error-response id code message [data (void)])
   (define ht
-    (hasheq 'id id
+    (hasheq 'jsonrpc "2.0"
+            'id id
             'code code
             'message message))
   (if (void? data)
