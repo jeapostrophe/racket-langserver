@@ -19,6 +19,16 @@
         [(name args ...)
          #'pat-expr]))))
 
+(define-match-expander ContentChangeEvent
+  (λ (stx)
+    (syntax-parse stx
+      [(_ StLine StChar EndLine EndChar RangeLength Text)
+       #'(hash-table ['range (Range StLine StChar EndLine EndChar)]
+                     ['rangeLength (? number? RangeLength)]
+                     ['text (? string? Text)])]
+      [(_ Text)
+       #'(hash-table ['text (? string? Text)])])))
+
 (define-simple-match-expander (Position Start End)
   (hash-table ['start (? number? Start)]
               ['end (? number? End)]))
@@ -33,36 +43,15 @@
               ['version (? number? Version)]
               ['text (? string? Text)]))
 
-(define-simple-match-expander (ContentChangeEvent Text)
-  (hash-table ['text (? string? Text)]))
-
-(define-simple-match-expander
-  (ContentChangeEvent+Range StLine StChar EndLine EndChar RangeLength Text)
-  (hash-table ['range (Range StLine StChar EndLine EndChar)]
-              ['rangeLength (? number? RangeLength)]
-              ['text (? string? Text)]))
-
 (define-simple-match-expander (VersionedTextDocumentIdentifier Version Uri)
   (hash-table ['version (? number? Version)]
               ['uri (? string? Uri)]))
-
-;; TODO: This is what I *want* the syntax to look like
-#;
-(define-simple-macro (define-hash-pattern name [key ctc] ...+)
-  (define-simple-match-expander (name ??? ...)
-    (hash-table ['key (? ctc ???)] ...)))
-#;
-(define-hash-pattern TextDocumentItem_
-  [uri string?]
-  [languageId string?]
-  [version number?]
-  [text string?])
 
 ;;
 ;; Helpers
 ;;;;;;;;;;;;
 
-(define doc-store/c (hash/c string? (listof string?)))
+(define doc-store? (hash/c string? (listof string?)))
 
 (define (string->lines str)
   (string-split str #rx"\n|(\r\n)|\r"))
@@ -92,48 +81,28 @@
 (define (did-open open-docs params)
   (match params
     [(hash-table ['textDocument (TextDocumentItem uri language-id version text)])
-     (hash-set open-docs uri (string->lines text))]
-    [_
-     (log-warning "invalid DidOpenTextDocumentParams: ~a" (jsexpr->string params))
-     open-docs]))
-
+     (hash-set open-docs uri (string->lines text))]))
+     
 (define (did-close open-docs params)
   (match params
     [(hash-table ['textDocument (hash-table ['uri (? string? uri)])])
-     (hash-remove open-docs uri)]
-    [_
-     (log-warning "invalid DidCloseTextDocumentParams: ~a" (jsexpr->string params))
-     open-docs]))
+     (hash-remove open-docs uri)]))
 
 (define (did-change open-docs params)
-  (match params
-    [(hash-table ['textDocument (VersionedTextDocumentIdentifier version uri)]
-                 ['contentChanges (list content-changes ...)])
-     (define doc-lines (hash-ref open-docs uri #f))
-     (cond
-       [doc-lines
-        (define changed-lines
-          (for/fold ([doc-lines doc-lines])
-                    ([change content-changes])
-            (match change
-              [(ContentChangeEvent+Range start-line start-char end-line end-char range-length text)
-               ;; Range edit
-               (range-edit doc-lines start-line start-char end-line end-char text)]
-              [(ContentChangeEvent text)
-               ;; Full replace
-               (string->lines text)]
-              [_
-               (log-warning
-                "invalid TextDocumentContentChangeEvent (Doc: ~v) (Ver: ~a) ~a"
-                uri version (jsexpr->string change))
-               doc-lines])))
-        (hash-set open-docs uri changed-lines)]
-       [else
-        (log-warning "couldn't find document ~v (version: ~a)" uri version)
-        doc-lines])]
-    [_
-     (log-warning "invalid DidChangeTextDocumentParams: ~a" (jsexpr->string params))
-     open-docs]))
+  (match-define (hash-table ['textDocument (VersionedTextDocumentIdentifier version uri)]
+                            ['contentChanges (list content-changes ...)]) params)
+  (define doc-lines (hash-ref open-docs uri))
+  (define changed-lines
+    (for/fold ([doc-lines doc-lines])
+              ([change content-changes])
+      (match change
+        ;; Range edit
+        [(ContentChangeEvent start-line start-ch end-line end-ch range-ln text)
+         (range-edit doc-lines start-line start-ch end-line end-ch text)]
+        ;; Full replace
+        [(ContentChangeEvent text)
+         (string->lines text)])))
+  (hash-set open-docs uri changed-lines))
 
 (provide
  (contract-out
@@ -145,7 +114,7 @@
                   exact-nonnegative-integer?
                   string?
                   (listof string?))]
-  [did-open (doc-store/c jsexpr? . -> . doc-store/c)]
-  [did-close (doc-store/c jsexpr? . -> . doc-store/c)]
-  [did-change (doc-store/c jsexpr? . -> . doc-store/c)])
- doc-store/c)
+  [did-open (doc-store? jsexpr? . -> . doc-store?)]
+  [did-close (doc-store? jsexpr? . -> . doc-store?)]
+  [did-change (doc-store? jsexpr? . -> . doc-store?)])
+ doc-store?)
