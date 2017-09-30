@@ -11,6 +11,16 @@
 (define already-shutdown? #f)
 (define open-docs (hash))
 
+(require syntax/parse/define)
+
+(define-simple-macro (init-guard body ...+)
+  (cond [(not already-initialized?)
+         (error-response (json-null) SERVER-NOT-INITIALIZED
+                         "The server has not been initialized")]
+        [already-shutdown?
+         (error "already shutdown")]
+        [else body ...]))
+
 ;;
 ;; Dispatch
 ;;;;;;;;;;;;;
@@ -47,8 +57,10 @@
 (define (process-request id method params)
   (match method
     ["initialize"
+     (log-info "Got initialize message")
      (initialize id params)]
     ["shutdown"
+     (log-info "Got shutdown message")
      (shutdown id)]
     [_
      (log-warning "invalid request (id: ~a) for method ~v" id method)
@@ -59,16 +71,18 @@
 ;; a response, this procedure always returns void.
 (define (process-notification method params)
   (match method
+    ["initialized"
+     ;; Ignore for now - no dynamic registration.
+     (log-info "Got initialized message")]
     ["exit"
+     (log-info "Got exit message")
      (exit (if already-shutdown? 0 1))]
     ["textDocument/didOpen"
      (set! open-docs (text-document/did-open open-docs params))]
     ["textDocument/didClose"
      (set! open-docs (text-document/did-close open-docs params))]
     ["textDocument/didChange"
-     (set! open-docs (text-document/did-change open-docs params))]
-    [_
-     (log-warning "invalid notification ~v with params: ~a" method (jsexpr->string params))]))
+     (set! open-docs (text-document/did-change open-docs params))]))
 
 ;;
 ;; Requests
@@ -79,8 +93,30 @@
     [(hash-table ['processId (? (or/c number? (json-null)) process-id)]
                  ['capabilities (? jsexpr? capabilities)])
      (set! already-initialized? #t)
-     (define result (hasheq))
-     (success-response id result)]
+     #;
+     (define server-capabilities
+       (hasheq 'textDocumentSync 2 ;; 2 = incremental
+               'hoverProvider #f
+               'completionProvider (hasheq 'resolveProvider  #f
+                                           'triggerCharacters '())
+               'signatureHelpProvider (hasheq 'triggerCharacters '())
+               'definitionProvider #f
+               'referencesProvider #f
+               'documentHighlightProvider #f
+               'documentSymbolProvider #f
+               'workspaceSymbolProvider #f
+               'codeActionProvider #f
+               'codeLensProvider (hasheq 'resolveProvider #f)
+               'documentFormattingProvider #f
+               'documentRangeFormattingProvider #f
+               ;'documentOnTypeFormattingProvider (hasheq)
+               'renameProvider #f
+               'documentLinkProvider (hasheq 'resolveProvider #f)
+               'executeCommandProvider (hasheq 'commands '())
+               ;'experimental (hasheq)
+               ))
+     (define server-capabilities (hasheq))
+     (success-response id (hasheq 'capabilities server-capabilities))]
     [_
      (log-warning "initialize failed (req id: ~a) (params: ~a)" id (jsexpr->string params))
      (error-response id INVALID-PARAMS "initialize failed")]))
