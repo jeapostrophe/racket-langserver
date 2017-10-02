@@ -34,11 +34,12 @@
   (define-lex-abbrev comment-re
     (:or (:: "//" any-string (:or #\newline #\return ""))
          (:: "/*" (complement (:: any-string "*/" any-string)) "*/")))
-         
+  (define-lex-abbrev namespace-re
+    (:: "namespace" whitespace variable-re whitespace "{" any-string "}"))
 
   (define program-lexer
     (lexer-src-pos
-     [(union whitespace comment-re)
+     [(union whitespace comment-re namespace-re)
       (return-without-pos (program-lexer input-port))]
      ["interface" (token-INTERFACE)]
      ["{" (token-LBRACE)]
