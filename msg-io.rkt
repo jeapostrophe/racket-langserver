@@ -18,6 +18,10 @@
   (fprintf out "Content-Length: ~a\r\n\r\n" content-length)
   (write-json msg out))
 
+(define (display-message/flush msg [out (current-output-port)])
+  (display-message msg out)
+  (flush-output out))
+
 (provide
  (contract-out
   [read-message (->* ()
@@ -25,4 +29,7 @@
                      (or/c jsexpr? 'parse-json-error 'parse-eof-error))]
   [display-message (->* (jsexpr?)
                         (output-port?)
-                        void?)]))
+                        void?)]
+  [display-message/flush (->* (jsexpr?)
+                              (output-port?)
+                              void?)]))

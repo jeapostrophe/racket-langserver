@@ -30,8 +30,7 @@
          (process-message msg)])))
   (log-info "resp = ~v" response)
   (unless (void? response)
-    (display-message response)
-    (flush-output (current-output-port)))
+    (display-message/flush response))
   (main-loop))
 
 (module+ main
