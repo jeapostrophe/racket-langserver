@@ -82,20 +82,6 @@
           (port-count-lines! ip)
           (program-parser (λ () (program-lexer ip)))))))
 
-  #;
-  (define (type-name->contract stx ty)
-    (match ty
-      ['boolean (syntax/loc stx boolean?)]
-      ['number (syntax/loc stx number?)]
-      ['string (syntax/loc stx string?)]))
-
-  (define (type-name->contract stx ty)
-    (quasisyntax/loc stx
-      #,(match ty
-          ['boolean #'boolean?]
-          ['number #'number?]
-          ['string #'string?])))
-
   (define (type-name->expander stx ty field_)
     (match ty
       ['boolean (quasisyntax/loc stx (? boolean? #,field_))]
@@ -123,29 +109,6 @@
                 (syntax-parse stx
                   [(_ field_ ...)
                    #'(hash-table ['field field-pat] ...)])))
-            (provide type-name-stx))))))
-
-  #;
-  (define (compile-interface stx ifaces)
-    (eprintf "~v\n" ifaces)
-    (for/list ([(type-name type-def)
-                (in-hash ifaces)])
-      (with-syntax ([type-name-stx (datum->syntax stx type-name)]
-                    [([field field_ field?] ...)
-                     (for/list ([(field-name field-type)
-                                 (in-hash type-def)])
-                       (list
-                        field-name
-                        (format-id stx "~a_" field-name)
-                        (type-name->contract stx field-type)
-                        #;(format-id stx "~a?" field-type)))])
-        (syntax/loc stx
-          (begin
-            (define-match-expander type-name-stx
-              (λ (stx)
-                (syntax-case stx ()
-                  [(_ field_ ...)
-                   #'(hash-table ['field (? field? field_)] ...)])))
             (provide type-name-stx)))))))
 
 (provide
