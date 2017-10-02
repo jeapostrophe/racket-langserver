@@ -27,14 +27,18 @@
   (define-tokens program-tokens
     (NAME))
   (define-empty-tokens program-punc
-    (INTERFACE LBRACE RBRACE SEMI COLON EOF))
+    (INTERFACE LBRACE RBRACE SEMI COLON EOF LCOMMENT RCOMMENT))
 
   (define-lex-abbrev id-chars (char-complement (char-set "(,)=;:.~?\"% \n")))
   (define-lex-abbrev variable-re (:: id-chars (:* id-chars)))
+  (define-lex-abbrev comment-re
+    (:or (:: "//" any-string (:or #\newline #\return ""))
+         (:: "/*" (complement (:: any-string "*/" any-string)) "*/")))
+         
 
   (define program-lexer
     (lexer-src-pos
-     [whitespace
+     [(union whitespace comment-re)
       (return-without-pos (program-lexer input-port))]
      ["interface" (token-INTERFACE)]
      ["{" (token-LBRACE)]
