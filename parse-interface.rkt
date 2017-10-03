@@ -29,13 +29,12 @@
   (define-empty-tokens program-punc
     (INTERFACE LBRACE RBRACE SEMI COLON EOF LCOMMENT RCOMMENT))
 
-  (define-lex-abbrev id-chars (char-complement (char-set "(,)=;:.~?\"% \n")))
-  (define-lex-abbrev variable-re (:: id-chars (:* id-chars)))
-  (define-lex-abbrev comment-re
-    (:or (:: "//" any-string (:or #\newline #\return ""))
-         (:: "/*" (complement (:: any-string "*/" any-string)) "*/")))
-  (define-lex-abbrev namespace-re
-    (:: "namespace" whitespace variable-re whitespace "{" any-string "}"))
+  (define-lex-abbrevs
+    [id-chars (char-complement (char-set "(,)=;:.~?\"% \n"))]
+    [variable-re (:: id-chars (:* id-chars))]
+    [comment-re (:or (:: "//" any-string (:or "\n" "\r" ""))
+                     (:: "/*" (complement (:: any-string "*/" any-string)) "*/"))]
+    [namespace-re (:: "namespace" whitespace variable-re whitespace "{" any-string "}")])
 
   (define program-lexer
     (lexer-src-pos
@@ -73,8 +72,8 @@
             (grammar
              (program [(interfaces) $1])
              (interfaces [() (hasheq)]
-                         [(INTERFACE NAME LBRACE fields RBRACE SEMI interfaces)
-                          (hash-set $7 $2 $4)])
+                         [(INTERFACE NAME LBRACE fields RBRACE interfaces)
+                          (hash-set $6 $2 $4)])
              (fields [() (hasheq)]
                      [(NAME COLON NAME SEMI fields)
                       (hash-set $5 $1 $3)]))))
@@ -99,21 +98,22 @@
     (for/list ([(type-name type-def)
                 (in-hash ifaces)])
       (with-syntax ([type-name-stx (datum->syntax stx type-name)]
-                    [([field field-pat field_] ...)
+                    [([field field-pat field_ field-kw] ...)
                      (for/list ([(field-name field-type)
                                  (in-hash type-def)])
                        (define field_ (format-id stx "~a_" field-name))
                        (list
                         field-name
                         (type-name->expander stx field-type field_)
-                        field_))])
+                        field_
+                        (string->keyword (symbol->string field-name))))])
         (syntax/loc stx
           (begin
             (define-match-expander type-name-stx
               (λ (stx)
                 (syntax-parse stx
-                  [(_ field_ ...)
-                   #'(hash-table ['field field-pat] ...)])))
+                  [(_ (~seq field-kw field_) ...)
+                   #'(hash-table ['field field-pat] ...)]))) ;; TODO: syntax/loc?
             (provide type-name-stx)))))))
 
 (provide
