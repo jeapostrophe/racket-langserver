@@ -1,15 +1,15 @@
 #lang racket/base
 (require (for-syntax racket/base
                      compiler/cm-accomplice
-                     racket/list
                      racket/match
+                     racket/string
                      racket/syntax
                      syntax/parse
+                     syntax/parse/experimental/template
                      syntax/location
                      parser-tools/yacc
                      parser-tools/lex
                      (prefix-in : parser-tools/lex-sre))
-         racket/format
          racket/match)
 
 (define-syntax (module-begin stx)
@@ -27,27 +27,29 @@
   (define-tokens program-tokens
     (NAME))
   (define-empty-tokens program-punc
-    (INTERFACE LBRACE RBRACE SEMI COLON EOF LCOMMENT RCOMMENT))
+    (INTERFACE LBRACE RBRACE SEMI COLON EOF))
 
   (define-lex-abbrevs
-    [id-chars (char-complement (char-set "(,)=;:.~?\"% \n"))]
-    [variable-re (:: id-chars (:* id-chars))]
+    [id-chars (char-complement (char-set "(,)/*=;:.~?\"% \n"))]
+    [variable-re (:: id-chars (:* id-chars) #;(:? "?"))] ;; TODO: match '?' without saving it?
     [comment-re (:or (:: "//" any-string (:or "\n" "\r" ""))
                      (:: "/*" (complement (:: any-string "*/" any-string)) "*/"))]
-    [namespace-re (:: "namespace" whitespace variable-re whitespace "{" any-string "}")])
+    [ignore-re (:or "'use strict';")]
+    [namespace-re
+     (:: (:? "export") whitespace "namespace" whitespace variable-re whitespace "{" any-string "}")])
 
   (define program-lexer
     (lexer-src-pos
-     [(union whitespace comment-re namespace-re)
+     [(union whitespace comment-re ignore-re #;namespace-re)
       (return-without-pos (program-lexer input-port))]
-     ["interface" (token-INTERFACE)]
+     ["export interface" (token-INTERFACE)]
      ["{" (token-LBRACE)]
      ["}" (token-RBRACE)]
      [";" (token-SEMI)]
      [":" (token-COLON)]
      [(eof) (token-EOF)]
      [variable-re
-      (token-NAME (string->symbol lexeme))]))
+      (token-NAME (string->symbol (string-normalize-spaces lexeme)))]))
 
   (define (make-srcloc start-pos end-pos)
     (list (file-path)
@@ -84,7 +86,10 @@
       (call-with-input-file f
         (λ (ip)
           (port-count-lines! ip)
-          (program-parser (λ () (program-lexer ip)))))))
+          (program-parser (λ ()
+                            (define r (program-lexer ip))
+                            (eprintf "lex ~v\n" r)
+                            r))))))
 
   (define (type-name->expander stx ty field_)
     (match ty
@@ -112,8 +117,13 @@
             (define-match-expander type-name-stx
               (λ (stx)
                 (syntax-parse stx
-                  [(_ (~seq field-kw field_) ...)
-                   #'(hash-table ['field field-pat] ...)]))) ;; TODO: syntax/loc?
+                  [(_ (~optional (~seq field-kw field_)) ...)
+                   (template (hash-table (?? ['field field-pat]) ...))]))
+              (λ (stx)
+                (syntax-parse stx
+                  ([_ field_ ...]
+                   (syntax/loc stx
+                     (make-hash (list (cons 'field field_) ...)))))))
             (provide type-name-stx)))))))
 
 (provide
