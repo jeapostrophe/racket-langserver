@@ -2,6 +2,7 @@
 (require (for-syntax racket/base
                      compiler/cm-accomplice
                      racket/match
+                     racket/set
                      racket/string
                      racket/syntax
                      syntax/parse
@@ -27,26 +28,27 @@
   (define-tokens program-tokens
     (NAME))
   (define-empty-tokens program-punc
-    (INTERFACE LBRACE RBRACE SEMI COLON EOF))
+    (EXPORT INTERFACE EXTENDS LBRACE RBRACE SEMI COLON OR EOF))
 
   (define-lex-abbrevs
     [id-chars (char-complement (char-set "(,)/*=;:.~?\"% \n"))]
-    [variable-re (:: id-chars (:* id-chars) #;(:? "?"))] ;; TODO: match '?' without saving it?
-    [comment-re (:or (:: "//" any-string (:or "\n" "\r" ""))
+    [variable-re (:: id-chars (:* id-chars) (:? "?"))] ;; TODO: match '?' without saving it?
+    [comment-re (:or (:: "//" any-string (:or "\n" "\r" "")) ;; TODO: broken, too general
                      (:: "/*" (complement (:: any-string "*/" any-string)) "*/"))]
-    [ignore-re (:or "'use strict';")]
-    [namespace-re
-     (:: (:? "export") whitespace "namespace" whitespace variable-re whitespace "{" any-string "}")])
+    [ignore-re (:or "'use strict';")])    
 
   (define program-lexer
     (lexer-src-pos
-     [(union whitespace comment-re ignore-re #;namespace-re)
+     [(union whitespace comment-re ignore-re)
       (return-without-pos (program-lexer input-port))]
-     ["export interface" (token-INTERFACE)]
+     ["export" (token-EXPORT)]
+     ["interface" (token-INTERFACE)]
+     ["extends" (token-EXTENDS)]
      ["{" (token-LBRACE)]
      ["}" (token-RBRACE)]
      [";" (token-SEMI)]
      [":" (token-COLON)]
+     ["|" (token-OR)]
      [(eof) (token-EOF)]
      [variable-re
       (token-NAME (string->symbol (string-normalize-spaces lexeme)))]))
@@ -74,11 +76,18 @@
             (grammar
              (program [(interfaces) $1])
              (interfaces [() (hasheq)]
-                         [(INTERFACE NAME LBRACE fields RBRACE interfaces)
-                          (hash-set $6 $2 $4)])
+                         [(EXPORT INTERFACE NAME LBRACE fields RBRACE interfaces)
+                          (hash-set $7 $3 $5)]
+                         [(EXPORT INTERFACE NAME EXTENDS NAME LBRACE fields RBRACE interfaces)
+                          (hash-set $9 $3 $7)])
              (fields [() (hasheq)]
-                     [(NAME COLON NAME SEMI fields)
-                      (hash-set $5 $1 $3)]))))
+                     [(NAME COLON types fields)
+                      (hash-set $4 $1 $3)])
+             (types [(NAME OR types)
+                     (set-add $3 $1)]
+                    [(NAME SEMI)
+                     (set $1)])
+             )))
 
   (define (parse-interface f)
     (parameterize ([file-path f])
@@ -88,7 +97,7 @@
           (port-count-lines! ip)
           (program-parser (λ ()
                             (define r (program-lexer ip))
-                            (eprintf "lex ~v\n" r)
+                            (eprintf "~v\n" r)
                             r))))))
 
   (define (type-name->expander stx ty field_)
@@ -97,20 +106,40 @@
       ['number (quasisyntax/loc stx (? number? #,field_))]
       ['string (quasisyntax/loc stx (? string? #,field_))]
       [_ field_]))
+
+  #;
+  (define (type-name->contract stx ty)
+    (match ty
+      ['boolean (syntax/loc stx boolean?)]
+      ['number (syntax/loc stx number?)]
+      ['string (syntax/loc stx string?)]
+      [(? set?)
+       (quasisyntax/loc stx
+         (or/c #,@(for/list ([t (in-set ty)])
+                    (type-name->contract stx t))))]
+      [_ (syntax/loc stx any/c)]))
+
+  (define (type-name->contract ty)
+    (match ty
+      ['boolean #'boolean?]
+      ['number #'number?]
+      ['string #'string?]
+      [(? set?)
+       #`(or/c #,@(set-map ty type-name->contract))]
+      [_ #'any/c]))
   
   (define (compile-interface stx ifaces)
     (eprintf "~v\n" ifaces)
     (for/list ([(type-name type-def)
                 (in-hash ifaces)])
       (with-syntax ([type-name-stx (datum->syntax stx type-name)]
-                    [([field field-pat field_ field-kw] ...)
+                    [([field field-ctc field_ field-kw] ...)
                      (for/list ([(field-name field-type)
                                  (in-hash type-def)])
-                       (define field_ (format-id stx "~a_" field-name))
                        (list
                         field-name
-                        (type-name->expander stx field-type field_)
-                        field_
+                        (type-name->contract stx field-type)
+                        (format-id stx "~a_" field-name)
                         (string->keyword (symbol->string field-name))))])
         (syntax/loc stx
           (begin
@@ -118,7 +147,8 @@
               (λ (stx)
                 (syntax-parse stx
                   [(_ (~optional (~seq field-kw field_)) ...)
-                   (template (hash-table (?? ['field field-pat]) ...))]))
+                   (template/loc
+                    stx (hash-table (?? ['field (? field-ctc field_)]) ...))]))
               (λ (stx)
                 (syntax-parse stx
                   ([_ field_ ...]
@@ -126,5 +156,51 @@
                      (make-hash (list (cons 'field field_) ...)))))))
             (provide type-name-stx)))))))
 
+(define-syntax (define-json-expander stx)
+  (syntax-parse stx
+    [(_ name:id [key:id ctc:expr] ...+)
+     (with-syntax ([(key_ ...) (generate-temporaries #'(key ...))]
+                   [(keyword ...)
+                    (for/list ([k (syntax->datum #'(key ...))])
+                      (string->keyword (symbol->string k)))])
+       (syntax/loc stx
+         (define-match-expander name
+           (λ (stx)
+             (syntax-parse stx
+               [(_ (~optional (~seq keyword key_)) ...)
+                (template/loc stx (hash-table (?? ['key (? ctc key_)]) ...))]))
+           (λ (stx)
+             (syntax-parse stx
+               [(_ (~optional (~seq keyword key_)) ...)
+                (syntax/loc stx
+                  (make-hasheq (list (cons 'key key_) ...)))])))))]))
+
+(define-json-expander Pos
+  [character number?]
+  [line number?])
+
+(match #hasheq([character . 5] [line . 3])
+  [(Pos #:line y #:character x)
+   #t])
+
+#|
+(define-syntax (define-json-expander stx)
+  (syntax-parse stx
+    [(_ name:id [key:id (~optional ctc:expr #:defaults ([ctc #'any/c]))] ...)
+     (with-syntax ([(key_ ...) (generate-temporaries #'(key ...))]
+                   [(keyword ...)
+                    (for/list ([k (syntax->datum #'(key ...))])
+                      (string->keyword (symbol->string k)))])
+       (syntax/loc stx
+         (define-match-expander name
+           (λ (stx)
+             (syntax-parse stx
+               [(_ (~optional (~seq keyword key_)) ...)
+                (template (hash-table (?? ['key (? ctc key_)]) ...))]))
+           (λ (stx)
+             (syntax-parse stx
+               [(_ (~optional (~seq keyword key_)) ...)
+                (syntax/loc stx
+                  (make-hasheq (list (cons 'key key_) ...)))])))))]))|#
 (provide
  (rename-out [module-begin #%module-begin]))
