@@ -1,8 +1,12 @@
 #lang racket/base
-(require json
+(require (for-syntax racket/base)
+         json
          racket/contract/base
          racket/match
-         (only-in racket/port open-output-nowhere))
+         (only-in racket/port open-output-nowhere)
+         syntax/parse/define)
+
+(define log-messages? (make-parameter #t))
 
 (define (read-message [in (current-input-port)])
   (match (read-line in 'return-linefeed)
@@ -21,6 +25,24 @@
 (define (display-message/flush msg [out (current-output-port)])
   (display-message msg out)
   (flush-output out))
+
+(define-syntax (display-message* stx)
+  (syntax-parse stx
+    [(_ msg (~optional out #:defaults ([out #'(current-output-port)])))
+     (syntax/loc stx
+       (begin
+         (when (log-messages?)
+           (log-info "resp = ~v" msg))
+         (display-message msg out)))]))
+
+(define-syntax (display-message/flush* stx)
+  (syntax-parse stx
+    [(_ msg (~optional out #:defaults ([out #'(current-output-port)])))
+     (syntax/loc stx
+       (begin
+         (when (log-messages?)
+           (log-info "resp = ~v" msg))
+         (display-message/flush msg out)))]))
 
 (provide
  (contract-out
