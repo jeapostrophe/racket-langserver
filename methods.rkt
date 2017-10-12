@@ -5,6 +5,7 @@
          racket/match
          "error-codes.rkt"
          "responses.rkt"
+         (prefix-in client/ "client.rkt")
          (prefix-in text-document/ "text-document.rkt"))
 
 (define already-initialized? #f)
@@ -62,6 +63,9 @@
     ["shutdown"
      (log-info "Got shutdown message")
      (shutdown id)]
+    #;
+    ["client/registerCapability"
+     (client/register-capability params)]
     [_
      (log-warning "invalid request (id: ~a) for method ~v" id method)
      (define err-msg (format "The method ~v was not found" method))
@@ -72,8 +76,7 @@
 (define (process-notification method params)
   (match method
     ["initialized"
-     ;; Ignore for now - no dynamic registration.
-     (log-info "Got initialized message")]
+     (log-info "Ignoring initialized message...")]
     ["exit"
      (log-info "Got exit message")
      (exit (if already-shutdown? 0 1))]
