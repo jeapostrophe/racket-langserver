@@ -110,11 +110,10 @@
     (for/fold ([doc-lines doc-lines])
               ([change content-changes])      
       (match change
-        [(ContentChangeEvent #:range (Range #:start start #:end end)
+        [(ContentChangeEvent #:range (Range #:start (Pos #:line st-ln #:char st-ch)
+                                            #:end   (Pos #:line end-ln #:char end-ch))
                              #:rangeLength range-ln
                              #:text text)
-         (match-define (Pos #:line st-ln #:char st-ch) start)
-         (match-define (Pos #:line end-ln #:char end-ch) end)
          (range-edit doc-lines st-ln st-ch end-ln end-ch range-ln text)]
         [(ContentChangeEvent #:text text)
          (string->lines text)])))
