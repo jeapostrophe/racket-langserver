@@ -10,7 +10,7 @@
 
 (define already-initialized? #f)
 (define already-shutdown? #f)
-(define open-docs (hash))
+(define open-docs (hasheq))
 
 (require syntax/parse/define)
 

@@ -9,13 +9,13 @@
                     'languageId "racket"
                     'version 1
                     'text "I am a banana!\r\nOne!\nTwo!!"}})
-  (chk (did-open (hash) params)
-       (hash "/tmp/blank" '("I am a banana!" "One!" "Two!!"))))
+  (chk (did-open (hasheq) params)
+       (hasheq '/tmp/blank '("I am a banana!" "One!" "Two!!"))))
 
 (define (test-did-close)
   (define params {'textDocument {'uri "/tmp/blank"}})
-  (chk (did-close (hash "/tmp/blank" '("placeholder" "text")) params)
-       (hash)))
+  (chk (did-close (hasheq '/tmp/blank '("placeholder" "text")) params)
+       (hasheq)))
 
 (define (test-did-change)
   (define params
@@ -23,8 +23,8 @@
                     'version 1}
      'contentChanges [{'text "Some more text"}
                       {'text "More text again\r\nNew line!"}]})
-  (chk (did-change (hash "/tmp/blank" '("default" "text")) params)
-       (hash "/tmp/blank" '("More text again" "New line!"))))
+  (chk (did-change (hasheq '/tmp/blank '("default" "text")) params)
+       (hasheq '/tmp/blank '("More text again" "New line!"))))
 
 (define (test-string->lines)
   (chk (string->lines "a\nb") '("a" "b"))

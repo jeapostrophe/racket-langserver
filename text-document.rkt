@@ -51,7 +51,7 @@
 ;; Helpers
 ;;;;;;;;;;;;
 
-(define doc-store? (hash/c string? (listof string?)))
+(define doc-store? (hash/c symbol? (listof string?)))
 
 (define (string->lines str)
   (string-split str #rx"\n|(\r\n)|\r"))
@@ -94,18 +94,19 @@
 (define (did-open open-docs params)
   (match params
     [(hash-table ['textDocument (DocItem #:uri uri #:text text)])
-     (hash-set open-docs uri (string->lines text))]))
+     (hash-set open-docs (string->symbol uri) (string->lines text))]))
 
 (define (did-close open-docs params)
   (match params
     [(hash-table ['textDocument (hash-table ['uri (? string? uri)])])
-     (hash-remove open-docs uri)]))
+     (hash-remove open-docs (string->symbol uri))]))
 
 (define (did-change open-docs params)
   (match-define
     (hash-table ['textDocument (VersionedDocIdentifier #:version version #:uri uri)]
                 ['contentChanges (list content-changes ...)]) params)
-  (define doc-lines (hash-ref open-docs uri))
+  (define uri* (string->symbol uri))
+  (define doc-lines (hash-ref open-docs uri*))
   (define changed-lines
     (for/fold ([doc-lines doc-lines])
               ([change content-changes])      
@@ -117,7 +118,7 @@
          (range-edit doc-lines st-ln st-ch end-ln end-ch range-ln text)]
         [(ContentChangeEvent #:text text)
          (string->lines text)])))
-  (hash-set open-docs uri changed-lines))
+  (hash-set open-docs uri* changed-lines))
 
 (provide
  (contract-out
