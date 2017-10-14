@@ -105,20 +105,20 @@
   (match-define
     (hash-table ['textDocument (VersionedDocIdentifier #:version version #:uri uri)]
                 ['contentChanges (list content-changes ...)]) params)
-  (define uri* (string->symbol uri))
-  (define doc-lines (hash-ref open-docs uri*))
-  (define changed-lines
-    (for/fold ([doc-lines doc-lines])
-              ([change content-changes])      
-      (match change
-        [(ContentChangeEvent #:range (Range #:start (Pos #:line st-ln #:char st-ch)
-                                            #:end   (Pos #:line end-ln #:char end-ch))
-                             #:rangeLength range-ln
-                             #:text text)
-         (range-edit doc-lines st-ln st-ch end-ln end-ch range-ln text)]
-        [(ContentChangeEvent #:text text)
-         (string->lines text)])))
-  (hash-set open-docs uri* changed-lines))
+  (let* ([uri* (string->symbol uri)]
+         [doc-lines (hash-ref open-docs uri*)]
+         [changed-lines
+          (for/fold ([doc-lines doc-lines])
+                    ([change content-changes])      
+            (match change
+              [(ContentChangeEvent #:range (Range #:start (Pos #:line st-ln #:char st-ch)
+                                                  #:end   (Pos #:line end-ln #:char end-ch))
+                                   #:rangeLength range-ln
+                                   #:text text)
+               (range-edit doc-lines st-ln st-ch end-ln end-ch range-ln text)]
+              [(ContentChangeEvent #:text text)
+               (string->lines text)]))])
+    (hash-set open-docs uri* changed-lines)))
 
 (provide
  (contract-out
