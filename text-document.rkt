@@ -5,47 +5,47 @@
          racket/list
          racket/match
          racket/string
+         rnrs/bytevectors-6
          syntax/parse/define
+         "json-util.rkt"
          "unicode-util.rkt")
 ;;
 ;; Match Expanders
 ;;;;;;;;;;;;;;;;;;;;
 
-(define-simple-macro
-  (define-simple-match-expander (name:id args:id ...) pat-expr)
-  (define-match-expander name
-    (λ (stx)
-      (syntax-case stx ()
-        [(name args ...)
-         #'pat-expr]))))
+(define-json-expander Range
+  [start any/c]
+  [end any/c])
 
-(define-match-expander ContentChangeEvent
+(define-json-expander ContentChangeEvent
+  [range any/c]
+  [rangeLength exact-nonnegative-integer?]
+  [text string?])
+
+;; DidChangeTextDocumentParams
+(define-json-expander DidChangeParams
+  [textDocument any/c]
+  [contentChanges (listof any/c)])
+
+;; VersionedTextDocumentIdentifier
+(define-json-expander VersionedDocIdentifier
+  [version exact-nonnegative-integer?]
+  [uri string?])
+
+;; TextDocumentItem
+(define-json-expander DocItem
+  [uri string?]
+  [languageId string?]
+  [version exact-nonnegative-integer?]
+  [text string?])
+
+(define-match-expander Pos
   (λ (stx)
     (syntax-parse stx
-      [(_ StLine StChar EndLine EndChar RangeLength Text)
-       #'(hash-table ['range (Range StLine StChar EndLine EndChar)]
-                     ['rangeLength (? number? RangeLength)]
-                     ['text (? string? Text)])]
-      [(_ Text)
-       #'(hash-table ['text (? string? Text)])])))
-
-(define-simple-match-expander (Position Start End)
-  (hash-table ['start (? number? Start)]
-              ['end (? number? End)]))
-
-(define-simple-match-expander (Range StLine StChar EndLine EndChar)
-  (hash-table ['start (Position StLine StChar)]
-              ['end (Position EndLine EndChar)]))
-
-(define-simple-match-expander (TextDocumentItem Uri LanguageId Version Text)
-  (hash-table ['uri (? string? Uri)] ;; TODO: not really a string...
-              ['languageId (? string? LanguageId)]
-              ['version (? number? Version)]
-              ['text (? string? Text)]))
-
-(define-simple-match-expander (VersionedTextDocumentIdentifier Version Uri)
-  (hash-table ['version (? number? Version)]
-              ['uri (? string? Uri)]))
+      [(_ #:line l #:char c)
+       (syntax/loc stx
+         (hash-table ['line (? exact-nonnegative-integer? l)]
+                     ['character (? exact-nonnegative-integer? c)]))])))
 
 ;;
 ;; Helpers
@@ -61,7 +61,7 @@
 ;; it is necessary to convert the lines being indexed by these values into UTF-16
 ;; byte arrays before indexing into them. These byte arrays, after being split,
 ;; are then immediately re-encoded into normal UTF-8 strings before being joined with
-;; the new text. 
+;; the new text.
 (define (range-edit doc-lines start-line start-char end-line end-char text)
   (let* ([before-lines (drop-right doc-lines (- (length doc-lines) start-line 1))]
          [last-before-line (utf-8->utf-16 (last before-lines))]
@@ -74,33 +74,49 @@
             (string->lines middle)
             (drop after-lines 1))))
 
+#;
+(define (range-edit doc-lines start-line start-char end-line end-char text)
+  (let* ([before-lines (drop-right doc-lines (- (length doc-lines) start-line 1))]
+         [last-before-line (string->utf16 (last before-lines))]
+         [before-str (utf16->string (subbytes last-before-line 0 (* 2 start-char)) 'big)]
+         [after-lines (drop doc-lines end-line)]
+         [first-after-line (string->utf16 (first after-lines))]
+         [after-str (utf16->string (subbytes first-after-line (* 2 end-char)) 'big)]
+         [middle (string-append before-str text after-str)])
+    (append (drop-right before-lines 1)
+            (string->lines middle)
+            (drop after-lines 1))))
+
 ;;
 ;; Methods
 ;;;;;;;;;;;;
 
 (define (did-open open-docs params)
   (match params
-    [(hash-table ['textDocument (TextDocumentItem uri language-id version text)])
+    [(hash-table ['textDocument (DocItem #:uri uri #:text text)])
      (hash-set open-docs uri (string->lines text))]))
-     
+
 (define (did-close open-docs params)
   (match params
     [(hash-table ['textDocument (hash-table ['uri (? string? uri)])])
      (hash-remove open-docs uri)]))
 
 (define (did-change open-docs params)
-  (match-define (hash-table ['textDocument (VersionedTextDocumentIdentifier version uri)]
-                            ['contentChanges (list content-changes ...)]) params)
+  (match-define
+    (hash-table ['textDocument (VersionedDocIdentifier #:version version #:uri uri)]
+                ['contentChanges (list content-changes ...)]) params)
   (define doc-lines (hash-ref open-docs uri))
   (define changed-lines
     (for/fold ([doc-lines doc-lines])
-              ([change content-changes])
+              ([change content-changes])      
       (match change
-        ;; Range edit
-        [(ContentChangeEvent start-line start-ch end-line end-ch range-ln text)
-         (range-edit doc-lines start-line start-ch end-line end-ch text)]
-        ;; Full replace
-        [(ContentChangeEvent text)
+        [(ContentChangeEvent #:range (Range #:start start #:end end)
+                             #:rangeLength range-ln
+                             #:text text)
+         (match-define (Pos #:line st-ln #:char st-ch) start)
+         (match-define (Pos #:line end-ln #:char end-ch) end)
+         (range-edit doc-lines st-ln st-ch end-ln end-ch range-ln text)]
+        [(ContentChangeEvent #:text text)
          (string->lines text)])))
   (hash-set open-docs uri changed-lines))
 
