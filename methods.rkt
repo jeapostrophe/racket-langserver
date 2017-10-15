@@ -1,9 +1,9 @@
 #lang racket/base
 (require json
          racket/contract/base
-         racket/list
          racket/match
          "error-codes.rkt"
+         "msg-io.rkt"
          "responses.rkt"
          (prefix-in client/ "client.rkt")
          (prefix-in text-document/ "text-document.rkt"))
@@ -26,32 +26,29 @@
 ;; Dispatch
 ;;;;;;;;;;;;;
 
-;; Processes a message. This procedure can return a jsexpr in the case
-;; of a single request, a list of jsexprs in the case of a batch request,
-;; or void in the case where msg is a response object or notification. 
+;; Processes a message. This displays any repsonse it generates
+;; and should always return void.
 (define (process-message msg)
   (match msg
     ;; Request
     [(hash-table ['id (? (or/c number? string?) id)]
                  ['method (? string? method)]
                  ['params (? jsexpr? params)])
-     (process-request id method params)]
+     (define response (process-request id method params))
+     (display-message/flush response)]
     ;; Notification
     [(hash-table ['method (? string? method)])
      (define params (hash-ref msg 'params hasheq))
      (process-notification method params)]
     ;; Batch Request
     [(? (non-empty-listof (and/c hash? jsexpr?)))
-     (filter-not void? (map process-message msg))]
+     (for-each process-message msg)]
     ;; Invalid Message
     [_
-     (define id-ref (hash-ref msg 'id void))
-     (define id (if ((or/c number? string?) id-ref)
-                    id-ref
-                    (json-null)))
-     (log-warning "invalid request JSON: ~a" (jsexpr->string msg))
-     (define err-msg "The JSON sent is not a valid request object")
-     (error-response id INVALID-REQUEST err-msg)]))
+     (let* ([id (hash-ref msg 'id void)]
+            [id (if ((or/c number? string?) id) id (json-null))]
+            [err "The JSON sent is not a valid request object."])
+       (display-message/flush (error-response id INVALID-REQUEST err)))]))
 
 ;; Processes a request. This procedure should always return a jsexpr
 ;; which is a suitable response object.
