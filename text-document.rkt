@@ -22,11 +22,6 @@
   [rangeLength exact-nonnegative-integer?]
   [text string?])
 
-;; DidChangeTextDocumentParams
-(define-json-expander DidChangeParams
-  [textDocument any/c]
-  [contentChanges (listof any/c)])
-
 ;; VersionedTextDocumentIdentifier
 (define-json-expander VersionedDocIdentifier
   [version exact-nonnegative-integer?]
