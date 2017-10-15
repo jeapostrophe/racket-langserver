@@ -15,7 +15,6 @@
 
 (define (main-loop)
   (define msg (read-message))
-  (log-info "====================")
   (log-info "msg = ~v" msg)
   (define response
     (with-handlers ([exn:fail? (report-error* msg)])
@@ -28,9 +27,9 @@
          (exit 1)]
         [_
          (process-message msg)])))
-  (log-info "resp = ~v" response)
   (unless (void? response)
     (display-message/flush response))
+  (log-info "====================")
   (main-loop))
 
 (module+ main
