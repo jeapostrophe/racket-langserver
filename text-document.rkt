@@ -84,12 +84,15 @@
 (define (did-change open-docs params)
   (match-define
     (hash-table ['textDocument (VersionedDocIdentifier #:version version #:uri uri)]
-                ['contentChanges (list content-changes ...)]) params)
+                ['contentChanges content-changes]) params)
   (let* ([uri* (string->symbol uri)]
+         [content-changes* (cond [(eq? (json-null) content-changes) empty]
+                                 [(list? content-changes) content-changes]
+                                 [else (list content-changes)])]
          [doc-lines (hash-ref open-docs uri*)]
          [changed-lines
           (for/fold ([doc-lines doc-lines])
-                    ([change content-changes])      
+                    ([change content-changes*])      
             (match change
               [(ContentChangeEvent #:range (Range #:start (Pos #:line st-ln #:char st-ch)
                                                   #:end   (Pos #:line end-ln #:char end-ch))

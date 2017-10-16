@@ -1,6 +1,8 @@
 #lang racket/base
 (require json
          racket/contract/base
+         racket/exn
+         racket/function
          racket/match
          "error-codes.rkt"
          "msg-io.rkt"
@@ -50,23 +52,30 @@
             [err "The JSON sent is not a valid request object."])
        (display-message/flush (error-response id INVALID-REQUEST err)))]))
 
+(define (report-request-error id method exn)
+  (log-error "Caught exn in request ~v\n~a" method (exn->string exn))
+  (error-response id INTERNAL-ERROR (format "internal error in method ~v" method)))
+
+(define report-request-error* (curry report-request-error))
+
 ;; Processes a request. This procedure should always return a jsexpr
 ;; which is a suitable response object.
 (define (process-request id method params)
-  (match method
-    ["initialize"
-     (log-info "Got initialize message")
-     (initialize id params)]
-    ["shutdown"
-     (log-info "Got shutdown message")
-     (shutdown id)]
-    #;
-    ["client/registerCapability"
-     (client/register-capability params)]
-    [_
-     (log-warning "invalid request (id: ~a) for method ~v" id method)
-     (define err-msg (format "The method ~v was not found" method))
-     (error-response id METHOD-NOT-FOUND err-msg)]))
+  (with-handlers ([exn:fail? (report-request-error* id method)])
+    (match method
+      ["initialize"
+       (log-info "Got initialize message")
+       (initialize id params)]
+      ["shutdown"
+       (log-info "Got shutdown message")
+       (shutdown id)]
+      #;
+      ["client/registerCapability"
+       (client/register-capability params)]
+      [_
+       (log-warning "invalid request for method ~v" method)
+       (define err-msg (format "The method ~v was not found" method))
+       (error-response id METHOD-NOT-FOUND err-msg)])))
 
 ;; Processes a notification. Because notifications do not require
 ;; a response, this procedure always returns void.
@@ -118,7 +127,6 @@
      (define server-capabilities (hasheq))
      (success-response id (hasheq 'capabilities server-capabilities))]
     [_
-     (log-warning "initialize failed (req id: ~a) (params: ~a)" id (jsexpr->string params))
      (error-response id INVALID-PARAMS "initialize failed")]))
 
 (define (shutdown id)
