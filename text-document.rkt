@@ -7,8 +7,7 @@
          racket/string
          rnrs/bytevectors-6
          syntax/parse/define
-         "json-util.rkt"
-         "unicode-util.rkt")
+         "json-util.rkt")
 ;;
 ;; Match Expanders
 ;;;;;;;;;;;;;;;;;;;;
@@ -51,31 +50,17 @@
 (define (string->lines str)
   (string-split str #rx"\n|(\r\n)|\r"))
 
-;; The start-char and end-char values are specified as counting UTF-16 code points,
-;; NOT characters or bytes or anything else that would be reasonable. As a result,
-;; it is necessary to convert the lines being indexed by these values into UTF-16
-;; byte arrays before indexing into them. These byte arrays, after being split,
-;; are then immediately re-encoded into normal UTF-8 strings before being joined with
-;; the new text.
-(define (range-edit doc-lines start-line start-char end-line end-char text)
-  (let* ([before-lines (drop-right doc-lines (- (length doc-lines) start-line 1))]
-         [last-before-line (utf-8->utf-16 (last before-lines))]
-         [before-str (utf-16->utf-8 (subbytes last-before-line 0 (* 2 start-char)))]
-         [after-lines (drop doc-lines end-line)]
-         [first-after-line (utf-8->utf-16 (first after-lines))]
-         [after-str (utf-16->utf-8 (subbytes first-after-line (* 2 end-char)))]
-         [middle (string-append before-str text after-str)])
-    (append (drop-right before-lines 1)
-            (string->lines middle)
-            (drop after-lines 1))))
-
-#;
+;; The start-char and end-char values are counting individual 16-bit UTF-16 code units,
+;; not complete code points. Lines are converted into UTF-16 byte arrays before being
+;; indexed. 
 (define (range-edit doc-lines start-line start-char end-line end-char text)
   (let* ([before-lines (drop-right doc-lines (- (length doc-lines) start-line 1))]
          [last-before-line (string->utf16 (last before-lines))]
+         ;; TODO: Endianness?
          [before-str (utf16->string (subbytes last-before-line 0 (* 2 start-char)) 'big)]
          [after-lines (drop doc-lines end-line)]
          [first-after-line (string->utf16 (first after-lines))]
+         ;; TODO: Endianness?
          [after-str (utf16->string (subbytes first-after-line (* 2 end-char)) 'big)]
          [middle (string-append before-str text after-str)])
     (append (drop-right before-lines 1)

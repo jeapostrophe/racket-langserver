@@ -49,9 +49,10 @@
   (chk (range-edit '("abc" "wx𐐀yz" "asdf") 1 1 1 5 "NEW")
        '("abc" "wNEWz" "asdf"))
   ;; This is an invalid request, as the 'start-char' index is in the middle of
-  ;; the multi-code-point UTF-16 character. It is expected to error due to an
-  ;; invalid unicode conversion.
-  (chk #:x (range-edit '("wx𐐀yz") 0 3 0 5 "NEW") #rx".*abort")
+  ;; the multi-code-point UTF-16 character. It is expected to return \uFFFD in
+  ;; place of the invalid char.
+  (chk #:t (for/or ([line (range-edit '("wx𐐀yz") 0 3 0 5 "NEW")])
+             (regexp-match? #rx"\uFFFD" line)))
   )
 
 (module+ test
