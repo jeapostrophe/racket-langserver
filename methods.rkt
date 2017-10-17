@@ -47,10 +47,10 @@
      (for-each process-message msg)]
     ;; Invalid Message
     [_
-     (let* ([id (hash-ref msg 'id void)]
-            [id (if ((or/c number? string?) id) id (json-null))]
-            [err "The JSON sent is not a valid request object."])
-       (display-message/flush (error-response id INVALID-REQUEST err)))]))
+     (define id-ref (hash-ref msg 'id void))
+     (define id (if ((or/c number? string?) id) id (json-null)))
+     (define err "The JSON sent is not a valid request object.")
+     (display-message/flush (error-response id INVALID-REQUEST err))]))
 
 (define (report-request-error id method exn)
   (log-error "Caught exn in request ~v\n~a" method (exn->string exn))

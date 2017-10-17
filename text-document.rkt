@@ -41,6 +41,12 @@
          (hash-table ['line (? exact-nonnegative-integer? l)]
                      ['character (? exact-nonnegative-integer? c)]))])))
 
+(define-json-expander Diagnostic
+  [range any/c]
+  [severity? (or/c 1 2 3 4)]
+  [source string?]
+  [message string?])
+
 ;;
 ;; Helpers
 ;;;;;;;;;;;;
@@ -85,23 +91,34 @@
   (match-define
     (hash-table ['textDocument (VersionedDocIdentifier #:version version #:uri uri)]
                 ['contentChanges content-changes]) params)
-  (let* ([uri* (string->symbol uri)]
-         [content-changes* (cond [(eq? (json-null) content-changes) empty]
-                                 [(list? content-changes) content-changes]
-                                 [else (list content-changes)])]
-         [doc-lines (hash-ref open-docs uri*)]
-         [changed-lines
-          (for/fold ([doc-lines doc-lines])
-                    ([change content-changes*])      
-            (match change
-              [(ContentChangeEvent #:range (Range #:start (Pos #:line st-ln #:char st-ch)
-                                                  #:end   (Pos #:line end-ln #:char end-ch))
-                                   #:rangeLength range-ln
-                                   #:text text)
-               (range-edit doc-lines st-ln st-ch end-ln end-ch range-ln text)]
-              [(ContentChangeEvent #:text text)
-               (string->lines text)]))])
-    (hash-set open-docs uri* changed-lines)))
+  (define uri* (string->symbol uri))
+  ;; Some clients (*cough* emacs) will return json-null instead of empty when
+  ;; there are no  content changes. This also checks for the case where the
+  ;; client returns a single atomic change, without nesting it in a list.
+  (define content-changes*
+    (cond [(eq? (json-null) content-changes) empty]
+          [(list? content-changes) content-changes]
+          [else (list content-changes)]))
+  (define doc-lines (hash-ref open-docs uri*))
+  (define changed-lines
+    (for/fold ([doc-lines doc-lines])
+              ([change content-changes*])
+      (match change
+        [(ContentChangeEvent #:range (Range #:start (Pos #:line st-ln #:char st-ch)
+                                            #:end   (Pos #:line end-ln #:char end-ch))
+                             #:rangeLength range-ln
+                             #:text text)
+         (range-edit doc-lines st-ln st-ch end-ln end-ch range-ln text)]
+        [(ContentChangeEvent #:text text)
+         (string->lines text)])))
+  ;; TODO: Report diagnostics based on changed-lines. Even if there are no errors,
+  ;; we still need to send an emtpy diagnostic notification to clear existing errors.
+  #|
+    (define diags
+      (hasheq 'uri uri
+              'diagnostics (list
+                            (Diagnostic #:range Range|#
+  (hash-set open-docs uri* changed-lines))
 
 (provide
  (contract-out
