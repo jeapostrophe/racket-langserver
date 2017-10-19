@@ -81,8 +81,6 @@
 ;; a response, this procedure always returns void.
 (define (process-notification method params)
   (match method
-    ["initialized"
-     (log-info "Ignoring initialized message...")]
     ["exit"
      (log-info "Got exit message")
      (exit (if already-shutdown? 0 1))]
@@ -91,7 +89,9 @@
     ["textDocument/didClose"
      (set! open-docs (text-document/did-close open-docs params))]
     ["textDocument/didChange"
-     (set! open-docs (text-document/did-change open-docs params))]))
+     (set! open-docs (text-document/did-change open-docs params))]
+    [_
+     (log-warning "Ignoring notification ~v" method)]))
 
 ;;
 ;; Requests
