@@ -53,8 +53,10 @@
      (display-message/flush (error-response id INVALID-REQUEST err))]))
 
 (define (report-request-error id method exn)
-  (log-error "Caught exn in request ~v\n~a" method (exn->string exn))
-  (error-response id INTERNAL-ERROR (format "internal error in method ~v" method)))
+  ;; TODO: get rid of string alloc from exn->string
+  (eprintf "Caught exn in request ~v\n~a\n" method (exn->string exn))
+  (define err (format "internal error in method ~v" method))
+  (error-response id INTERNAL-ERROR err))
 
 (define report-request-error* (curry report-request-error))
 
@@ -64,25 +66,25 @@
   (with-handlers ([exn:fail? (report-request-error* id method)])
     (match method
       ["initialize"
-       (log-info "Got initialize message")
+       (eprintf "Got initialize message\n")
        (initialize id params)]
       ["shutdown"
-       (log-info "Got shutdown message")
+       (eprintf "Got shutdown message\n")
        (shutdown id)]
       #;
       ["client/registerCapability"
        (client/register-capability params)]
       [_
-       (log-warning "invalid request for method ~v" method)
-       (define err-msg (format "The method ~v was not found" method))
-       (error-response id METHOD-NOT-FOUND err-msg)])))
+       (eprintf "invalid request for method ~v\n" method)
+       (define err (format "The method ~v was not found" method))
+       (error-response id METHOD-NOT-FOUND err)])))
 
 ;; Processes a notification. Because notifications do not require
 ;; a response, this procedure always returns void.
 (define (process-notification method params)
   (match method
     ["exit"
-     (log-info "Got exit message")
+     (eprintf "Got exit message\n")
      (exit (if already-shutdown? 0 1))]
     ["textDocument/didOpen"
      (set! open-docs (text-document/did-open open-docs params))]
@@ -91,7 +93,7 @@
     ["textDocument/didChange"
      (set! open-docs (text-document/did-change open-docs params))]
     [_
-     (log-warning "Ignoring notification ~v" method)]))
+     (eprintf "Ignoring notification ~v\n" method)]))
 
 ;;
 ;; Requests
