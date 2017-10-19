@@ -48,7 +48,7 @@
     ;; Invalid Message
     [_
      (define id-ref (hash-ref msg 'id void))
-     (define id (if ((or/c number? string?) id) id (json-null)))
+     (define id (if ((or/c number? string?) id-ref) id-ref (json-null)))
      (define err "The JSON sent is not a valid request object.")
      (display-message/flush (error-response id INVALID-REQUEST err))]))
 
