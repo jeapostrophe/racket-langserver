@@ -138,8 +138,8 @@
 (provide
  (contract-out
   [process-message
-   (jsexpr? . -> . (or/c jsexpr? void?))]
+   (jsexpr? . -> . void?)]
   [process-request
    ((or/c number? string?) string? jsexpr? . -> . jsexpr?)]
   [process-notification
-   (string? jsexpr? . -> . (or/c jsexpr? void?))]))
+   (string? jsexpr? . -> . void?)]))
