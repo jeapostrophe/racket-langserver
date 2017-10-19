@@ -17,9 +17,8 @@
   (with-handlers ([exn:fail? report-error])
     (match msg
       ['parse-json-error
-       (display-message/flush
-        (error-response (json-null) PARSE-ERROR
-                        "Invalid JSON was received by the server."))]
+       (define err "Invalid JSON was received by the server.")
+       (display-message/flush (error-response (json-null) PARSE-ERROR err))]
       ['parse-eof-error
        (log-fatal "The server received unexpected EOF. Shutting down...")
        (exit 1)]
