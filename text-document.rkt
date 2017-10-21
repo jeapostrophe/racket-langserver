@@ -73,6 +73,9 @@
             (string->lines middle)
             (drop after-lines 1))))
 
+(define (range-edit_ doc-lines start-line start-char end-line end-char text)
+  #f)
+
 ;;
 ;; Methods
 ;;;;;;;;;;;;
@@ -106,9 +109,8 @@
       (match change
         [(ContentChangeEvent #:range (Range #:start (Pos #:line st-ln #:char st-ch)
                                             #:end   (Pos #:line end-ln #:char end-ch))
-                             #:rangeLength range-ln
                              #:text text)
-         (range-edit doc-lines st-ln st-ch end-ln end-ch range-ln text)]
+         (range-edit doc-lines st-ln st-ch end-ln end-ch text)]
         [(ContentChangeEvent #:text text)
          (string->lines text)])))
   ;; TODO: Report diagnostics based on changed-lines. Even if there are no errors,

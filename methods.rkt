@@ -103,31 +103,20 @@
   (match params
     [(hash-table ['processId (? (or/c number? (json-null)) process-id)]
                  ['capabilities (? jsexpr? capabilities)])
-     (set! already-initialized? #t)
-     #;
+     (define sync-options
+       (hasheq 'openClose #t
+               'change 2 ;; 2 = incremental
+               'willSave #f
+               'willSaveWaitUntil #f))
+     (define completion-provider
+       (hasheq 'resolveProvider #t
+               'triggerCharacters '(")" "]" "}")))
      (define server-capabilities
-       (hasheq 'textDocumentSync 2 ;; 2 = incremental
-               'hoverProvider #f
-               'completionProvider (hasheq 'resolveProvider  #f
-                                           'triggerCharacters '())
-               'signatureHelpProvider (hasheq 'triggerCharacters '())
-               'definitionProvider #f
-               'referencesProvider #f
-               'documentHighlightProvider #f
-               'documentSymbolProvider #f
-               'workspaceSymbolProvider #f
-               'codeActionProvider #f
-               'codeLensProvider (hasheq 'resolveProvider #f)
-               'documentFormattingProvider #f
-               'documentRangeFormattingProvider #f
-               ;'documentOnTypeFormattingProvider (hasheq)
-               'renameProvider #f
-               'documentLinkProvider (hasheq 'resolveProvider #f)
-               'executeCommandProvider (hasheq 'commands '())
-               ;'experimental (hasheq)
-               ))
-     (define server-capabilities (hasheq))
-     (success-response id (hasheq 'capabilities server-capabilities))]
+       (hasheq 'textDocumentSync sync-options
+               'completionProvider completion-provider))
+     (define resp (success-response id (hasheq 'capabilities server-capabilities)))
+     (set! already-initialized? #t)
+     resp]
     [_
      (error-response id INVALID-PARAMS "initialize failed")]))
 
