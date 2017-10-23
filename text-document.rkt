@@ -1,12 +1,16 @@
 #lang racket/base
-(require (for-syntax racket/base)
+(require (for-syntax racket/base
+                     syntax/parse)
+         drracket/check-syntax
          json
+         racket/class
          racket/contract/base
          racket/list
          racket/match
          racket/string
          rnrs/bytevectors-6
-         syntax/parse/define
+         syntax/modread
+         syntax/parse
          "json-util.rkt")
 ;;
 ;; Match Expanders
@@ -50,6 +54,8 @@
 ;;
 ;; Helpers
 ;;;;;;;;;;;;
+
+(struct doc (text trace) #:transparent)
 
 (define doc-store? (hash/c symbol? (listof string?)))
 
@@ -115,12 +121,48 @@
          (string->lines text)])))
   ;; TODO: Report diagnostics based on changed-lines. Even if there are no errors,
   ;; we still need to send an emtpy diagnostic notification to clear existing errors.
-  #|
-    (define diags
-      (hasheq 'uri uri
-              'diagnostics (list
-                            (Diagnostic #:range Range|#
   (hash-set open-docs uri* changed-lines))
+
+(define (hover open-docs params)
+  (error 'textDocument/hover "not implemented!"))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(define build-trace%
+  (class (annotations-mixin object%)
+    (init-field src)
+    (define hovers (make-hash))
+    ;; Getters
+    (define/public (get-hovers) hovers)
+    ;; Overrides
+    (define/override (syncheck:find-source-object stx)
+      (and (equal? src (syntax-source stx))
+           src))
+    (define/override (syncheck:add-mouse-over-status src-obj start finish text)
+      (hash-set! hovers (cons start finish) text)) ;; TODO: force interning?
+    (super-new)))
+
+(define (check-syntax src-dir file)
+  (define ns (make-base-namespace))
+  (define src (build-path src-dir file))
+  (define trace (new build-trace% [src src]))
+  (define-values (add-syntax done)
+    (make-traversal ns src))
+  (parameterize ([current-annotations trace]
+                 [current-namespace ns]
+                 [current-directory src-dir])
+    (add-syntax
+     (expand
+      (call-with-input-file src
+        (λ (port)
+          (port-count-lines! port)
+          (with-module-reading-parameterization
+              (λ ()
+                (read-syntax src port))))))))
+  (done)
+  trace)
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (provide
  (contract-out
@@ -134,5 +176,6 @@
                   (listof string?))]
   [did-open (doc-store? jsexpr? . -> . doc-store?)]
   [did-close (doc-store? jsexpr? . -> . doc-store?)]
-  [did-change (doc-store? jsexpr? . -> . doc-store?)])
+  [did-change (doc-store? jsexpr? . -> . doc-store?)]
+  [hover (doc-store? jsexpr? . -> . string?)])
  doc-store?)

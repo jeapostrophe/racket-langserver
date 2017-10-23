@@ -71,9 +71,8 @@
       ["shutdown"
        (eprintf "Got shutdown message\n")
        (shutdown id)]
-      #;
-      ["client/registerCapability"
-       (client/register-capability params)]
+      ["textDocument/hover"
+       (success-response id (text-document/hover open-docs params))]
       [_
        (eprintf "invalid request for method ~v\n" method)
        (define err (format "The method ~v was not found" method))
@@ -108,12 +107,9 @@
                'change 2 ;; 2 = incremental
                'willSave #f
                'willSaveWaitUntil #f))
-     (define completion-provider
-       (hasheq 'resolveProvider #t
-               'triggerCharacters '(")" "]" "}")))
      (define server-capabilities
        (hasheq 'textDocumentSync sync-options
-               'completionProvider completion-provider))
+               'hoverProvider #t))
      (define resp (success-response id (hasheq 'capabilities server-capabilities)))
      (set! already-initialized? #t)
      resp]
