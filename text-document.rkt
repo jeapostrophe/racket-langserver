@@ -18,7 +18,7 @@
          "msg-io.rkt"
          "responses.rkt")
 
-(struct doc (text trace) #:transparent)
+(struct doc (text trace) #:transparent #:mutable)
 
 (define (uri-is-path? str)
   (string-prefix? str "file://"))
@@ -94,8 +94,8 @@
   (match-define (hash-table ['textDocument (DocIdentifier #:uri uri)]
                             ['contentChanges content-changes]) params)
   (when (uri-is-path? uri)
-    (match-define (doc doc-text doc-trace)
-      (hash-ref open-docs (string->symbol uri)))
+    (define d (hash-ref open-docs (string->symbol uri)))
+    (define t (doc-text d))
     (define content-changes*
       (cond [(eq? (json-null) content-changes) empty]
             [(list? content-changes) content-changes]
@@ -105,17 +105,16 @@
         [(ContentChangeEvent #:range (Range #:start (Pos #:line st-ln #:char st-ch)
                                             #:end   (Pos #:line end-ln #:char end-ch))
                              #:text text)
-         (define st-pos (+ st-ch (send doc-text paragraph-start-position st-ln)))
-         (define end-pos (+ end-ch (send doc-text paragraph-start-position end-ln)))
-         (send doc-text insert text st-pos end-pos)]
+         (define st-pos (+ st-ch (send t paragraph-start-position st-ln)))
+         (define end-pos (+ end-ch (send t paragraph-start-position end-ln)))
+         (send t insert text st-pos end-pos)]
         [(ContentChangeEvent #:text text)
          ;; TODO: is erase slower than doing it all in one insert?
-         (send doc-text erase)
-         (send doc-text insert text 0)]))
+         (send t erase)
+         (send t insert text 0)]))
     (define path (substring uri 7))
-    (define trace (check-syntax path (send doc-text get-text)))
-    ;; TODO: use mutable struct?
-    (hash-set! open-docs (string->symbol uri) (doc doc-text trace))))
+    (define new-trace (check-syntax path (send t get-text)))
+    (set-doc-trace! d new-trace)))
 
 ;; Hover request
 ;; Returns an object conforming to the Hover interface, to
