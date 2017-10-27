@@ -72,7 +72,7 @@
        (eprintf "Got shutdown message\n")
        (shutdown id)]
       ["textDocument/hover"
-       (success-response id (text-document/hover open-docs params))]
+       (text-document/hover id params)]
       [_
        (eprintf "invalid request for method ~v\n" method)
        (define err (format "The method ~v was not found" method))
@@ -86,11 +86,11 @@
      (eprintf "Got exit message\n")
      (exit (if already-shutdown? 0 1))]
     ["textDocument/didOpen"
-     (set! open-docs (text-document/did-open open-docs params))]
+     (text-document/did-open! params)]
     ["textDocument/didClose"
-     (set! open-docs (text-document/did-close open-docs params))]
+     (text-document/did-close! params)]
     ["textDocument/didChange"
-     (set! open-docs (text-document/did-change open-docs params))]
+     (text-document/did-change! params)]
     [_
      (eprintf "Ignoring notification ~v\n" method)]))
 
@@ -125,8 +125,4 @@
 (provide
  (contract-out
   [process-message
-   (jsexpr? . -> . void?)]
-  [process-request
-   ((or/c number? string?) string? jsexpr? . -> . jsexpr?)]
-  [process-notification
-   (string? jsexpr? . -> . void?)]))
+   (jsexpr? . -> . void?)]))
