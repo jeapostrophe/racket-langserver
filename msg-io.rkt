@@ -12,7 +12,7 @@
     [_ (read-message in)]))
 
 (define (display-message msg [out (current-output-port)])
-  (eprintf "resp = ~v\n" msg)
+  (eprintf "\nresp = ~v\n" msg)
   (define null-port (open-output-nowhere))
   (write-json msg null-port)
   (define content-length (file-position null-port))

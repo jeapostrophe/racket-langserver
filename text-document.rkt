@@ -20,8 +20,16 @@
 
 (struct doc (text trace) #:transparent #:mutable)
 
+(struct hov-data (start end text) #:transparent)
+
 (define (uri-is-path? str)
   (string-prefix? str "file://"))
+
+(define (abs-pos->Pos t pos)
+  (define line (send t position-paragraph pos))
+  (define line-begin (send t paragraph-start-position line))
+  (define char (- pos line-begin))
+  (Pos #:line line #:char char))
 
 ;;
 ;; Match Expanders
@@ -61,6 +69,11 @@
        (syntax/loc stx
          (hasheq 'line l
                  'character c))])))
+
+#;
+(define-json-expander Hover
+  [contents (or/c string? (listof string?))]
+  [range any/c])
 
 (define-json-expander Diagnostic
   [range any/c]
@@ -129,10 +142,13 @@
        (hash-ref open-docs (string->symbol uri)))
      (define hovers (send doc-trace get-hovers))
      (define pos (+ ch (send doc-text paragraph-start-position line)))
-     ;; TODO: is empty-string really the best default?
-     (define text (interval-map-ref hovers pos "")) 
-     ;; TODO: calculate range? (maybe there's a get-word-for-pos method?)
-     (define result (hasheq 'contents text))
+     (define result
+       (match (interval-map-ref hovers pos #f)
+         [(hov-data start end text)
+          (hasheq 'contents text
+                  'range (Range #:start (abs-pos->Pos doc-text start)
+                                #:end   (abs-pos->Pos doc-text end)))]
+         [#f (hasheq 'contents empty)]))
      (success-response id result)]
     [_
      (error-response id INVALID-PARAMS "textDocument/hover failed")]))
@@ -150,15 +166,20 @@
       (and (equal? src (syntax-source stx))
            src))
     (define/override (syncheck:add-mouse-over-status src-obj start finish text)
-      (interval-map-set! hovers start finish text))
+      (interval-map-set! hovers start finish (hov-data start finish text)))
     (super-new)))
 
-(require racket/exn)
+(define (diagnostics-message uri diags)
+  (hasheq 'jsonrpc "2.0"
+          'method "textDocument/publishDiagnostics"
+          'params (hasheq 'uri uri
+                          'diagnostics diags)))
 
 (define (report-syntax-error src exn)
-  (eprintf "\n~v\n\n" (exn->string exn))
   (define msg (exn-message exn))
-  (define srclocs (exn:fail:read-srclocs exn))
+  (eprintf "\nCaught error during traversal:\n~a\n" msg)
+  (define get-srclocs (exn:srclocs-accessor exn))
+  (define srclocs (get-srclocs exn))
   (define diags
     (for/list ([sl (in-list srclocs)])
       (match-define (srcloc src line col pos span) sl)
@@ -168,10 +189,7 @@
                   #:source "racket"
                   #:message msg)))
   (display-message/flush
-   (hasheq 'jsonrpc "2.0"
-           'method "textDocument/publishDiagnostics"
-           'params (hasheq 'uri (format "file://~a" src)
-                           'diagnostics diags))))
+   (diagnostics-message (format "file://~a" src) diags)))
 
 (define report-syntax-error* (curry report-syntax-error))
 
@@ -186,16 +204,14 @@
   (port-count-lines! in-port)
   (parameterize ([current-annotations trace]
                  [current-namespace ns]
-                 [current-directory src-dir])
-    (with-handlers ([exn:fail:read? (report-syntax-error* src)])
+                 [current-load-relative-directory src-dir])
+    (with-handlers ([(or/c exn:fail:read? exn:fail:syntax?)
+                     (report-syntax-error* src)])
       (define stx (with-module-reading-parameterization
                       (λ () (read-syntax src in-port))))
       (add-syntax (expand stx))
       (display-message/flush
-       (hasheq 'jsonrpc "2.0"
-               'method "textDocument/publishDiagnostics"
-               'params (hasheq 'uri (format "file://~a" src)
-                               'diagnostics empty))))
+       (diagnostics-message (format "file://~a" src) empty)))
     (done))
   trace)
 
