@@ -53,7 +53,6 @@
      (display-message/flush (error-response id INVALID-REQUEST err))]))
 
 (define (report-request-error id method exn)
-  ;; TODO: get rid of string alloc from exn->string
   (eprintf "Caught exn in request ~v\n~a\n" method (exn->string exn))
   (define err (format "internal error in method ~v" method))
   (error-response id INTERNAL-ERROR err))

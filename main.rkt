@@ -8,7 +8,6 @@
          "responses.rkt")
 
 (define (report-error exn)
-  ;; TODO: get rid of string alloc from exn->string
   (eprintf "\nCaught exn:\n~a\n" (exn->string exn)))
 
 (define (main-loop)
