@@ -25,6 +25,9 @@
 (define (uri-is-path? str)
   (string-prefix? str "file://"))
 
+(define (uri->path uri)
+  (substring uri 7))
+
 (define (abs-pos->Pos t pos)
   (define line (send t position-paragraph pos))
   (define line-begin (send t paragraph-start-position line))
@@ -92,7 +95,7 @@
   (unless (uri-is-path? uri)
     ;; TODO: send user diagnostic or something
     (error 'did-open "uri is not a path."))
-  (define path (substring uri 7))
+  (define path (uri->path uri))
   (define trace (check-syntax path text))
   (define doc-text (new text%))
   (send doc-text insert text 0)
@@ -117,16 +120,18 @@
       (match change
         [(ContentChangeEvent #:range (Range #:start (Pos #:line st-ln #:char st-ch)
                                             #:end   (Pos #:line end-ln #:char end-ch))
+                             #:rangeLength range-ln
                              #:text text)
          (define st-pos (+ st-ch (send t paragraph-start-position st-ln)))
-         (define end-pos (+ end-ch (send t paragraph-start-position end-ln)))
+         (define end-pos (+ st-pos range-ln))
          (send t insert text st-pos end-pos)]
         [(ContentChangeEvent #:text text)
          ;; TODO: is erase slower than doing it all in one insert?
          (send t erase)
          (send t insert text 0)]))
-    (define path (substring uri 7))
+    (define path (uri->path uri))
     (define new-trace (check-syntax path (send t get-text)))
+    (eprintf "\n~a\n" (send t get-text))
     (set-doc-trace! d new-trace)))
 
 ;; Hover request
@@ -184,7 +189,7 @@
     (for/list ([sl (in-list srclocs)])
       (match-define (srcloc src line col pos span) sl)
       (Diagnostic #:range (Range #:start (Pos #:line (sub1 line) #:char col)
-                                 #:end   (Pos #:line (sub1 line) #:char (add1 col)))
+                                 #:end   (Pos #:line (sub1 line) #:char (+ col span)))
                   #:severity 4
                   #:source "racket"
                   #:message msg)))
