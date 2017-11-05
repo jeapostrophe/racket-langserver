@@ -118,8 +118,7 @@
             [else (list content-changes)]))
     (for ([change (in-list content-changes*)])
       (match change
-        [(ContentChangeEvent #:range (Range #:start (Pos #:line st-ln #:char st-ch)
-                                            #:end   (Pos #:line end-ln #:char end-ch))
+        [(ContentChangeEvent #:range (Range #:start (Pos #:line st-ln #:char st-ch))
                              #:rangeLength range-ln
                              #:text text)
          (define st-pos (+ st-ch (send t paragraph-start-position st-ln)))
