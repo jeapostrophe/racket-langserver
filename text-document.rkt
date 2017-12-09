@@ -20,8 +20,6 @@
 
 (struct doc (text trace) #:transparent #:mutable)
 
-(struct hov-data (start end text) #:transparent)
-
 (define (uri-is-path? str)
   (string-prefix? str "file://"))
 
@@ -146,13 +144,14 @@
        (hash-ref open-docs (string->symbol uri)))
      (define hovers (send doc-trace get-hovers))
      (define pos (+ ch (send doc-text paragraph-start-position line)))
+     (define-values (start end text)
+       (interval-map-ref/bounds hovers pos #f))
      (define result
-       (match (interval-map-ref hovers pos #f)
-         [(hov-data start end text)
-          (hasheq 'contents text
-                  'range (Range #:start (abs-pos->Pos doc-text start)
-                                #:end   (abs-pos->Pos doc-text end)))]
-         [#f (hasheq 'contents empty)]))
+       (cond [text
+              (hasheq 'contents text
+                      'range (Range #:start (abs-pos->Pos doc-text start)
+                                    #:end   (abs-pos->Pos doc-text end)))]
+             [else (hasheq 'contents empty)]))
      (success-response id result)]
     [_
      (error-response id INVALID-PARAMS "textDocument/hover failed")]))
@@ -170,7 +169,7 @@
       (and (equal? src (syntax-source stx))
            src))
     (define/override (syncheck:add-mouse-over-status src-obj start finish text)
-      (interval-map-set! hovers start finish (hov-data start finish text)))
+      (interval-map-set! hovers start finish text))
     (super-new)))
 
 (define (diagnostics-message uri diags)
