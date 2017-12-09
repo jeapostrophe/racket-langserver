@@ -190,7 +190,7 @@
       (Diagnostic #:range (Range #:start (Pos #:line (sub1 line) #:char col)
                                  #:end   (Pos #:line (sub1 line) #:char (+ col span)))
                   #:severity 4
-                  #:source "racket"
+                  #:source "Racket"
                   #:message msg)))
   (display-message/flush
    (diagnostics-message (format "file://~a" src) diags)))
