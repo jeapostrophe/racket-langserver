@@ -16,14 +16,6 @@
 
 (require syntax/parse/define)
 
-(define-simple-macro (init-guard body ...+)
-  (cond [(not already-initialized?)
-         (error-response (json-null) SERVER-NOT-INITIALIZED
-                         "The server has not been initialized")]
-        [already-shutdown?
-         (error "already shutdown")]
-        [else body ...]))
-
 ;;
 ;; Dispatch
 ;;;;;;;;;;;;;
@@ -72,6 +64,8 @@
        (shutdown id)]
       ["textDocument/hover"
        (text-document/hover id params)]
+      ["textDocument/references"
+       (text-document/references id params)]
       [_
        (eprintf "invalid request for method ~v\n" method)
        (define err (format "The method ~v was not found" method))
@@ -108,7 +102,9 @@
                'willSaveWaitUntil #f))
      (define server-capabilities
        (hasheq 'textDocumentSync sync-options
-               'hoverProvider #t))
+               'hoverProvider #t
+               'referencesProvider #t
+               'documentSymbolProvider #f))
      (define resp (success-response id (hasheq 'capabilities server-capabilities)))
      (set! already-initialized? #t)
      resp]

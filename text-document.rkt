@@ -40,6 +40,10 @@
   [start any/c]
   [end any/c])
 
+(define-json-expander Location
+  [uri string?]
+  [range any/c])
+
 (define-json-expander ContentChangeEvent
   [range any/c]
   [rangeLength exact-nonnegative-integer?]
@@ -71,16 +75,15 @@
          (hasheq 'line l
                  'character c))])))
 
-#;
-(define-json-expander Hover
-  [contents (or/c string? (listof string?))]
-  [range any/c])
-
 (define-json-expander Diagnostic
   [range any/c]
   [severity (or/c 1 2 3 4)]
   [source string?]
   [message string?])
+
+(define-json-expander DocHighlight
+  [range any/c]
+  [kind (or/c 1 2 3)])
 
 ;;
 ;; Methods
@@ -155,6 +158,31 @@
      (success-response id result)]
     [_
      (error-response id INVALID-PARAMS "textDocument/hover failed")]))
+
+;; Reference request
+;; Returns a list of Location objects representing arrows that would
+;; be drawn by DrRacket.
+(define (references id params)
+  (match params
+    [(hash-table ['textDocument (DocIdentifier #:uri uri)]
+                 ['position (Pos #:line line #:char ch)]
+                 #;['context (hash-table ['includeDeclaration decl])])
+     (unless (uri-is-path? uri)
+       (error 'references "uri is not a path"))
+     (match-define (doc doc-text doc-trace)
+       (hash-ref open-docs (string->symbol uri)))
+     (define all-arrows (send doc-trace get-arrows))
+     (define pos (+ ch (send doc-text paragraph-start-position line)))
+     (define arrows (interval-map-ref all-arrows pos empty))
+     (define result
+       (for/list ([arrow (in-list arrows)])
+         (match-define (cons start end) arrow)
+         (Location #:uri uri
+                   #:range (Range #:start (abs-pos->Pos doc-text start)
+                                  #:end (abs-pos->Pos doc-text end)))))
+     (success-response id result)]
+    [_
+     (error-response id INVALID-PARAMS "textDocument/references failed")]))
   
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
@@ -162,14 +190,24 @@
   (class (annotations-mixin object%)
     (init-field src)
     (define hovers (make-interval-map))
+    (define arrows (make-interval-map))
     ;; Getters
     (define/public (get-hovers) hovers)
+    (define/public (get-arrows) arrows)
     ;; Overrides
     (define/override (syncheck:find-source-object stx)
       (and (equal? src (syntax-source stx))
            src))
+    ;; Mouse-over status
     (define/override (syncheck:add-mouse-over-status src-obj start finish text)
       (interval-map-set! hovers start finish text))
+    ;; Arrows
+    (define/override (syncheck:add-arrow/name-dup start-src-obj start-left start-right
+                                                  end-src-obj end-left end-right
+                                                  actual? phase-lvl req-arrow? name-dup?)
+      (define prevs (interval-map-ref arrows start-left list))
+      (define ends (cons (cons end-left end-right) prevs))
+      (interval-map-set! arrows start-left start-right ends))
     (super-new)))
 
 (define (diagnostics-message uri diags)
@@ -225,4 +263,5 @@
   [did-open! (jsexpr? . -> . void?)]
   [did-close! (jsexpr? . -> . void?)]
   [did-change! (jsexpr? . -> . void?)]
-  [hover (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]))
+  [hover (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]
+  [references (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]))
