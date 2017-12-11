@@ -11,6 +11,7 @@
          racket/list
          racket/match
          (only-in racket/string string-prefix?)
+         racket/set
          syntax/modread
          syntax/parse
          "error-codes.rkt"
@@ -169,16 +170,16 @@
   (match params
     [(hash-table ['textDocument (DocIdentifier #:uri uri)]
                  ['position (Pos #:line line #:char ch)]
-                 #;['context (hash-table ['includeDeclaration decl])])
+                 ['context (hash-table ['includeDeclaration decl])])
      (unless (uri-is-path? uri)
        (error 'references "uri is not a path"))
      (match-define (doc doc-text doc-trace)
        (hash-ref open-docs (string->symbol uri)))
      (define all-arrows (send doc-trace get-arrows))
      (define pos (+ ch (send doc-text paragraph-start-position line)))
-     (define arrows (interval-map-ref all-arrows pos empty))
+     (define arrows (interval-map-ref all-arrows pos set))
      (define result
-       (for/list ([arrow (in-list arrows)])
+       (for/list ([arrow (in-set arrows)])
          (match-define (cons start end) arrow)
          (Location #:uri uri
                    #:range (Range #:start (abs-pos->Pos doc-text start)
@@ -208,9 +209,11 @@
     (define/override (syncheck:add-arrow/name-dup start-src-obj start-left start-right
                                                   end-src-obj end-left end-right
                                                   actual? phase-lvl req-arrow? name-dup?)
-      (define prevs (interval-map-ref arrows start-left list))
-      (define ends (cons (cons end-left end-right) prevs))
-      (interval-map-set! arrows start-left start-right ends))
+      ;; TODO: Could be faster if we used list instead of set,
+      ;;       but we get duplicate arrows for the same start/end pos?
+      (define prevs (interval-map-ref arrows start-left set))
+      (define new-set (set-add prevs (cons end-left end-right)))
+      (interval-map-set! arrows start-left start-right new-set))
     (super-new)))
 
 (define (diagnostics-message uri diags)
