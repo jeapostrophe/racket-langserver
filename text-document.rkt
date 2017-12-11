@@ -26,6 +26,9 @@
 (define (uri->path uri)
   (substring uri 7))
 
+(define (path->uri path)
+  (string-append "file://" path))
+
 (define (abs-pos->Pos t pos)
   (define line (send t position-paragraph pos))
   (define line-begin (send t paragraph-start-position line))
@@ -230,7 +233,7 @@
                   #:source "Racket"
                   #:message msg)))
   (display-message/flush
-   (diagnostics-message (format "file://~a" src) diags)))
+   (diagnostics-message (path->uri src) diags)))
 
 (define report-syntax-error* (curry report-syntax-error))
 
@@ -252,7 +255,7 @@
                       (λ () (read-syntax src in-port))))
       (add-syntax (expand stx))
       (display-message/flush
-       (diagnostics-message (format "file://~a" src) empty)))
+       (diagnostics-message (path->uri src) empty)))
     (done))
   trace)
 
