@@ -187,6 +187,15 @@
      (success-response id result)]
     [_
      (error-response id INVALID-PARAMS "textDocument/references failed")]))
+
+;; Document Link request
+(define (document-link id params)
+  (match params
+    [(hash-table ['textDocument (DocIdentifier #:uri uri)])
+     (define result empty)
+     (success-response id result)]
+    [_
+     (error-response id INVALID-PARAMS "textDocument/documentLink failed")]))
   
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
@@ -195,6 +204,7 @@
     (init-field src)
     (define hovers (make-interval-map))
     (define arrows (make-interval-map))
+    (define doclinks (make-interval-map))
     ;; Getters
     (define/public (get-hovers) hovers)
     (define/public (get-arrows) arrows)
@@ -214,6 +224,11 @@
       (define prevs (interval-map-ref arrows start-left set))
       (define new-set (set-add prevs (cons end-left end-right)))
       (interval-map-set! arrows start-left start-right new-set))
+    ;; Doc Links
+    (define/override (syncheck:add-docs-menu src-obj start end id label path tag ignore)
+      ;; TODO: Ignore parameter... raise issue on git?
+      (define uri (format "file://~a#~a" path tag))
+      (interval-map-set! doclinks start end uri))
     (super-new)))
 
 (define (diagnostics-message uri diags)
@@ -270,4 +285,5 @@
   [did-close! (jsexpr? . -> . void?)]
   [did-change! (jsexpr? . -> . void?)]
   [hover (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]
-  [references (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]))
+  [references (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]
+  [document-link (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]))
