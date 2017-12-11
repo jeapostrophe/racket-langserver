@@ -175,9 +175,9 @@
        (error 'references "uri is not a path"))
      (match-define (doc doc-text doc-trace)
        (hash-ref open-docs (string->symbol uri)))
-     (define all-arrows (send doc-trace get-arrows))
+     (define doc-arrows (send doc-trace get-arrows))
      (define pos (+ ch (send doc-text paragraph-start-position line)))
-     (define arrows (interval-map-ref all-arrows pos set))
+     (define arrows (interval-map-ref doc-arrows pos set))
      (define result
        (for/list ([arrow (in-set arrows)])
          (match-define (cons start end) arrow)
