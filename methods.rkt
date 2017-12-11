@@ -10,11 +10,14 @@
          (prefix-in client/ "client.rkt")
          (prefix-in text-document/ "text-document.rkt"))
 
+;; TextDocumentSynKind enumeration
+(define TextDocSync-None 0)
+(define TextDocSync-Full 1)
+(define TextDocSync-Incremental 2)
+
+;; Mutable variables
 (define already-initialized? #f)
 (define already-shutdown? #f)
-(define open-docs (hasheq))
-
-(require syntax/parse/define)
 
 ;;
 ;; Dispatch
@@ -97,7 +100,7 @@
                  ['capabilities (? jsexpr? capabilities)])
      (define sync-options
        (hasheq 'openClose #t
-               'change 2 ;; 2 = incremental
+               'change TextDocSync-Incremental
                'willSave #f
                'willSaveWaitUntil #f))
      (define server-capabilities
