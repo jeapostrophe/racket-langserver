@@ -170,17 +170,26 @@
   (match params
     [(hash-table ['textDocument (DocIdentifier #:uri uri)]
                  ['position (Pos #:line line #:char ch)]
-                 ['context (hash-table ['includeDeclaration decl])])
+                 ['context (hash-table ['includeDeclaration include-decl?])])
      (unless (uri-is-path? uri)
        (error 'references "uri is not a path"))
      (match-define (doc doc-text doc-trace)
        (hash-ref open-docs (string->symbol uri)))
-     (define doc-arrows (send doc-trace get-arrows))
      (define pos (+ ch (send doc-text paragraph-start-position line)))
-     (define arrows (interval-map-ref doc-arrows pos set))
+     (define doc-decls (send doc-trace get-sym-decls))
+     (define doc-bindings (send doc-trace get-sym-bindings))
+     (define decl (interval-map-ref doc-bindings pos #f))
+     (define refs
+       (match decl
+         [#f empty]
+         [(cons decl-left decl-right)
+          (define bindings (interval-map-ref doc-decls decl-left))
+          (if include-decl?
+              bindings
+              (set-remove bindings decl))]))
      (define result
-       (for/list ([arrow (in-set arrows)])
-         (match-define (cons start end) arrow)
+       (for/list ([r (in-set refs)])
+         (match-define (cons start end) r)
          (Location #:uri uri
                    #:range (Range #:start (abs-pos->Pos doc-text start)
                                   #:end   (abs-pos->Pos doc-text end)))))
@@ -203,11 +212,15 @@
   (class (annotations-mixin object%)
     (init-field src)
     (define hovers (make-interval-map))
-    (define arrows (make-interval-map))
+    ;; pos -> (set pos ...)
+    (define sym-decls (make-interval-map))
+    ;; pos -> pos
+    (define sym-bindings (make-interval-map))
     (define doclinks (make-interval-map))
     ;; Getters
     (define/public (get-hovers) hovers)
-    (define/public (get-arrows) arrows)
+    (define/public (get-sym-decls) sym-decls)
+    (define/public (get-sym-bindings) sym-bindings)
     ;; Overrides
     (define/override (syncheck:find-source-object stx)
       (and (equal? src (syntax-source stx))
@@ -215,15 +228,20 @@
     ;; Mouse-over status
     (define/override (syncheck:add-mouse-over-status src-obj start finish text)
       (interval-map-set! hovers start finish text))
-    ;; Arrows
-    (define/override (syncheck:add-arrow/name-dup start-src-obj start-left start-right
-                                                  end-src-obj end-left end-right
-                                                  actual? phase-lvl req-arrow? name-dup?)
-      ;; TODO: Could be faster if we used list instead of set,
-      ;;       but we get duplicate arrows for the same start/end pos?
-      (define prevs (interval-map-ref arrows start-left set))
-      (define new-set (set-add prevs (cons end-left end-right)))
-      (interval-map-set! arrows start-left start-right new-set))
+    ;; References
+    (define/override (syncheck:add-arrow start-src-obj start-left start-right
+                                         end-src-obj end-left end-right
+                                         actual? phase-level)
+      ;; Mapping from doc declaration to set of bindings.
+      (define prev-bindings (interval-map-ref sym-decls start-left set))
+      (define new-bindings (set-add prev-bindings (cons end-left end-right)))
+      (interval-map-set! sym-decls start-left start-right new-bindings)
+      ;; Mapping from binding to declaration.
+      (define new-decl (cons start-left start-right))
+      (interval-map-set! sym-bindings end-left end-right new-decl)
+      ;; Each decl is considered to be bound to itself
+      ;; i.e. it is a key in map from doc positions to declarations.
+      (interval-map-set! sym-bindings start-left start-right new-decl))
     ;; Doc Links
     (define/override (syncheck:add-docs-menu src-obj start end id label path tag ignore)
       ;; TODO: Ignore parameter... raise issue on git?
