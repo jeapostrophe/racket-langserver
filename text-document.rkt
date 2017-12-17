@@ -196,15 +196,6 @@
      (success-response id result)]
     [_
      (error-response id INVALID-PARAMS "textDocument/references failed")]))
-
-;; Document Link request
-(define (document-link id params)
-  (match params
-    [(hash-table ['textDocument (DocIdentifier #:uri uri)])
-     (define result empty)
-     (success-response id result)]
-    [_
-     (error-response id INVALID-PARAMS "textDocument/documentLink failed")]))
   
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
@@ -303,5 +294,4 @@
   [did-close! (jsexpr? . -> . void?)]
   [did-change! (jsexpr? . -> . void?)]
   [hover (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]
-  [references (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]
-  [document-link (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]))
+  [references (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]))

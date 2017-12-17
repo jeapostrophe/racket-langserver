@@ -69,8 +69,6 @@
        (text-document/hover id params)]
       ["textDocument/references"
        (text-document/references id params)]
-      ["textDocument/documentLink"
-       (text-document/document-link id params)]
       [_
        (eprintf "invalid request for method ~v\n" method)
        (define err (format "The method ~v was not found" method))
@@ -110,7 +108,7 @@
                'hoverProvider #t
                'referencesProvider #t
                'documentSymbolProvider #f
-               'documentLinkProvider #t))
+               'documentLinkProvider #f))
      (define resp (success-response id (hasheq 'capabilities server-capabilities)))
      (set! already-initialized? #t)
      resp]
