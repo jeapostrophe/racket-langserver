@@ -14,6 +14,7 @@
          racket/set
          syntax/modread
          syntax/parse
+         syntax-color/module-lexer
          "error-codes.rkt"
          "json-util.rkt"
          "msg-io.rkt"
@@ -286,6 +287,42 @@
     (done))
   trace)
 
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;; Wrapper for in-port, returns a list or EOF.
+(define (lexer-wrap lexer)
+  (λ (in)
+    (define-values (txt type paren? start end)
+      (lexer in))
+    (if (eof-object? txt)
+        eof
+        (list txt type paren? start end))))
+
+;; Call module-lexer on an input port, then discard all
+;; values except the lexer.
+(define (get-lexer in)
+  (match-define-values
+    (_ _ _ _ _ _ lexer)
+    (module-lexer in 0 #f))
+  (if (procedure? lexer)
+      lexer
+      (error 'get-lexer "~v" lexer)))
+
+(define (symbol-table text)
+  (define in (open-input-string text))
+  (port-count-lines! in)
+  (define lexer (get-lexer in))
+  ;; hashof symbol -> (set (start . end) ...)
+  (for/fold ([out (hasheq)])
+            ([v (in-port (lexer-wrap lexer) in)])
+    (match-define (list txt type paren? start end) v)
+    (cond [(eq? 'symbol type)
+           (define txt* (string->symbol txt))
+           (define prev-locs (hash-ref out txt* set))
+           (define new-locs (set-add prev-locs (cons start end)))
+           (hash-set out txt* new-locs)]
+          [else out])))
+           
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (provide
