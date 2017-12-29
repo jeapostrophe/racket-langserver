@@ -21,7 +21,6 @@
     (define sym-decls (make-interval-map))
     ;; pos -> pos
     (define sym-bindings (make-interval-map))
-    (define doclinks (make-interval-map))
     ;; Getters
     (define/public (get-hovers) hovers)
     (define/public (get-sym-decls) sym-decls)
@@ -47,11 +46,6 @@
       ;; Each decl is considered to be bound to itself
       ;; i.e. it is a key in map from doc positions to declarations.
       (interval-map-set! sym-bindings start-left start-right new-decl))
-    ;; Doc Links
-    (define/override (syncheck:add-docs-menu src-obj start end id label path tag ignore)
-      ;; TODO: Ignore parameter... raise issue on git?
-      (define uri (format "file://~a#~a" path tag))
-      (interval-map-set! doclinks start end uri))
     (super-new)))
 
 (define (diagnostics-message uri diags)
