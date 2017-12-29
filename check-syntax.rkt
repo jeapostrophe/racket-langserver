@@ -3,7 +3,6 @@
          drracket/check-syntax
          racket/class
          racket/contract/base
-         racket/function
          racket/list
          racket/match
          racket/set
@@ -61,8 +60,8 @@
           'params (hasheq 'uri uri
                           'diagnostics diags)))
 
-(define (report-syntax-error src exn)
-  (define msg (exn-message exn))
+(define ((report-syntax-error src) exn)
+    (define msg (exn-message exn))
   (eprintf "\nCaught error during traversal:\n~a\n" msg)
   (define get-srclocs (exn:srclocs-accessor exn))
   (define srclocs (get-srclocs exn))
@@ -77,8 +76,6 @@
   (display-message/flush
    (diagnostics-message (path->uri src) diags)))
 
-(define report-syntax-error* (curry report-syntax-error))
-
 (define (check-syntax src text)
   (define ns (make-base-namespace))
   (define trace (new build-trace% [src src]))
@@ -92,7 +89,7 @@
                  [current-namespace ns]
                  [current-load-relative-directory src-dir])
     (with-handlers ([(or/c exn:fail:read? exn:fail:syntax?)
-                     (report-syntax-error* src)])
+                     (report-syntax-error src)])
       (define stx (with-module-reading-parameterization
                       (λ () (read-syntax src in-port))))
       (add-syntax (expand stx))
