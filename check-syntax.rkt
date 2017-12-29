@@ -77,15 +77,15 @@
     (split-path src))
   (define-values (add-syntax done)
     (make-traversal ns src))
-  (define in-port (open-input-string text))
-  (port-count-lines! in-port)
+  (define in (open-input-string text))
+  (port-count-lines! in)
   (parameterize ([current-annotations trace]
                  [current-namespace ns]
                  [current-load-relative-directory src-dir])
     (with-handlers ([(or/c exn:fail:read? exn:fail:syntax?)
                      (report-syntax-error src)])
       (define stx (with-module-reading-parameterization
-                      (λ () (read-syntax src in-port))))
+                      (λ () (read-syntax src in))))
       (add-syntax (expand stx))
       (display-message/flush
        (diagnostics-message (path->uri src) empty)))
