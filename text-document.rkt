@@ -90,6 +90,11 @@
   [range any/c]
   [kind (or/c 1 2 3)])
 
+(define-json-expander SymbolInfo
+  [name string?]
+  [kind exact-positive-integer?]
+  [location any/c])
+
 ;;
 ;; Methods
 ;;;;;;;;;;;;
@@ -197,6 +202,41 @@
      (success-response id result)]
     [_
      (error-response id INVALID-PARAMS "textDocument/references failed")]))
+
+;; Document Symbol request
+(define (document-symbol id params)
+  (match params
+    [(hash-table ['textDocument (DocIdentifier #:uri uri)])
+     (unless (uri-is-path? uri)
+       (error 'document-symbol "uri is not a path"))
+     (match-define (doc doc-text _)
+       (hash-ref open-docs (string->symbol uri)))
+     (define in (open-input-string (send doc-text get-text)))
+     (port-count-lines! in)
+     (define lexer (get-lexer in))
+     (define results
+       (for/fold ([out empty])
+                 ([lst (in-port (lexer-wrap lexer) in)])
+         (match-define (list text type paren? start end) lst)
+         (cond [(set-member? '(constant string symbol) type)
+                (define kind
+                  (match type
+                    ['constant 14]
+                    ['string 15]
+                    ['symbol 13]))
+                (define range
+                  (Range #:start (abs-pos->Pos doc-text start)
+                         #:end   (abs-pos->Pos doc-text end)))
+                (define sym-info
+                  (SymbolInfo #:name text
+                              #:kind kind
+                              #:location (Location #:uri uri
+                                                   #:range range)))
+                (cons sym-info out)]
+               [else out])))
+     (success-response id results)]
+    [_
+     (error-response id INVALID-PARAMS "textDocument/documentSymbol failed")]))
   
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
@@ -304,24 +344,32 @@
   (match-define-values
     (_ _ _ _ _ _ lexer)
     (module-lexer in 0 #f))
-  (if (procedure? lexer)
+  (if (procedure? lexer) ;; TODO: Is this an issue with module-lexer docs?
       lexer
       (error 'get-lexer "~v" lexer)))
 
+#|
+(struct sym-info (start end kind) #:transparent)
+
+(define interesting-symbol-types
+  '(error constant string no-color hash-colon-keyword symbol other))
+
+;; TODO: rename "color-lexer"?
 (define (symbol-table text)
   (define in (open-input-string text))
   (port-count-lines! in)
   (define lexer (get-lexer in))
   ;; hashof symbol -> (set (start . end) ...)
   (for/fold ([out (hasheq)])
-            ([v (in-port (lexer-wrap lexer) in)])
-    (match-define (list txt type paren? start end) v)
-    (cond [(eq? 'symbol type)
+            ([lst (in-port (lexer-wrap lexer) in)])
+    (match-define (list txt type paren? start end) lst)
+    (cond [(set-member? interesting-symbol-types type)
            (define txt* (string->symbol txt))
            (define prev-locs (hash-ref out txt* set))
-           (define new-locs (set-add prev-locs (cons start end)))
+           (define new-locs (set-add prev-locs (sym-info start end type)))
            (hash-set out txt* new-locs)]
           [else out])))
+|#
            
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
@@ -331,4 +379,5 @@
   [did-close! (jsexpr? . -> . void?)]
   [did-change! (jsexpr? . -> . void?)]
   [hover (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]
-  [references (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]))
+  [references (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]
+  [document-symbol (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]))
