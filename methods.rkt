@@ -109,7 +109,7 @@
        (hasheq 'textDocumentSync sync-options
                'hoverProvider #t
                'referencesProvider #t
-               'documentSymbolProvider #t
+               'documentSymbolProvider #f
                'documentLinkProvider #f))
      (define resp (success-response id (hasheq 'capabilities server-capabilities)))
      (set! already-initialized? #t)
