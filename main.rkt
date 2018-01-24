@@ -12,7 +12,8 @@
 
 (define (main-loop)
   (define msg (read-message))
-  (eprintf "msg = ~v\n" msg)
+  (when (verbose-io?)
+    (eprintf "msg = ~v\n" msg))
   (with-handlers ([exn:fail? report-error])
     (match msg
       ['parse-json-error
@@ -23,7 +24,8 @@
        (exit 1)]
       [_
        (process-message msg)]))
-  (eprintf "====================\n")
+  (when (verbose-io?)
+    (eprintf "====================\n"))
   (main-loop))
 
 (module+ main

@@ -4,6 +4,8 @@
          racket/match
          (only-in racket/port open-output-nowhere))
 
+(define verbose-io? (make-parameter #f))
+
 (define (read-message [in (current-input-port)])
   (match (read-line in 'return-linefeed)
     ["" (with-handlers ([exn:fail:read? (λ (exn) 'parse-json-error)])
@@ -12,7 +14,8 @@
     [_ (read-message in)]))
 
 (define (display-message msg [out (current-output-port)])
-  (eprintf "\nresp = ~v\n" msg)
+  (when (verbose-io?)
+    (eprintf "\nresp = ~v\n" msg))
   (define null-port (open-output-nowhere))
   (write-json msg null-port)
   (define content-length (file-position null-port))
@@ -24,6 +27,7 @@
   (flush-output out))
 
 (provide
+ verbose-io?
  (contract-out
   [read-message (->* ()
                      (input-port?)
