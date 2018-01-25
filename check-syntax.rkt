@@ -46,6 +46,9 @@
       ;; Each decl is considered to be bound to itself
       ;; i.e. it is a key in map from doc positions to declarations.
       (interval-map-set! sym-bindings start-left start-right new-decl))
+    ;; Need override, otherwise this gets called by default with wrong arity.
+    (define/override (syncheck:add-prefixed-require-reference a b c)
+      (void))
     (super-new)))
 
 (define (diagnostics-message uri diags)
