@@ -56,8 +56,7 @@
   [text string?])
 
 (define-json-expander DocHighlight
-  [range any/c]
-  [kind (or/c 1 2 3)])
+  [range any/c])
 
 (define-json-expander SymbolInfo
   [name string?]
@@ -172,6 +171,35 @@
     [_
      (error-response id INVALID-PARAMS "textDocument/references failed")]))
 
+;; Document Highlight request
+(define (document-highlight id params)
+  (match params
+    ;; TODO: Use TextDocumentPositionParams interface?
+    [(hash-table ['textDocument (DocIdentifier #:uri uri)]
+                 ['position (Pos #:line line #:char char)])
+     (unless (uri-is-path? uri)
+       (error 'document-highlight "uri is not a path"))
+     (match-define (doc doc-text doc-trace)
+       (hash-ref open-docs (string->symbol uri)))
+     (define pos (+ char (send doc-text paragraph-start-position line)))
+     (define doc-decls (send doc-trace get-sym-decls))
+     (define doc-bindings (send doc-trace get-sym-bindings))
+     (define decl (interval-map-ref doc-bindings pos #f))
+     (define refs
+       (match decl
+         [#f empty]
+         [(cons decl-left decl-right)
+          (define bindings (interval-map-ref doc-decls decl-left))
+          (set-add bindings decl)]))
+     (define result
+       (for/list ([r (in-set refs)])
+         (match-define (cons start end) r)
+         (DocHighlight #:range (Range #:start (abs-pos->Pos doc-text start)
+                                      #:end   (abs-pos->Pos doc-text end)))))
+     (success-response id result)]
+    [_
+     (error-response id INVALID-PARAMS "textDocument/documentHighlight failed")]))
+
 ;; Document Symbol request
 (define (document-symbol id params)
   (match params
@@ -234,5 +262,6 @@
   [did-close! (jsexpr? . -> . void?)]
   [did-change! (jsexpr? . -> . void?)]
   [hover (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]
+  [document-highlight (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]
   [references (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]
   [document-symbol (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]))
