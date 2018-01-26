@@ -2,7 +2,6 @@
 (require json
          racket/contract/base
          racket/exn
-         racket/function
          racket/match
          "error-codes.rkt"
          "msg-io.rkt"
@@ -47,17 +46,15 @@
      (define err "The JSON sent is not a valid request object.")
      (display-message/flush (error-response id INVALID-REQUEST err))]))
 
-(define (report-request-error id method exn)
+(define ((report-request-error id method) exn)
   (eprintf "Caught exn in request ~v\n~a\n" method (exn->string exn))
   (define err (format "internal error in method ~v" method))
   (error-response id INTERNAL-ERROR err))
 
-(define report-request-error* (curry report-request-error))
-
 ;; Processes a request. This procedure should always return a jsexpr
 ;; which is a suitable response object.
 (define (process-request id method params)
-  (with-handlers ([exn:fail? (report-request-error* id method)])
+  (with-handlers ([exn:fail? (report-request-error id method)])
     (match method
       ["initialize"
        (eprintf "Got initialize message\n")
