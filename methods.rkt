@@ -6,7 +6,6 @@
          "error-codes.rkt"
          "msg-io.rkt"
          "responses.rkt"
-         (prefix-in client/ "client.rkt")
          (prefix-in text-document/ "text-document.rkt"))
 
 ;; TextDocumentSynKind enumeration
