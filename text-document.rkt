@@ -30,6 +30,9 @@
   (define char (- pos line-begin))
   (Pos #:line line #:char char))
 
+(define (line/char->pos t line char)
+  (+ char (send t paragraph-start-position line)))
+
 ;;
 ;; Match Expanders
 ;;;;;;;;;;;;;;;;;;;;
@@ -100,7 +103,7 @@
         [(ContentChangeEvent #:range (Range #:start (Pos #:line st-ln #:char st-ch))
                              #:rangeLength range-ln
                              #:text text)
-         (define st-pos (+ st-ch (send t paragraph-start-position st-ln)))
+         (define st-pos (line/char->pos t st-ln st-ch))
          (define end-pos (+ st-pos range-ln))
          (send t insert text st-pos end-pos)]
         [(ContentChangeEvent #:text text)
@@ -124,7 +127,7 @@
      (match-define (doc doc-text doc-trace)
        (hash-ref open-docs (string->symbol uri)))
      (define hovers (send doc-trace get-hovers))
-     (define pos (+ ch (send doc-text paragraph-start-position line)))
+     (define pos (line/char->pos doc-text line ch))
      (define-values (start end text)
        (interval-map-ref/bounds hovers pos #f))
      (define result
@@ -138,35 +141,16 @@
      (error-response id INVALID-PARAMS "textDocument/hover failed")]))
 
 ;; Reference request
-;; Returns a list of Location objects representing arrows that would
-;; be drawn by DrRacket.
 (define (references id params)
   (match params
     [(hash-table ['textDocument (DocIdentifier #:uri uri)]
-                 ['position (Pos #:line line #:char ch)]
+                 ['position (Pos #:line line #:char char)]
                  ['context (hash-table ['includeDeclaration include-decl?])])
-     (unless (uri-is-path? uri)
-       (error 'references "uri is not a path"))
-     (match-define (doc doc-text doc-trace)
-       (hash-ref open-docs (string->symbol uri)))
-     (define pos (+ ch (send doc-text paragraph-start-position line)))
-     (define doc-decls (send doc-trace get-sym-decls))
-     (define doc-bindings (send doc-trace get-sym-bindings))
-     (define decl (interval-map-ref doc-bindings pos #f))
-     (define refs
-       (match decl
-         [#f empty]
-         [(cons decl-left decl-right)
-          (define bindings (interval-map-ref doc-decls decl-left))
-          (if include-decl?
-              bindings
-              (set-remove bindings decl))]))
+     (define ranges (get-doc-refs uri line char include-decl?))
      (define result
-       (for/list ([r (in-set refs)])
-         (match-define (cons start end) r)
+       (for/list ([range (in-list ranges)])
          (Location #:uri uri
-                   #:range (Range #:start (abs-pos->Pos doc-text start)
-                                  #:end   (abs-pos->Pos doc-text end)))))
+                   #:range range)))
      (success-response id result)]
     [_
      (error-response id INVALID-PARAMS "textDocument/references failed")]))
@@ -174,31 +158,41 @@
 ;; Document Highlight request
 (define (document-highlight id params)
   (match params
-    ;; TODO: Use TextDocumentPositionParams interface?
     [(hash-table ['textDocument (DocIdentifier #:uri uri)]
                  ['position (Pos #:line line #:char char)])
-     (unless (uri-is-path? uri)
-       (error 'document-highlight "uri is not a path"))
-     (match-define (doc doc-text doc-trace)
-       (hash-ref open-docs (string->symbol uri)))
-     (define pos (+ char (send doc-text paragraph-start-position line)))
-     (define doc-decls (send doc-trace get-sym-decls))
-     (define doc-bindings (send doc-trace get-sym-bindings))
-     (define decl (interval-map-ref doc-bindings pos #f))
-     (define refs
-       (match decl
-         [#f empty]
-         [(cons decl-left decl-right)
-          (define bindings (interval-map-ref doc-decls decl-left))
-          (set-add bindings decl)]))
+     (define ranges (get-doc-refs uri line char #t))
      (define result
-       (for/list ([r (in-set refs)])
-         (match-define (cons start end) r)
-         (DocHighlight #:range (Range #:start (abs-pos->Pos doc-text start)
-                                      #:end   (abs-pos->Pos doc-text end)))))
+       (for/list ([range (in-list ranges)])
+         (DocHighlight #:range range)))
      (success-response id result)]
     [_
      (error-response id INVALID-PARAMS "textDocument/documentHighlight failed")]))
+
+;; Gets the document highlights for the current position and returns
+;; a list of Range objects containing those highlights. Right now this
+;; function is used by both 'references' and 'document-highlight' because
+;; there is currently no support for project-wide symbol references.
+(define (get-doc-refs uri line char include-decl?)
+  (unless (uri-is-path? uri)
+    (error 'get-doc-refs "uri is not a path"))
+  (match-define (doc doc-text doc-trace)
+    (hash-ref open-docs (string->symbol uri)))
+  (define doc-decls (send doc-trace get-sym-decls))
+  (define doc-bindings (send doc-trace get-sym-bindings))
+  (define pos (line/char->pos doc-text line char))
+  (define decl (interval-map-ref doc-bindings pos #f))
+  (define refs
+    (match decl
+      [#f empty]
+      [(cons decl-left decl-right)
+       (define bindings (interval-map-ref doc-decls decl-left))
+       (if include-decl?
+           (set-add bindings decl)
+           bindings)]))
+  (for/list ([rf (in-set refs)])
+    (match-define (cons start end) rf)
+    (Range  #:start (abs-pos->Pos doc-text start)
+            #:end   (abs-pos->Pos doc-text end))))
 
 ;; Document Symbol request
 (define (document-symbol id params)
