@@ -230,13 +230,12 @@
      (error-response id INVALID-PARAMS "textDocument/documentSymbol failed")]))
 
 ;; Wrapper for in-port, returns a list or EOF.
-(define (lexer-wrap lexer)
-  (λ (in)
-    (define-values (txt type paren? start end)
-      (lexer in))
-    (if (eof-object? txt)
-        eof
-        (list txt type paren? start end))))
+(define ((lexer-wrap lexer) in)
+  (define-values (txt type paren? start end)
+    (lexer in))
+  (if (eof-object? txt)
+      eof
+      (list txt type paren? start end)))
 
 ;; Call module-lexer on an input port, then discard all
 ;; values except the lexer.

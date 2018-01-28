@@ -109,7 +109,7 @@
                'hoverProvider #t
                'referencesProvider #t
                'documentHighlightProvider #t
-               'documentSymbolProvider #f))
+               'documentSymbolProvider #t))
      (define resp (success-response id (hasheq 'capabilities server-capabilities)))
      (set! already-initialized? #t)
      resp]
