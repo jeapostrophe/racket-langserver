@@ -14,7 +14,8 @@
          "error-codes.rkt"
          "interfaces.rkt"
          "json-util.rkt"
-         "responses.rkt")
+         "responses.rkt"
+         "symbol-kinds.rkt")
 
 (struct doc (text trace) #:transparent #:mutable)
 
@@ -210,11 +211,10 @@
                  ([lst (in-port (lexer-wrap lexer) in)])
          (match-define (list text type paren? start end) lst)
          (cond [(set-member? '(constant string symbol) type)
-                (define kind
-                  (match type
-                    ['constant 14]
-                    ['string 15]
-                    ['symbol 13]))
+                (define kind (match type
+                               ['constant SymbolKind-Constant]
+                               ['string SymbolKind-String]
+                               ['symbol SymbolKind-Variable]))
                 (define range
                   (Range #:start (abs-pos->Pos doc-text start)
                          #:end   (abs-pos->Pos doc-text end)))
