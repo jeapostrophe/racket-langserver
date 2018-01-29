@@ -19,7 +19,7 @@
       ['parse-json-error
        (define err "Invalid JSON was received by the server.")
        (display-message/flush (error-response (json-null) PARSE-ERROR err))]
-      ['parse-eof-error
+      [(? eof-object?)
        (eprintf "The server received unexpected EOF. Shutting down...\n")
        (exit 1)]
       [_

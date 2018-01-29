@@ -10,7 +10,7 @@
   (match (read-line in 'return-linefeed)
     ["" (with-handlers ([exn:fail:read? (λ (exn) 'parse-json-error)])
           (read-json in))]
-    [(? eof-object?) 'parse-eof-error]
+    [(? eof-object?) eof]
     [_ (read-message in)]))
 
 (define (display-message msg [out (current-output-port)])
@@ -31,7 +31,7 @@
  (contract-out
   [read-message (->* ()
                      (input-port?)
-                     (or/c jsexpr? 'parse-json-error 'parse-eof-error))]
+                     (or/c jsexpr? eof-object? 'parse-json-error))]
   [display-message (->* (jsexpr?)
                         (output-port?)
                         void?)]
