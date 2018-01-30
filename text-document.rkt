@@ -93,8 +93,8 @@
   (match-define (hash-table ['textDocument (DocIdentifier #:uri uri)]
                             ['contentChanges content-changes]) params)
   (when (uri-is-path? uri)
-    (define d (hash-ref open-docs (string->symbol uri)))
-    (define t (doc-text d))
+    (define this-doc (hash-ref open-docs (string->symbol uri)))
+    (match-define (doc doc-text _) this-doc)
     (define content-changes*
       (cond [(eq? (json-null) content-changes) empty]
             [(list? content-changes) content-changes]
@@ -104,17 +104,16 @@
         [(ContentChangeEvent #:range (Range #:start (Pos #:line st-ln #:char st-ch))
                              #:rangeLength range-ln
                              #:text text)
-         (define st-pos (line/char->pos t st-ln st-ch))
+         (define st-pos (line/char->pos doc-text st-ln st-ch))
          (define end-pos (+ st-pos range-ln))
-         (send t insert text st-pos end-pos)]
+         (send doc-text insert text st-pos end-pos)]
         [(ContentChangeEvent #:text text)
-         ;; TODO: is erase slower than doing it all in one insert?
-         (send t erase)
-         (send t insert text 0)]))
+         (send doc-text erase)
+         (send doc-text insert text 0)]))
     (define path (uri->path uri))
-    (define new-trace (check-syntax path (send t get-text)))
-    (eprintf "\n~a\n" (send t get-text))
-    (set-doc-trace! d new-trace)))
+    (define trace (check-syntax path (send doc-text get-text)))
+    (eprintf "\n~a\n" (send doc-text get-text))
+    (set-doc-trace! this-doc trace)))
 
 ;; Hover request
 ;; Returns an object conforming to the Hover interface, to
