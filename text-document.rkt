@@ -140,6 +140,28 @@
     [_
      (error-response id INVALID-PARAMS "textDocument/hover failed")]))
 
+;; Definition request
+(define (definition id params)
+  (match params
+    [(hash-table ['textDocument (DocIdentifier #:uri uri)]
+                 ['position (Pos #:line line #:char char)])
+     (unless (uri-is-path? uri)
+       (error 'definition "uri is not a path"))
+     (match-define (doc doc-text doc-trace)
+       (hash-ref open-docs (string->symbol uri)))
+     (define doc-bindings (send doc-trace get-sym-bindings))
+     (define pos (line/char->pos doc-text line char))
+     (define decl (interval-map-ref doc-bindings pos #f))
+     (eprintf "DECL: ~v\n" decl)
+     (define result
+       (match decl
+         [#f (json-null)]
+         [(cons start end)
+          (Location #:uri uri
+                    #:range (Range #:start (abs-pos->Pos doc-text start)
+                                   #:end   (abs-pos->Pos doc-text end)))]))
+     (success-response id result)]))
+
 ;; Reference request
 (define (references id params)
   (match params
@@ -254,6 +276,7 @@
   [did-close! (jsexpr? . -> . void?)]
   [did-change! (jsexpr? . -> . void?)]
   [hover (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]
+  [definition (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]
   [document-highlight (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]
   [references (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]
   [document-symbol (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]))

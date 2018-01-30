@@ -63,6 +63,8 @@
        (shutdown id)]
       ["textDocument/hover"
        (text-document/hover id params)]
+      ["textDocument/definition"
+       (text-document/definition id params)]
       ["textDocument/documentHighlight"
        (text-document/document-highlight id params)]
       ["textDocument/references"
@@ -106,6 +108,7 @@
      (define server-capabilities
        (hasheq 'textDocumentSync sync-options
                'hoverProvider #t
+               'definitionProvider #t
                'referencesProvider #t
                'documentHighlightProvider #t
                'documentSymbolProvider #t))
