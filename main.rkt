@@ -1,5 +1,6 @@
 #lang racket/base
 (require json
+         mzlib/cml
          racket/exn
          racket/match
          "error-codes.rkt"
@@ -7,26 +8,59 @@
          "msg-io.rkt"
          "responses.rkt")
 
+(struct Q (in-ch out-ch mgr-t))
+
+(define (queue)
+  (define in-ch (channel))
+  (define out-ch (channel))
+  (define (serve msgs)
+    (cond [(null? msgs)
+           (serve (list (sync (channel-recv-evt in-ch))))]
+          [else
+           (sync (choice-evt
+                  (wrap-evt
+                   (channel-recv-evt in-ch)
+                   (λ (m)
+                     (serve (append msgs (list m)))))
+                  (wrap-evt
+                   (channel-send-evt out-ch (car msgs))
+                   (λ (void)
+                     (serve (cdr msgs))))))]))
+  (define mgr-t (spawn (λ () (serve (list)))))
+  (Q in-ch out-ch mgr-t))
+
+(define (queue-send-evt q v)
+  (guard-evt
+   (λ ()
+     (thread-resume (Q-mgr-t q) (current-thread))
+     (channel-send-evt (Q-in-ch q) v))))
+
+(define (queue-recv-evt q)
+  (guard-evt
+   (λ ()
+     (thread-resume (Q-mgr-t q) (current-thread))
+     (channel-recv-evt (Q-out-ch q)))))
+
 (define (report-error exn)
   (eprintf "\nCaught exn:\n~a\n" (exn->string exn)))
 
 (define (main-loop)
-  (define msg (read-message))
-  (when (verbose-io?)
-    (eprintf "msg = ~v\n" msg))
-  (with-handlers ([exn:fail? report-error])
+  (define q (queue))
+  (define (consume)
+    (define msg (sync (queue-recv-evt q)))
     (match msg
       ['parse-json-error
        (define err "Invalid JSON was received by the server.")
        (display-message/flush (error-response (json-null) PARSE-ERROR err))]
-      [(? eof-object?)
-       (eprintf "The server received unexpected EOF. Shutting down...\n")
-       (exit 1)]
       [_
-       (process-message msg)]))
-  (when (verbose-io?)
-    (eprintf "====================\n"))
-  (main-loop))
+       (with-handlers ([exn:fail? report-error])
+         (process-message msg))])
+    (consume))
+  (spawn consume)
+  (for ([msg (in-port read-message)])
+    (sync (queue-send-evt q msg)))
+  (eprintf "Unexpected EOF\n")
+  (exit 1))
 
 (module+ main
   (main-loop))
