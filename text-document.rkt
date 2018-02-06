@@ -152,7 +152,6 @@
      (define doc-bindings (send doc-trace get-sym-bindings))
      (define pos (line/char->pos doc-text line char))
      (define decl (interval-map-ref doc-bindings pos #f))
-     (eprintf "DECL: ~v\n" decl)
      (define result
        (match decl
          [#f (json-null)]
