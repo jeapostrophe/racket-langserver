@@ -8,6 +8,8 @@
          "msg-io.rkt"
          "responses.rkt")
 
+;; https://www.cs.utah.edu/plt/publications/pldi04-ff.pdf
+
 (struct Q (in-ch out-ch mgr-t))
 
 (define (queue)
