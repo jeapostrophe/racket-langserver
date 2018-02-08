@@ -4,7 +4,8 @@
          "../msg-io.rkt")
 
 (define init-msg
-  (hasheq 'id 0
+  (hasheq 'jsonrpc "2.0"
+          'id 0
           'method "initialize"
           'params (hasheq 'processId (getpid)
                           'rootPath "/home/conor/racket-langserver/"
@@ -12,11 +13,13 @@
                           'capabilities (hasheq))))
 
 (define shutdown-msg
-  (hasheq 'id 1
+  (hasheq 'jsonrpc "2.0"
+          'id 1
           'method "shutdown"))
 
 (define exit-notf
-  (hasheq 'method "exit"))
+  (hasheq 'jsonrpc "2.0"
+          'method "exit"))
 
 (define ((forward-errors in))
   (for ([str (in-port read-line in)])
@@ -31,12 +34,14 @@
   (display-message/flush init-msg stdin)
   (let ([resp (read-message stdout)])
     (chk*
+     (chk #:= (hash-ref resp 'jsonrpc) "2.0")
      (chk #:= (hash-ref init-msg 'id) (hash-ref resp 'id))
      (chk (not (hash-ref resp 'error #f)))))
   ;; Shutdown request
   (display-message/flush shutdown-msg stdin)
   (let ([resp (read-message stdout)])
     (chk*
+     (chk #:= (hash-ref resp 'jsonrpc) "2.0")
      (chk #:= (hash-ref shutdown-msg 'id) (hash-ref resp 'id))
      (chk (not (hash-ref resp 'error #f)))))
   ;; Exit
