@@ -1,5 +1,6 @@
 #lang info
 (define collection "racket-langserver")
-(define deps '("base" "chk"))
+(define deps '("base"))
+(define build-deps '("chk"))
 (define pkg-desc "Language Server Protocol implementation for Racket.")
 (define version "0.0")
