@@ -27,8 +27,8 @@
   (match msg
     ;; Request
     [(hash-table ['id (? (or/c number? string?) id)]
-                 ['method (? string? method)]
-                 ['params (? jsexpr? params)])
+                 ['method (? string? method)])
+     (define params (hash-ref msg 'params hasheq))
      (define response (process-request id method params))
      (display-message/flush response)]
     ;; Notification
