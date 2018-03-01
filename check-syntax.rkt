@@ -58,8 +58,7 @@
                           'diagnostics diags)))
 
 (define ((report-syntax-error src) exn)
-    (define msg (exn-message exn))
-  (eprintf "\nCaught error during traversal:\n~a\n" msg)
+  (define msg (exn-message exn))
   (define get-srclocs (exn:srclocs-accessor exn))
   (define srclocs (get-srclocs exn))
   (define diags

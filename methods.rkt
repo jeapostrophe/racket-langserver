@@ -56,10 +56,8 @@
   (with-handlers ([exn:fail? (report-request-error id method)])
     (match method
       ["initialize"
-       (eprintf "Got initialize message\n")
        (initialize id params)]
       ["shutdown"
-       (eprintf "Got shutdown message\n")
        (shutdown id)]
       ["textDocument/hover"
        (text-document/hover id params)]
@@ -81,7 +79,6 @@
 (define (process-notification method params)
   (match method
     ["exit"
-     (eprintf "Got exit message\n")
      (exit (if already-shutdown? 0 1))]
     ["textDocument/didOpen"
      (text-document/did-open! params)]
@@ -89,8 +86,7 @@
      (text-document/did-close! params)]
     ["textDocument/didChange"
      (text-document/did-change! params)]
-    [_
-     (eprintf "Ignoring notification ~v\n" method)]))
+    [_ (void)]))
 
 ;;
 ;; Requests
