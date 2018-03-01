@@ -2,6 +2,8 @@
 (require json
          mzlib/cml
          racket/exn
+         racket/function
+         racket/list
          racket/match
          "append-message.rkt"
          "error-codes.rkt"
@@ -17,7 +19,7 @@
   (define in-ch (channel))
   (define out-ch (channel))
   (define (serve msgs)
-    (cond [(null? msgs)
+    (cond [(empty? msgs)
            (serve (list (sync (channel-recv-evt in-ch))))]
           [else
            (sync (choice-evt
@@ -26,10 +28,10 @@
                    (λ (m)
                      (serve (append-message msgs m))))
                   (wrap-evt
-                   (channel-send-evt out-ch (car msgs))
-                   (λ (void)
-                     (serve (cdr msgs))))))]))
-  (define mgr-t (spawn (λ () (serve (list)))))
+                   (channel-send-evt out-ch (first msgs))
+                   (thunk*
+                    (serve (rest msgs))))))]))
+  (define mgr-t (spawn (λ () (serve empty))))
   (Q in-ch out-ch mgr-t))
 
 (define (queue-send-evt q v)
