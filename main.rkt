@@ -1,10 +1,8 @@
 #lang racket/base
 (require json
          mzlib/cml
-         racket/contract/base
          racket/exn
          racket/match
-         syntax/parse/define
          "append-message.rkt"
          "error-codes.rkt"
          "methods.rkt"
