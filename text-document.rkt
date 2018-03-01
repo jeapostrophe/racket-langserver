@@ -10,6 +10,7 @@
          racket/string
          racket/set
          syntax-color/module-lexer
+         "append-message.rkt"
          "check-syntax.rkt"
          "error-codes.rkt"
          "interfaces.rkt"
@@ -110,10 +111,12 @@
         [(ContentChangeEvent #:text text)
          (send doc-text erase)
          (send doc-text insert text 0)]))
-    (define path (uri->path uri))
-    (define trace (check-syntax path (send doc-text get-text)))
-    (eprintf "\n~a\n" (send doc-text get-text))
-    (set-doc-trace! this-doc trace)))
+    ;; Only perform syntax check if the 'skip-syncheck' flag is *not*
+    ;; set. See 'append-message.rkt' for more info.
+    (unless (hash-ref params skip-syncheck #f)
+      (define path (uri->path uri))
+      (define trace (check-syntax path (send doc-text get-text)))
+      (set-doc-trace! this-doc trace))))
 
 ;; Hover request
 ;; Returns an object conforming to the Hover interface, to

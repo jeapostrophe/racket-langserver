@@ -1,8 +1,11 @@
 #lang racket/base
 (require json
          mzlib/cml
+         racket/contract/base
          racket/exn
          racket/match
+         syntax/parse/define
+         "append-message.rkt"
          "error-codes.rkt"
          "methods.rkt"
          "msg-io.rkt"
@@ -23,7 +26,7 @@
                   (wrap-evt
                    (channel-recv-evt in-ch)
                    (λ (m)
-                     (serve (append msgs (list m)))))
+                     (serve (append-message msgs m))))
                   (wrap-evt
                    (channel-send-evt out-ch (car msgs))
                    (λ (void)
