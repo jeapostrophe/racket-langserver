@@ -29,4 +29,8 @@
   [start any/c]
   [end any/c])
 
+(define-json-expander TextEdit
+  [range any/c]
+  [newText string?])
+
 (provide (all-defined-out))

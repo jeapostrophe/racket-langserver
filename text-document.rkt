@@ -13,6 +13,7 @@
          "append-message.rkt"
          "check-syntax.rkt"
          "error-codes.rkt"
+         "format.rkt"
          "interfaces.rkt"
          "json-util.rkt"
          "responses.rkt"
@@ -68,6 +69,10 @@
   [kind exact-positive-integer?]
   [location any/c])
 
+(define-json-expander FormattingOptions
+  [tabSize exact-nonnegative-integer?]
+  [insertSpaces boolean?])
+
 ;;
 ;; Methods
 ;;;;;;;;;;;;
@@ -120,7 +125,7 @@
 
 ;; Hover request
 ;; Returns an object conforming to the Hover interface, to
-;; be used as the result of the response message. 
+;; be used as the result of the response message.
 (define (hover id params)
   (match params
     [(hash-table ['textDocument (DocIdentifier #:uri uri)]
@@ -252,6 +257,53 @@
     [_
      (error-response id INVALID-PARAMS "textDocument/documentSymbol failed")]))
 
+;; Document Formatting request
+(define (formatting id params)
+  (match params
+    [(hash-table ['textDocument (DocIdentifier #:uri uri)]
+                 ['options (FormattingOptions #:tabSize tab-size)])
+     (unless (uri-is-path? uri)
+       (error 'document-symbol "uri is not a path"))
+     (match-define (doc doc-text _)
+                   (hash-ref open-docs (string->symbol uri)))
+     (define text (send doc-text get-text))
+     (define results
+       (match (format text #:tab-size tab-size)
+         [(list new-text new-start new-end)
+          (list (TextEdit #:range (Range #:start (abs-pos->Pos doc-text new-start)
+                                         #:end (abs-pos->Pos  doc-text new-end))
+                          #:newText new-text))]))
+     (success-response id results)]
+    [_
+     (error-response id INVALID-PARAMS "textDocument/formatting failed")]))
+
+;; Document Range Formatting request
+(define (range-formatting id params)
+  (match params
+    [(hash-table ['textDocument (DocIdentifier #:uri uri)]
+                 ['options (FormattingOptions #:tabSize tab-size)]
+                 ['range (Range #:start (Pos #:line start-ln #:char start-ch)
+                                #:end (Pos #:line end-ln #:char end-ch))])
+     (unless (uri-is-path? uri)
+       (error 'document-symbol "uri is not a path"))
+     (match-define (doc doc-text _)
+                   (hash-ref open-docs (string->symbol uri)))
+     (define range (match params
+                     [(hash-table ['range range]) range]
+                     [_ #t]))
+     (define text (send doc-text get-text))
+     (define start (line/char->pos doc-text start-ln start-ch))
+     (define end (line/char->pos doc-text end-ln end-ch))
+     (define results
+       (match (format text #:start start #:end end #:tab-size tab-size)
+         [(list new-text new-start new-end)
+          (list (TextEdit #:range (Range #:start (abs-pos->Pos doc-text new-start)
+                                         #:end (abs-pos->Pos doc-text new-end))
+                          #:newText new-text))]))
+     (success-response id results)]
+    [_
+     (error-response id INVALID-PARAMS "textDocument/rangeFormatting failed")]))
+
 ;; Wrapper for in-port, returns a list or EOF.
 (define ((lexer-wrap lexer) in)
   (define-values (txt type paren? start end)
@@ -281,4 +333,6 @@
   [definition (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]
   [document-highlight (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]
   [references (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]
-  [document-symbol (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]))
+  [document-symbol (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]
+  [formatting (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]
+  [range-formatting (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]))

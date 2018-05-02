@@ -1,6 +1,7 @@
 #lang info
 (define collection "racket-langserver")
 (define deps '("base"
+               "beautiful-racket"
                "compatibility-lib"
                "data-lib"
                "drracket-tool-lib"
