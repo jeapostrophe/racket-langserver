@@ -11,13 +11,14 @@
      (with-syntax ([(key_ ...) (generate-temporaries #'(key ...))]
                    [(keyword ...)
                     (for/list ([k (syntax->datum #'(key ...))])
-                      (string->keyword (symbol->string k)))])
+                      (string->keyword (symbol->string k)))]
+                   [??-id (quote-syntax ??)])
        (syntax/loc stx
          (define-match-expander name
            (λ (stx)
              (syntax-parse stx
                [(_ (~optional (~seq keyword key_)) ...)
-                (quasitemplate/loc stx (hash-table (?? ['key (? ctc key_)]) ...))]))
+                (quasitemplate/loc stx (hash-table (??-id ['key (? ctc key_)]) ...))]))
            (λ (stx)
              (syntax-parse stx
                [(_ (~optional (~seq keyword key_)) ...)
