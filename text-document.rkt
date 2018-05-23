@@ -162,7 +162,9 @@
           (Location #:uri uri
                     #:range (Range #:start (abs-pos->Pos doc-text start)
                                    #:end   (abs-pos->Pos doc-text end)))]))
-     (success-response id result)]))
+     (success-response id result)]
+    [_
+     (error-response id INVALID-PARAMS "textDocument/definition failed")]))
 
 ;; Reference request
 (define (references id params)
