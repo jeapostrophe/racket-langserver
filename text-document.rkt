@@ -129,7 +129,7 @@
 
 ;; Hover request
 ;; Returns an object conforming to the Hover interface, to
-;; be used as the result of the response message. 
+;; be used as the result of the response message.
 (define (hover id params)
   (match params
     [(hash-table ['textDocument (DocIdentifier #:uri uri)]
@@ -240,26 +240,32 @@
      (define in (open-input-string (send doc-text get-text)))
      (port-count-lines! in)
      (define lexer (get-lexer in))
-     (define results
-       (for/fold ([out empty])
-                 ([lst (in-port (lexer-wrap lexer) in)])
-         (match-define (list text type paren? start end) lst)
-         (cond [(set-member? '(constant string symbol) type)
-                (define kind (match type
-                               ['constant SymbolKind-Constant]
-                               ['string SymbolKind-String]
-                               ['symbol SymbolKind-Variable]))
-                (define range
-                  (Range #:start (abs-pos->Pos doc-text start)
-                         #:end   (abs-pos->Pos doc-text end)))
-                (define sym-info
-                  (SymbolInfo #:name text
-                              #:kind kind
-                              #:location (Location #:uri uri
-                                                   #:range range)))
-                (cons sym-info out)]
-               [else out])))
-     (success-response id results)]
+     (cond
+       [(not (procedure? lexer)) (success-response id '())]
+       [else
+        (define after-define? (box #f))
+        (define results
+          (for/fold ([out empty])
+                    ([lst (in-port (lexer-wrap lexer) in)])
+            (match-define (list text type paren? start end) lst)
+            (cond [(eq? 'symbol type)
+                    (cond [(set-member? '("define" "define-type" "define-syntax") text)
+                          (set-box! after-define? #t)
+                          out]
+                          [(unbox after-define?)
+                          (set-box! after-define? #f)
+                          (define range
+                            (Range #:start (abs-pos->Pos doc-text start)
+                                    #:end   (abs-pos->Pos doc-text end)))
+                          (define sym-info
+                            (SymbolInfo #:name text
+                                        #:kind SymbolKind-Function
+                                        #:location (Location #:uri uri
+                                                              #:range range)))
+                          (cons sym-info out)]
+                          [else out])]
+                  [else out])))
+        (success-response id results)])]
     [_
      (error-response id INVALID-PARAMS "textDocument/documentSymbol failed")]))
 
@@ -277,9 +283,7 @@
   (match-define-values
     (_ _ _ _ _ _ lexer)
     (module-lexer in 0 #f))
-  (if (procedure? lexer) ;; TODO: Is this an issue with module-lexer docs?
-      lexer
-      (error 'get-lexer "~v" lexer)))
+  lexer)
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
