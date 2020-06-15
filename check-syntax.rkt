@@ -31,11 +31,19 @@
            src))
     ;; Mouse-over status
     (define/override (syncheck:add-mouse-over-status src-obj start finish text)
+      ;; Infer a length of 1 for zero-length ranges in the document.
+      ;; XXX This might not exactly match the behavior in DrRacket.
+      (when (= start finish)
+        (set! finish (add1 finish)))
       (interval-map-set! hovers start finish text))
     ;; References
     (define/override (syncheck:add-arrow start-src-obj start-left start-right
                                          end-src-obj end-left end-right
                                          actual? phase-level)
+      (when (= start-left start-right)
+        (set! start-right (add1 start-right)))
+      (when (= end-left end-right)
+        (set! end-right (add1 end-right)))
       ;; Mapping from doc declaration to set of bindings.
       (define prev-bindings (interval-map-ref sym-decls start-left set))
       (define new-bindings (set-add prev-bindings (cons end-left end-right)))
