@@ -62,6 +62,11 @@
           'params (hasheq 'uri uri
                           'diagnostics diags)))
 
+(define Diag-Error 1)
+(define Diag-Warning 2)
+(define Diag-Information 3)
+(define Diag-Hint 4)
+
 (define ((report-syntax-error src) exn)
   (define msg (exn-message exn))
   (define get-srclocs (exn:srclocs-accessor exn))
@@ -71,7 +76,7 @@
       (match-define (srcloc src line col pos span) sl)
       (Diagnostic #:range (Range #:start (Pos #:line (sub1 line) #:char col)
                                  #:end   (Pos #:line (sub1 line) #:char (+ col span)))
-                  #:severity 4
+                  #:severity Diag-Error
                   #:source "Racket"
                   #:message msg)))
   (display-message/flush
