@@ -13,13 +13,15 @@
 (define (path->uri path)
   (string-append "file://" path))
 
+(struct Decl (require? left right) #:transparent)
+
 (define build-trace%
   (class (annotations-mixin object%)
     (init-field src)
     (define hovers (make-interval-map))
-    ;; pos -> (set pos ...)
+    ;; decl -> (set pos ...)
     (define sym-decls (make-interval-map))
-    ;; pos -> pos
+    ;; pos -> decl
     (define sym-bindings (make-interval-map))
     ;; Getters
     (define/public (get-hovers) hovers)
@@ -37,9 +39,10 @@
         (set! finish (add1 finish)))
       (interval-map-set! hovers start finish text))
     ;; References
-    (define/override (syncheck:add-arrow start-src-obj start-left start-right
-                                         end-src-obj end-left end-right
-                                         actual? phase-level)
+    (define/override (syncheck:add-arrow/name-dup start-src-obj start-left start-right
+                                                  end-src-obj end-left end-right
+                                                  actual? phase-level
+                                                  require-arrow? name-dup?)
       (when (= start-left start-right)
         (set! start-right (add1 start-right)))
       (when (= end-left end-right)
@@ -49,11 +52,8 @@
       (define new-bindings (set-add prev-bindings (cons end-left end-right)))
       (interval-map-set! sym-decls start-left start-right new-bindings)
       ;; Mapping from binding to declaration.
-      (define new-decl (cons start-left start-right))
-      (interval-map-set! sym-bindings end-left end-right new-decl)
-      ;; Each decl is considered to be bound to itself
-      ;; i.e. it is a key in map from doc positions to declarations.
-      (interval-map-set! sym-bindings start-left start-right new-decl))
+      (define new-decl (Decl require-arrow? start-left start-right))
+      (interval-map-set! sym-bindings end-left end-right new-decl))
     (super-new)))
 
 (define (diagnostics-message uri diags)
@@ -101,4 +101,7 @@
 
 (provide
  (contract-out
-  [check-syntax (any/c string? . -> . (is-a?/c build-trace%))]))
+  [struct Decl ([require? any/c]
+                [left exact-nonnegative-integer?]
+                [right exact-nonnegative-integer?])]
+  [check-syntax (-> any/c string? (is-a?/c build-trace%))]))

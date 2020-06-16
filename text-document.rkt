@@ -167,7 +167,7 @@
      (define result
        (match decl
          [#f (json-null)]
-         [(cons start end)
+         [(Decl _ start end)
           (Location #:uri uri
                     #:range (Range #:start (abs-pos->Pos doc-text start)
                                    #:end   (abs-pos->Pos doc-text end)))]))
@@ -215,19 +215,33 @@
   (define doc-decls (send doc-trace get-sym-decls))
   (define doc-bindings (send doc-trace get-sym-bindings))
   (define pos (line/char->pos doc-text line char))
-  (define decl (interval-map-ref doc-bindings pos #f))
-  (define refs
+  (define (refs-from-decl decl-left decl-right bindings)
+    (if include-decl?
+        (set-add bindings (cons decl-left decl-right))
+        bindings))
+  (define (refs-from-binding)
+    (define-values (use-left use-right decl)
+      (interval-map-ref/bounds doc-bindings pos #f))
     (match decl
-      [#f empty]
-      [(cons decl-left decl-right)
-       (define bindings (interval-map-ref doc-decls decl-left))
-       (if include-decl?
-           (set-add bindings decl)
-           bindings)]))
+      [#f (set)]
+      [(Decl require? decl-left decl-right)
+       (cond [(and require? include-decl?)
+              (set (cons decl-left decl-right) (cons use-left use-right))]
+             [require? (set (cons use-left use-right))]
+             [else
+              (define bindings (interval-map-ref doc-decls decl-left))
+              (if include-decl?
+                  (set-add bindings (cons decl-left decl-right))
+                  bindings)])]))
+  (define-values (decl-left decl-right bindings)
+    (interval-map-ref/bounds doc-decls pos #f))
+  (define refs (if bindings
+                   (refs-from-decl decl-left decl-right bindings)
+                   (refs-from-binding)))
   (for/list ([rf (in-set refs)])
     (match-define (cons start end) rf)
-    (Range  #:start (abs-pos->Pos doc-text start)
-            #:end   (abs-pos->Pos doc-text end))))
+    (Range #:start (abs-pos->Pos doc-text start)
+           #:end   (abs-pos->Pos doc-text end))))
 
 ;; Document Symbol request
 (define (document-symbol id params)
