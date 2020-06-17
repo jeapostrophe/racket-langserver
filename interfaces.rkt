@@ -1,6 +1,7 @@
 #lang racket/base
 (require (for-syntax racket/base
                      syntax/parse)
+                     racket/class
          racket/contract/base
          racket/match
          "json-util.rkt")
@@ -28,5 +29,14 @@
 (define-json-expander Range
   [start any/c]
   [end any/c])
+
+(define (abs-pos->Pos t pos)
+  (define line (send t position-paragraph pos))
+  (define line-begin (send t paragraph-start-position line))
+  (define char (- pos line-begin))
+  (Pos #:line line #:char char))
+
+(define (line/char->pos t line char)
+  (+ char (send t paragraph-start-position line)))
 
 (provide (all-defined-out))

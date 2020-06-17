@@ -35,15 +35,6 @@
        [else (string-append "//" (substring uri 7))])]
     [else (substring uri 7)]))
 
-(define (abs-pos->Pos t pos)
-  (define line (send t position-paragraph pos))
-  (define line-begin (send t paragraph-start-position line))
-  (define char (- pos line-begin))
-  (Pos #:line line #:char char))
-
-(define (line/char->pos t line char)
-  (+ char (send t paragraph-start-position line)))
-
 ;;
 ;; Match Expanders
 ;;;;;;;;;;;;;;;;;;;;
@@ -89,9 +80,9 @@
     ;; TODO: send user diagnostic or something
     (error 'did-open "uri is not a path."))
   (define path (uri->path uri))
-  (define trace (check-syntax path text))
   (define doc-text (new text%))
   (send doc-text insert text 0)
+  (define trace (check-syntax path doc-text))
   (hash-set! open-docs (string->symbol uri) (doc doc-text trace)))
 
 (define (did-close! params)
@@ -124,7 +115,7 @@
     ;; set. See 'append-message.rkt' for more info.
     (unless (hash-ref params skip-syncheck #f)
       (define path (uri->path uri))
-      (define trace (check-syntax path (send doc-text get-text)))
+      (define trace (check-syntax path doc-text))
       (set-doc-trace! this-doc trace))))
 
 ;; Hover request
