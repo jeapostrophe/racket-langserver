@@ -84,7 +84,7 @@
   (for/list ([sl (in-list srclocs)])
     (match-define (srcloc src line col pos span) sl)
     (Diagnostic #:range (Range #:start (Pos #:line (sub1 line) #:char col)
-                              #:end   (Pos #:line (sub1 line) #:char (+ col span)))
+                               #:end   (Pos #:line (sub1 line) #:char (+ col span)))
                 #:severity Diag-Error
                 #:source "Racket"
                 #:message msg)))
@@ -100,12 +100,12 @@
   (port-count-lines! in)
   (define err-diags
     (parameterize ([current-annotations trace]
-                 [current-namespace ns]
-                 [current-load-relative-directory src-dir])
+                   [current-namespace ns]
+                   [current-load-relative-directory src-dir])
       (with-handlers ([(or/c exn:fail:read? exn:fail:syntax?)
                        (error-diagnostics src)])
         (define stx (with-module-reading-parameterization
-                        (λ () (read-syntax src in))))
+                      (λ () (read-syntax src in))))
         (add-syntax (expand stx))
         (done)
         (list))))
