@@ -1,10 +1,10 @@
 #lang racket/base
 (require (for-syntax racket/base)
          data/interval-map
+         framework
          json
          racket/class
          racket/contract/base
-         racket/gui/base
          racket/list
          racket/match
          racket/string
@@ -80,7 +80,7 @@
     ;; TODO: send user diagnostic or something
     (error 'did-open "uri is not a path."))
   (define path (uri->path uri))
-  (define doc-text (new text%))
+  (define doc-text (new racket:text%))
   (send doc-text insert text 0)
   (define trace (check-syntax path doc-text))
   (hash-set! open-docs (string->symbol uri) (doc doc-text trace)))

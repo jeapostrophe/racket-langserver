@@ -22,7 +22,7 @@
 
 (define build-trace%
   (class (annotations-mixin object%)
-    (init-field src doc-text)
+    (init-field src doc-text indenter)
     (define warn-diags (mutable-seteq))
     (define hovers (make-interval-map))
     ;; decl -> (set pos ...)
@@ -30,6 +30,7 @@
     ;; pos -> decl
     (define sym-bindings (make-interval-map))
     ;; Getters
+    (define/public (get-indenter) indenter)
     (define/public (get-warn-diags) warn-diags)
     (define/public (get-hovers) hovers)
     (define/public (get-sym-decls) sym-decls)
@@ -89,9 +90,20 @@
                 #:source "Racket"
                 #:message msg)))
 
+;; XXX Look into failure cases with this.
+;; XXX Does this work with (#%module ...) syntax?
+(define (get-indenter doc-text)
+  (define lang-line-end (send doc-text paragraph-end-position 0))
+  (define lang-line (send doc-text get-text 0 lang-line-end))
+  (define in (open-input-string lang-line))
+  (define get-info (read-language in))
+  (and get-info (get-info 'drracket:indentation #f)))
+
 (define (check-syntax src doc-text)
+  (define indenter (get-indenter doc-text))
   (define ns (make-base-namespace))
-  (define trace (new build-trace% [src src] [doc-text doc-text]))
+  (define trace 
+    (new build-trace% [src src] [doc-text doc-text] [indenter indenter]))
   (match-define-values (src-dir _ #f)
     (split-path src))
   (define-values (add-syntax done)
