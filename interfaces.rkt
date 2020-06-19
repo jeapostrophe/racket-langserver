@@ -36,6 +36,10 @@
   (define char (- pos line-begin))
   (Pos #:line line #:char char))
 
+(define (Pos->abs-pos t pos)
+  (match-define (Pos #:line line #:char char) pos)
+  (line/char->pos t line char))
+
 (define (line/char->pos t line char)
   (+ char (send t paragraph-start-position line)))
 

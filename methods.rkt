@@ -69,6 +69,8 @@
        (text-document/references id params)]
       ["textDocument/documentSymbol"
        (text-document/document-symbol id params)]
+      ["textDocument/rangeFormatting"
+       (text-document/range-formatting id params)]
       [_
        (eprintf "invalid request for method ~v\n" method)
        (define err (format "The method ~v was not found" method))
@@ -107,7 +109,10 @@
                'definitionProvider #t
                'referencesProvider #t
                'documentHighlightProvider #t
-               'documentSymbolProvider #t))
+               'documentSymbolProvider #t
+               ;; XXX: implement non-range formatting
+               'documentFormattingProvider #f
+               'documentRangeFormattingProvider #t))
      (define resp (success-response id (hasheq 'capabilities server-capabilities)))
      (set! already-initialized? #t)
      resp]
