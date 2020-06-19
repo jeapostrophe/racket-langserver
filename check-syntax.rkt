@@ -3,6 +3,7 @@
          drracket/check-syntax
          racket/class
          racket/contract/base
+         racket/function
          racket/gui/base
          racket/match
          racket/set
@@ -90,22 +91,22 @@
                 #:source "Racket"
                 #:message msg)))
 
-;; XXX Look into failure cases with this.
-;; XXX Does this work with (#%module ...) syntax?
+;; XXX Want to use read-language for this, but can't just assume this
+;; XXX is the first line because there might be comments.
+;; XXX Look into ways to efficiently read from doc-text like a port.
+;; XXX (This would make get-lexer faster too.)
+;; XXX For now, use default indentation for everything (until we support
+;; XXX custom #langs).
 (define (get-indenter doc-text)
-  (define lang-line-end (send doc-text paragraph-end-position 0))
-  (define lang-line (send doc-text get-text 0 lang-line-end))
-  (define in (open-input-string lang-line))
-  (define get-info (read-language in))
-  (and get-info (get-info 'drracket:indentation #f)))
+  #f)
 
 (define (check-syntax src doc-text)
   (define indenter (get-indenter doc-text))
   (define ns (make-base-namespace))
-  (define trace 
+  (define trace
     (new build-trace% [src src] [doc-text doc-text] [indenter indenter]))
   (match-define-values (src-dir _ #f)
-    (split-path src))
+                       (split-path src))
   (define-values (add-syntax done)
     (make-traversal ns src))
   (define in (open-input-string (send doc-text get-text)))
