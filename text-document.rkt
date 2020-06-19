@@ -287,7 +287,8 @@
      (define start-line (send doc-text position-paragraph start-pos))
      (define end-line (send doc-text position-paragraph end-pos))
      (define results
-       (for/list ([line (in-range start-line (add1 end-line))])
+       (for/fold ([out empty])
+                 ([line (in-range start-line (add1 end-line))])
          (define line-start (send doc-text paragraph-start-position line))
          (define line-end (send doc-text paragraph-end-position line))
          (define line-text (send doc-text get-text line-start line-end))
@@ -303,13 +304,22 @@
                (indenter doc-text abs-pos)
                (send doc-text compute-racket-amount-to-indent abs-pos)))
          (define pos (Pos #:line line #:char 0))
-         (if (<= current-spaces desired-spaces)
-             (TextEdit #:range (Range #:start pos #:end pos)
-                       #:newText (make-string (- desired-spaces current-spaces) #\space))
-             (TextEdit #:range (Range #:start pos
-                                      #:end (Pos #:line line
-                                                 #:char (- current-spaces desired-spaces)))
-                       #:newText ""))))
+         (cond
+           [(= current-spaces desired-spaces) out]
+           [(< current-spaces desired-spaces)
+            (define edit
+              (TextEdit
+               #:range (Range #:start pos #:end pos)
+               #:newText (make-string (- desired-spaces current-spaces) #\space)))
+            (cons edit out)]
+           [else
+            (define edit
+              (TextEdit
+               #:range (Range #:start pos
+                              #:end (Pos #:line line
+                                         #:char (- current-spaces desired-spaces)))
+               #:newText ""))
+            (cons edit out)])))
      (success-response id results)]
     [_
      (error-response id INVALID-PARAMS "textDocument/rangeFormatting failed")]))
