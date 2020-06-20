@@ -321,14 +321,12 @@
      (define insert-count (- desired-spaces current-spaces))
      (define new-text (make-string insert-count #\space))
      (define pos (Pos #:line line #:char 0))
-     (eprintf "inserting: ~v\n" new-text)
      (send doc-text insert new-text line-start 'same)
      (TextEdit #:range (Range #:start pos #:end pos)
                #:newText new-text)]
     [else
      ;; Delete spaces
      (define span (- current-spaces desired-spaces))
-     (eprintf "deleting: ~v\n" (send doc-text get-text line-start (+ line-start span)))
      (send doc-text delete line-start (+ line-start span))
      (TextEdit #:range (Range #:start (Pos #:line line #:char 0)
                               #:end   (Pos #:line line #:char span))
