@@ -112,7 +112,7 @@
                'documentSymbolProvider #t
                ;; XXX: implement non-range formatting
                'documentFormattingProvider #f
-               'documentRangeFormattingProvider #t))
+               'documentRangeFormattingProvider #f))
      (define resp (success-response id (hasheq 'capabilities server-capabilities)))
      (set! already-initialized? #t)
      resp]
