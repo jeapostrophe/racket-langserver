@@ -272,6 +272,7 @@
     [_
      (error-response id INVALID-PARAMS "textDocument/documentSymbol failed")]))
 
+;; Range formatting request
 (define (range-formatting id params)
   (match params
     ;; XXX We're ignoring 'options for now
@@ -307,17 +308,23 @@
          (cond
            [(= current-spaces desired-spaces) out]
            [(< current-spaces desired-spaces)
+            (define new-text
+              (make-string (- desired-spaces current-spaces) #\space))
             (define edit
               (TextEdit
                #:range (Range #:start pos #:end pos)
-               #:newText (make-string (- desired-spaces current-spaces) #\space)))
+               #:newText new-text))
+            (define abs-pos (Pos->abs-pos doc-text pos))
+            (send doc-text insert new-text abs-pos abs-pos)
             (cons edit out)]
            [else
+            (define span (- current-spaces desired-spaces))
+            (define abs-pos (Pos->abs-pos doc-text pos))
+            (send doc-text insert "" abs-pos (+ abs-pos span))
             (define edit
               (TextEdit
                #:range (Range #:start pos
-                              #:end (Pos #:line line
-                                         #:char (- current-spaces desired-spaces)))
+                              #:end (Pos #:line line #:char span))
                #:newText ""))
             (cons edit out)])))
      (success-response id results)]
