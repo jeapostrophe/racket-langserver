@@ -272,14 +272,14 @@
     [_
      (error-response id INVALID-PARAMS "textDocument/documentSymbol failed")]))
 
-;; Range formatting request
-(define (range-formatting id params)
+;; Range Formatting request
+(define (range-formatting! id params)
   (match params
-    ;; XXX We're ignoring 'options for now
+    ;; XXX We're ignoring 'options' for now
     [(hash-table ['textDocument (DocIdentifier #:uri uri)]
-                 ['range (Range #:start start #:end end)])
+                 ['range (Range  #:start start #:end end)])
      (unless (uri-is-path? uri)
-       (error 'range-formatting "uri is not a path"))
+       (error 'range-formatting! "uri is not a path"))
      (match-define (doc doc-text doc-trace)
        (hash-ref open-docs (string->symbol uri)))
      (define indenter (send doc-trace get-indenter))
@@ -288,48 +288,51 @@
      (define start-line (send doc-text position-paragraph start-pos))
      (define end-line (send doc-text position-paragraph end-pos))
      (define results
-       (for/fold ([out empty])
-                 ([line (in-range start-line (add1 end-line))])
-         (define line-start (send doc-text paragraph-start-position line))
-         (define line-end (send doc-text paragraph-end-position line))
-         (define line-text (send doc-text get-text line-start line-end))
-         (define line-text-length (string-length line-text))
-         (define current-spaces
-           (let loop ([i 0])
-             (cond [(= i line-text-length) line-text-length]
-                   [(char=? (string-ref line-text i) #\space) (loop (add1 i))]
-                   [else i])))
-         (define abs-pos (line/char->pos doc-text line 0))
-         (define desired-spaces
-           (if indenter
-               (indenter doc-text abs-pos)
-               (send doc-text compute-racket-amount-to-indent abs-pos)))
-         (define pos (Pos #:line line #:char 0))
-         (cond
-           [(= current-spaces desired-spaces) out]
-           [(< current-spaces desired-spaces)
-            (define new-text
-              (make-string (- desired-spaces current-spaces) #\space))
-            (define edit
-              (TextEdit
-               #:range (Range #:start pos #:end pos)
-               #:newText new-text))
-            (define abs-pos (Pos->abs-pos doc-text pos))
-            (send doc-text insert new-text abs-pos abs-pos)
-            (cons edit out)]
-           [else
-            (define span (- current-spaces desired-spaces))
-            (define abs-pos (Pos->abs-pos doc-text pos))
-            (send doc-text insert "" abs-pos (+ abs-pos span))
-            (define edit
-              (TextEdit
-               #:range (Range #:start pos
-                              #:end (Pos #:line line #:char span))
-               #:newText ""))
-            (cons edit out)])))
+       (let loop ([line start-line])
+         (if (> line end-line)
+             null
+             (let ([edit (indent-line! doc-text indenter line)])
+               (if edit
+                   (cons edit (loop (add1 line)))
+                   (loop (add1 line)))))))
      (success-response id results)]
     [_
      (error-response id INVALID-PARAMS "textDocument/rangeFormatting failed")]))
+
+;; Returns a TextEdit, or #f if the line is already correct.
+(define (indent-line! doc-text indenter line)
+  (define line-start (send doc-text paragraph-start-position line))
+  (define line-end (send doc-text paragraph-end-position line))
+  (define line-text (send doc-text get-text line-start line-end))
+  (define line-length (string-length line-text))
+  (define current-spaces
+    (let loop ([i 0])
+      (cond [(= i line-length) i]
+            [(char=? (string-ref line-text i) #\space) (loop (add1 i))]
+            [else i])))
+  (define desired-spaces
+    (if indenter
+        (indenter doc-text line-start)
+        (send doc-text compute-racket-amount-to-indent line-start)))
+  (cond
+    [(= current-spaces desired-spaces) #f]
+    [(< current-spaces desired-spaces)
+     ;; Insert spaces
+     (define insert-count (- desired-spaces current-spaces))
+     (define new-text (make-string insert-count #\space))
+     (define pos (Pos #:line line #:char 0))
+     (eprintf "inserting: ~v\n" new-text)
+     (send doc-text insert new-text line-start 'same)
+     (TextEdit #:range (Range #:start pos #:end pos)
+               #:newText new-text)]
+    [else
+     ;; Delete spaces
+     (define span (- current-spaces desired-spaces))
+     (eprintf "deleting: ~v\n" (send doc-text get-text line-start (+ line-start span)))
+     (send doc-text delete line-start (+ line-start span))
+     (TextEdit #:range (Range #:start (Pos #:line line #:char 0)
+                              #:end   (Pos #:line line #:char span))
+               #:newText "")]))
 
 ;; Wrapper for in-port, returns a list or EOF.
 (define ((lexer-wrap lexer) in)
@@ -361,4 +364,4 @@
   [document-highlight (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]
   [references (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]
   [document-symbol (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]
-  [range-formatting (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]))
+  [range-formatting! (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]))
