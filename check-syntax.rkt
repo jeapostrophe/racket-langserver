@@ -3,7 +3,6 @@
          drracket/check-syntax
          racket/class
          racket/contract/base
-         racket/function
          racket/gui/base
          racket/match
          racket/set
@@ -106,7 +105,7 @@
   (define trace
     (new build-trace% [src src] [doc-text doc-text] [indenter indenter]))
   (match-define-values (src-dir _ #f)
-                       (split-path src))
+    (split-path src))
   (define-values (add-syntax done)
     (make-traversal ns src))
   (define in (open-input-string (send doc-text get-text)))
