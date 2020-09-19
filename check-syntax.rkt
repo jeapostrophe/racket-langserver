@@ -7,11 +7,11 @@
          racket/match
          racket/set
          syntax/modread
+         (only-in net/url path->url url->string)
          "interfaces.rkt"
          "msg-io.rkt")
 
-(define (path->uri path)
-  (string-append "file://" path))
+(define path->uri (compose url->string path->url))
 
 (struct Decl (require? left right) #:transparent)
 
