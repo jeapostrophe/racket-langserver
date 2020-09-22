@@ -80,15 +80,30 @@
 
 (define ((error-diagnostics src) exn)
   (define msg (exn-message exn))
-  (define get-srclocs (exn:srclocs-accessor exn))
-  (define srclocs (get-srclocs exn))
-  (for/list ([sl (in-list srclocs)])
-    (match-define (srcloc src line col pos span) sl)
-    (Diagnostic #:range (Range #:start (Pos #:line (sub1 line) #:char col)
-                               #:end   (Pos #:line (sub1 line) #:char (+ col span)))
-                #:severity Diag-Error
-                #:source "Racket"
-                #:message msg)))
+  (cond 
+    [(exn:srclocs? exn)
+     (define srclocs ((exn:srclocs-accessor exn) exn))
+     (for/list ([sl (in-list srclocs)])
+       (match-define (srcloc src line col pos span) sl)
+       (Diagnostic #:range (Range #:start (Pos #:line (sub1 line) #:char col)
+                                  #:end   (Pos #:line (sub1 line) #:char (+ col span)))
+                   #:severity Diag-Error
+                   #:source "Racket"
+                   #:message msg))]
+    [(exn:missing-module? exn)
+     ;; Hack:
+     ;; We do not have any source location for the offending `require`, but the language 
+     ;; server protocol requires a valid range object.  So we punt and just highlight the 
+     ;; first character.
+     ;; This is very close to DrRacket's behavior:  it also has no source location to work with, 
+     ;; however it simply doesn't highlight any code.
+     (define silly-range 
+      (Range #:start (Pos #:line 0 #:char 0) #:end (Pos #:line 0 #:char 0)))
+     (list (Diagnostic #:range silly-range
+                       #:severity Diag-Error 
+                       #:source "Racket"
+                       #:message msg))]
+      [else (error 'error-diagnostics "unexpected failure: ~a" exn)]))
 
 ;; XXX Want to use read-language for this, but can't just assume this
 ;; XXX is the first line because there might be comments.
@@ -114,7 +129,7 @@
     (parameterize ([current-annotations trace]
                    [current-namespace ns]
                    [current-load-relative-directory src-dir])
-      (with-handlers ([(or/c exn:fail:read? exn:fail:syntax?)
+      (with-handlers ([(or/c exn:fail:read? exn:fail:syntax? exn:fail:filesystem?)
                        (error-diagnostics src)])
         (define stx (with-module-reading-parameterization
                       (λ () (read-syntax src in))))
