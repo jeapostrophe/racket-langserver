@@ -10,6 +10,7 @@
          racket/string
          racket/set
          syntax-color/module-lexer
+         syntax-color/default-lexer
          "append-message.rkt"
          "check-syntax.rkt"
          "error-codes.rkt"
@@ -348,7 +349,9 @@
     (module-lexer in 0 #f))
   (if (procedure? lexer) ;; TODO: Is this an issue with module-lexer docs?
       lexer
-      (error 'get-lexer "~v" lexer)))
+      (if (eq? lexer 'no-lang-line)
+          default-lexer
+          (error 'get-lexer "~v" lexer))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
