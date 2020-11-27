@@ -80,7 +80,7 @@
 
 (define ((error-diagnostics src) exn)
   (define msg (exn-message exn))
-  (cond 
+  (cond
     [(exn:srclocs? exn)
      (define srclocs ((exn:srclocs-accessor exn) exn))
      (for/list ([sl (in-list srclocs)])
@@ -92,15 +92,15 @@
                    #:message msg))]
     [(exn:missing-module? exn)
      ;; Hack:
-     ;; We do not have any source location for the offending `require`, but the language 
-     ;; server protocol requires a valid range object.  So we punt and just highlight the 
+     ;; We do not have any source location for the offending `require`, but the language
+     ;; server protocol requires a valid range object.  So we punt and just highlight the
      ;; first character.
-     ;; This is very close to DrRacket's behavior:  it also has no source location to work with, 
+     ;; This is very close to DrRacket's behavior:  it also has no source location to work with,
      ;; however it simply doesn't highlight any code.
-     (define silly-range 
+     (define silly-range
       (Range #:start (Pos #:line 0 #:char 0) #:end (Pos #:line 0 #:char 0)))
      (list (Diagnostic #:range silly-range
-                       #:severity Diag-Error 
+                       #:severity Diag-Error
                        #:source "Racket"
                        #:message msg))]
       [else (error 'error-diagnostics "unexpected failure: ~a" exn)]))
@@ -112,7 +112,8 @@
 ;; XXX For now, use default indentation for everything (until we support
 ;; XXX custom #langs).
 (define (get-indenter doc-text)
-  #f)
+  (define lang-info (read-language (open-input-string (send doc-text get-text))))
+  (lang-info 'drracket:indentation))
 
 (define (check-syntax src doc-text)
   (define indenter (get-indenter doc-text))
