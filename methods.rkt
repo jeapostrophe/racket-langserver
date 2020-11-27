@@ -69,6 +69,8 @@
        (text-document/references id params)]
       ["textDocument/documentSymbol"
        (text-document/document-symbol id params)]
+      ["textDocument/formatting"
+       (text-document/formatting! id params)]
       ["textDocument/rangeFormatting"
        (text-document/range-formatting! id params)]
       [_
@@ -111,8 +113,8 @@
                'documentHighlightProvider #t
                'documentSymbolProvider #t
                ;; XXX: implement non-range formatting
-               'documentFormattingProvider #f
-               'documentRangeFormattingProvider #f))
+               'documentFormattingProvider #t
+               'documentRangeFormattingProvider #t))
      (define resp (success-response id (hasheq 'capabilities server-capabilities)))
      (set! already-initialized? #t)
      resp]

@@ -125,7 +125,7 @@
 
 ;; Hover request
 ;; Returns an object conforming to the Hover interface, to
-;; be used as the result of the response message. 
+;; be used as the result of the response message.
 (define (hover id params)
   (match params
     [(hash-table ['textDocument (DocIdentifier #:uri uri)]
@@ -272,6 +272,19 @@
      (success-response id results)]
     [_
      (error-response id INVALID-PARAMS "textDocument/documentSymbol failed")]))
+
+;; Full document formatting request
+(define (formatting! id params)
+  (match params
+    ;; We're ignoring 'options for now
+    [(hash-table ['textDocument (DocIdentifier #:uri uri)])
+     (unless (uri-is-path? uri)
+       (error 'formatting "uri is not a path"))
+     ...
+     (define results ...)
+     (success-response id results)]
+    [_
+     (error-response id INVALID-PARAMS "textDocument/formatting failed")]))
 
 ;; Range Formatting request
 (define (range-formatting! id params)
