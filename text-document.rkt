@@ -278,11 +278,14 @@
   (match params
     ;; We're ignoring 'options for now
     [(hash-table ['textDocument (DocIdentifier #:uri uri)])
-     (unless (uri-is-path? uri)
-       (error 'formatting "uri is not a path"))
-     ...
-     (define results ...)
-     (success-response id results)]
+     (match-define (doc doc-text doc-trace)
+       (hash-ref open-docs (string->symbol uri)))
+     (define end-pos (send doc-text last-position))
+     (range-formatting!
+       id
+       (hash-set params
+                 'range (Range #:start (abs-pos->Pos doc-text 0)
+                               #:end (abs-pos->Pos doc-text end-pos))))]
     [_
      (error-response id INVALID-PARAMS "textDocument/formatting failed")]))
 
