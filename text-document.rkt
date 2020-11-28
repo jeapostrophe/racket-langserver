@@ -381,4 +381,5 @@
   [document-highlight (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]
   [references (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]
   [document-symbol (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]
+  [formatting! (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]
   [range-formatting! (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]))
