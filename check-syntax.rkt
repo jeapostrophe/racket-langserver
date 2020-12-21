@@ -113,7 +113,7 @@
 ;; XXX custom #langs).
 (define (get-indenter doc-text)
   (define lang-info (read-language (open-input-string (send doc-text get-text))))
-  (lang-info 'drracket:indentation))
+  (lang-info 'drracket:indentation #f))
 
 (define (check-syntax src doc-text)
   (define indenter (get-indenter doc-text))
