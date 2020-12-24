@@ -9,6 +9,7 @@
          racket/match
          racket/string
          racket/set
+         racket/gui
          syntax-color/module-lexer
          syntax-color/racket-lexer
          "append-message.rkt"
@@ -304,11 +305,15 @@
      (define end-pos (Pos->abs-pos doc-text end))
      (define start-line (send doc-text position-paragraph start-pos))
      (define end-line (send doc-text position-paragraph end-pos))
+     (define mut-doc-text
+       (if (is-a? doc-text racket:text%)
+           (let ([r-text (new racket:text%)]) (send r-text insert (send doc-text get-text)) r-text)
+           (send doc-text copy-self)))
      (define results
        (let loop ([line start-line])
          (if (> line end-line)
              null
-             (let ([edit (indent-line! doc-text indenter line)])
+             (let ([edit (indent-line! mut-doc-text indenter line)])
                (if edit
                    (cons edit (loop (add1 line)))
                    (loop (add1 line)))))))
@@ -338,11 +343,13 @@
      (define insert-count (- desired-spaces current-spaces))
      (define new-text (make-string insert-count #\space))
      (define pos (Pos #:line line #:char 0))
+     (send doc-text insert new-text line-start 'same)
      (TextEdit #:range (Range #:start pos #:end pos)
                #:newText new-text)]
     [else
      ;; Delete spaces
      (define span (- current-spaces desired-spaces))
+     (send doc-text delete line-start (+ line-start span))
      (TextEdit #:range (Range #:start (Pos #:line line #:char 0)
                               #:end   (Pos #:line line #:char span))
                #:newText "")]))
