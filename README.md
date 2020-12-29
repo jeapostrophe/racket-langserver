@@ -1,12 +1,32 @@
 # racket-langserver
 
-[Language Server Protocol](http://langserver.org/) implementation for Racket. This project seeks to use DrRacket's public APIs to provide functionality that mimics DrRacket's code tools as closely as possible.
+`racket-langserver` is a [Language Server Protocol](http://langserver.org/) implementation for Racket. This project seeks to use [DrRacket](https://github.com/racket/drracket)'s public APIs to provide functionality that mimics DrRacket's code tools as closely as possible.
 
-## Installation
+## Installation and usage
 
-Install via the command line with `raco pkg install racket-langserver`
+A Racket runtime is a prerequisite, so before using `racket-langserver`, ensure that a Racket runtime is installed. You can install an from the [official download page](https://download.racket-lang.org) or install one from your package manager.
 
-If you plan on using this package with Atom, you should install [atom-ide-racket](https://github.com/cfinegan/atom-ide-racket) instead. This package will be installed automatically by the *atom-ide-racket* installer (although the Racket runtime should be installed prior to this).
+### Atom
+
+You can use the [atom-ide-racket](https://github.com/cfinegan/atom-ide-racket) package. The language server will be automatically installed when `atom-ide-racket` installs.
+
+### Other editors and IDEs
+
+First, install an LSP runtime for your editor.
+
+Next, install the package via `raco`:
+
+```
+raco pkg install racket-langserver
+```
+
+Once it is installed, you can configure your editor to use a custom LSP client for Racket files (`.rkt`), and set the command for the custom client to
+
+```
+racket -l racket-langserver
+```
+
+You may need to restart your LSP runtime or your editor for `racket-langserver` to start.
 
 ## Capabilities
 
@@ -18,11 +38,11 @@ If you plan on using this package with Atom, you should install [atom-ide-racket
   - *Note:* Currently only considers references within the current file.
 - **Document Highlight** (textDocument/documentHighlight)
 - **Diagnostics** (textDocument/publishDiagnostics)
+- **Code Formatting** (textDocument/formatting & textDocument/rangeFormatting)
 
 #### *Work in Progress:*
 
 - **Document Outline** (textDocument/documentSymbol)
-- **Code Formatting** (textDocument/formatting & textDocument/rangeFormatting)
 
 #### *Would be Nice:*
 
