@@ -337,6 +337,7 @@
         (indenter doc-text line-start)
         (send doc-text compute-racket-amount-to-indent line-start)))
   (cond
+    [(not (number? desired-spaces)) #f]
     [(= current-spaces desired-spaces) #f]
     [(< current-spaces desired-spaces)
      ;; Insert spaces
