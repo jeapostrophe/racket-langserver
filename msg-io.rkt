@@ -2,6 +2,7 @@
 (require json
          racket/contract/base
          racket/match
+         racket/string
          (only-in racket/port open-output-nowhere))
 
 (define verbose-io? (make-parameter #f))
@@ -9,7 +10,7 @@
 (define (read-message [in (current-input-port)])
   (match (read-line in 'return-linefeed)
     ["" (with-handlers ([exn:fail:read? (λ (exn) 'parse-json-error)])
-          (read-json in))]
+          (string->jsexpr (string-replace (jsexpr->string (read-json in)) "\\r\\n" "\\n")))]
     [(? eof-object?) eof]
     [_ (read-message in)]))
 
