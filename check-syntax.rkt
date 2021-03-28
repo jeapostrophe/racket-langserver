@@ -153,9 +153,10 @@
   (for ([lst (in-port (lexer-wrap lexer) in)] #:when (set-member? '(constant string symbol) (first (rest lst))))
     (match-define (list text type paren? start end) lst)
     (interval-map-set! symbols start end (list text type)))
-  ;; Rewind input port
-  (file-position in 0)
   
+  ;; Rewind input port
+  (set! in (open-input-string (send doc-text get-text)))
+  (port-count-lines! in)
   (define err-diags
     (parameterize ([current-annotations trace]
                    [current-namespace ns]
