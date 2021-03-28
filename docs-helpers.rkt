@@ -1,9 +1,19 @@
 #lang racket/base
 
 (require scribble/blueboxes
-         racket/string)
+         setup/xref
+         racket/set
+         racket/class
+         racket/list
+         setup/collects
+         racket/string
+         scribble/xref
+         "msg-io.rkt"
+         racket/format
+         "responses.rkt")
 
-(define the-bluebox-cache (make-blueboxes-cache #f))
+(define the-bluebox-cache (make-blueboxes-cache #t))
+(define pkg-cache (make-hash))
 
 (define (find-containing-paren pos text)
   (define l (string-length text))
@@ -17,11 +27,32 @@
           (if (> p 0) (loop (- i 1) (- p 1)) i)]
          [(or (char=? (string-ref text i) #\)) (char=? (string-ref text i) #\]))
           (loop (- i 1) (+ p 1))]
-         [else (loop (- i 1) p)]))]))    
+         [else (loop (- i 1) p)]))]))
+
+(define (id-to-tag id trace)
+  ;; partial reimplementation of private method compute-tag+rng
+  ;; in drracket/private/syncheck/blueboxes-gui.rkt
+  (define xref (load-collections-xref))
+  (define mps
+    (for/list ([require-candidate (in-set (send trace get-requires))])
+      (path->module-path require-candidate #:cache pkg-cache)))
+  (for/or ([mp (in-list mps)])
+    (define definition-tag (xref-binding->definition-tag xref (list mp (string->symbol id)) #f))
+    (cond
+          [definition-tag
+            (define-values (path url-tag) (xref-tag->path+anchor xref definition-tag))
+            (if path definition-tag #f)]
+          [else #f])))
 
 (define (get-docs-for-tag tag)
-  (define strs (fetch-blueboxes-strs tag #:blueboxes-cache the-bluebox-cache))
-  (string-join (list-tail strs 1) "\n"))
+  (define strs (drop (fetch-blueboxes-strs tag #:blueboxes-cache the-bluebox-cache) 1))
+  (define index (let loop ((strs strs) (i 0))
+    (cond
+      [(>= i (length strs)) #f]
+      [(string-prefix? (list-ref strs i) "(") (loop strs (+ i 1))]
+      [else i])))
+  (list (take strs index) (string-join (drop strs index) "\n")))
 
 (provide find-containing-paren
-         get-docs-for-tag)
+         get-docs-for-tag
+         id-to-tag)

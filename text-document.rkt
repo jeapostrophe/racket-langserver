@@ -166,8 +166,20 @@
      (define new-pos (find-containing-paren (- pos 1) text))
      (define result
        (cond [new-pos
-              (define tag (interval-map-ref (send doc-trace get-docs) (+ new-pos 1) #f))
-              (if tag (hasheq 'signatures (list (hasheq 'label "" 'documentation (get-docs-for-tag tag)))) (json-null))]
+              (define maybe-tag (interval-map-ref (send doc-trace get-docs) (+ new-pos 1) #f))
+              (define tag
+                (cond [maybe-tag (last maybe-tag)]
+                      [else
+                       (define doc-symbols (send doc-trace get-symbols))
+                       (define-values (start end symbol)
+                         (interval-map-ref/bounds doc-symbols (+ new-pos 2) #f))
+                       (cond [symbol
+                              (id-to-tag (first symbol) doc-trace)]
+                             [else #f])]))
+              (cond [tag
+                     (match-define (list sigs docs) (get-docs-for-tag tag))
+                     (hasheq 'signatures (map (lambda sig (hasheq 'label sig 'documentation docs)) sigs))]
+                    [else (json-null)])]
              [else (json-null)]))
      (success-response id result)]
     [_
