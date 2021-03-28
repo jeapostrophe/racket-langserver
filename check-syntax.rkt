@@ -72,7 +72,7 @@
                                    (url-query url)
                                    url-tag)
                          url))
-        (interval-map-set! docs start finish (url->string url2))))
+        (interval-map-set! docs start finish (list (url->string url2) def-tag))))
     ;; References
     (define/override (syncheck:add-arrow/name-dup start-src-obj start-left start-right
                                                   end-src-obj end-left end-right
