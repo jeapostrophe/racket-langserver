@@ -140,8 +140,8 @@
      (define pos (line/char->pos doc-text line ch))
      (define-values (start end text)
        (interval-map-ref/bounds hovers pos #f))
-     (define-values (link tag)
-       (interval-map-ref (send doc-trace get-docs) pos #f))
+     (match-define (list link tag)
+       (interval-map-ref (send doc-trace get-docs) pos (list #f #f)))
      (define result
        (cond [text
               (hasheq 'contents (if link (~a text " - [docs](" (~a "https://docs.racket-lang.org/" (last (string-split link "/doc/"))) ")") text)
@@ -381,6 +381,7 @@
   [did-close! (jsexpr? . -> . void?)]
   [did-change! (jsexpr? . -> . void?)]
   [hover (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]
+  [signatureHelp (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]
   [definition (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]
   [document-highlight (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]
   [references (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]
