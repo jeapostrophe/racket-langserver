@@ -136,25 +136,26 @@
   (define lang-info (read-language (open-input-string (send doc-text get-text))))
   (lang-info 'drracket:indentation #f))
 
-(define (check-syntax src doc-text)
+(define (check-syntax src doc-text trace)
   (define indenter (get-indenter doc-text))
   (define ns (make-base-namespace))
-  (define trace
-    (new build-trace% [src src] [doc-text doc-text] [indenter indenter]))
+  (unless trace
+    (set! trace (new build-trace% [src src] [doc-text doc-text] [indenter indenter])))
   (match-define-values (src-dir _ #f)
     (split-path src))
   (define-values (add-syntax done)
     (make-traversal ns src))
+  
+  ;; Enumerate symbols
   (define in (open-input-string (send doc-text get-text)))
   (port-count-lines! in)
-  ;; Enumerate symbols
   (define lexer (get-lexer in))
   (define symbols (send trace get-symbols))
   (for ([lst (in-port (lexer-wrap lexer) in)] #:when (set-member? '(constant string symbol) (first (rest lst))))
     (match-define (list text type paren? start end) lst)
     (interval-map-set! symbols start end (list text type)))
   
-  ;; Rewind input port
+  ;; Rewind input port and read syntax
   (set! in (open-input-string (send doc-text get-text)))
   (port-count-lines! in)
   (define err-diags
@@ -197,4 +198,4 @@
   [struct Decl ([require? any/c]
                 [left exact-nonnegative-integer?]
                 [right exact-nonnegative-integer?])]
-  [check-syntax (-> any/c (is-a?/c text%) (is-a?/c build-trace%))]))
+  [check-syntax (-> any/c (is-a?/c text%) (or/c #f (is-a?/c build-trace%)) (is-a?/c build-trace%))]))

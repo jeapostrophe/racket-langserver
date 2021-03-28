@@ -89,7 +89,7 @@
   (define path (uri->path uri))
   (define doc-text (new racket:text%))
   (send doc-text insert text 0)
-  (define trace (check-syntax path doc-text))
+  (define trace (check-syntax path doc-text #f))
   (hash-set! open-docs (string->symbol uri) (doc doc-text trace)))
 
 (define (did-close! params)
@@ -122,8 +122,8 @@
     ;; set. See 'append-message.rkt' for more info.
     (unless (hash-ref params skip-syncheck #f)
       (define path (uri->path uri))
-      (define trace (check-syntax path doc-text))
-      (set-doc-trace! this-doc trace))))
+      (check-syntax path doc-text (doc-trace this-doc))))
+  (void))
 
 ;; Hover request
 ;; Returns an object conforming to the Hover interface, to
