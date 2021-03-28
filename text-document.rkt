@@ -247,30 +247,24 @@
     [(hash-table ['textDocument (DocIdentifier #:uri uri)])
      (unless (uri-is-path? uri)
        (error 'document-symbol "uri is not a path"))
-     (match-define (doc doc-text _)
+     (match-define (doc doc-text doc-trace)
        (hash-ref open-docs (string->symbol uri)))
-     (define in (open-input-string (send doc-text get-text)))
-     (port-count-lines! in)
-     (define lexer (get-lexer in))
      (define results
-       (for/fold ([out empty])
-                 ([lst (in-port (lexer-wrap lexer) in)])
-         (match-define (list text type paren? start end) lst)
-         (cond [(set-member? '(constant string symbol) type)
-                (define kind (match type
-                               ['constant SymbolKind-Constant]
-                               ['string SymbolKind-String]
-                               ['symbol SymbolKind-Variable]))
-                (define range
-                  (Range #:start (abs-pos->Pos doc-text start)
-                         #:end   (abs-pos->Pos doc-text end)))
-                (define sym-info
-                  (SymbolInfo #:name text
-                              #:kind kind
-                              #:location (Location #:uri uri
-                                                   #:range range)))
-                (cons sym-info out)]
-               [else out])))
+       (dict-map (send doc-trace get-symbols)
+                 (λ (key value)
+                   (match-define (cons start end) key)
+                   (match-define (list text type) value)
+                   (define kind (match type
+                                  ['constant SymbolKind-Constant]
+                                  ['string SymbolKind-String]
+                                  ['symbol SymbolKind-Variable]))
+                   (define range
+                     (Range #:start (abs-pos->Pos doc-text start)
+                            #:end   (abs-pos->Pos doc-text end)))
+                   (SymbolInfo #:name text
+                               #:kind kind
+                               #:location (Location #:uri uri
+                                                    #:range range)))))
      (success-response id results)]
     [_
      (error-response id INVALID-PARAMS "textDocument/documentSymbol failed")]))
@@ -355,26 +349,6 @@
      (TextEdit #:range (Range #:start (Pos #:line line #:char 0)
                               #:end   (Pos #:line line #:char span))
                #:newText "")]))
-
-;; Wrapper for in-port, returns a list or EOF.
-(define ((lexer-wrap lexer) in)
-  (define-values (txt type paren? start end)
-    (lexer in))
-  (if (eof-object? txt)
-      eof
-      (list txt type paren? start end)))
-
-;; Call module-lexer on an input port, then discard all
-;; values except the lexer.
-(define (get-lexer in)
-  (match-define-values
-    (_ _ _ _ _ _ lexer)
-    (module-lexer in 0 #f))
-  (if (procedure? lexer) ;; TODO: Is this an issue with module-lexer docs?
-      lexer
-      (if (eq? lexer 'no-lang-line)
-          racket-lexer
-          (error 'get-lexer "~v" lexer))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
