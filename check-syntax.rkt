@@ -6,6 +6,7 @@
          racket/gui/base
          racket/match
          racket/set
+         net/url
          syntax/modread
          (only-in net/url path->url url->string)
          "interfaces.rkt"
@@ -25,6 +26,7 @@
     (init-field src doc-text indenter)
     (define warn-diags (mutable-seteq))
     (define hovers (make-interval-map))
+    (define docs (make-interval-map))
     ;; decl -> (set pos ...)
     (define sym-decls (make-interval-map))
     ;; pos -> decl
@@ -33,6 +35,7 @@
     (define/public (get-indenter) indenter)
     (define/public (get-warn-diags) warn-diags)
     (define/public (get-hovers) hovers)
+    (define/public (get-docs) docs)
     (define/public (get-sym-decls) sym-decls)
     (define/public (get-sym-bindings) sym-bindings)
     ;; Overrides
@@ -46,6 +49,23 @@
       (when (= start finish)
         (set! finish (add1 finish)))
       (interval-map-set! hovers start finish text))
+    ;; Docs
+    (define/override (syncheck:add-docs-menu text start finish id label path def-tag url-tag)
+      (when url
+        (when (= start finish)
+          (set! finish (add1 finish)))
+        (define url (path->url path))
+        (define url2 (if url-tag
+                         (make-url (url-scheme url)
+                                   (url-user url)
+                                   (url-host url)
+                                   (url-port url)
+                                   (url-path-absolute? url)
+                                   (url-path url)
+                                   (url-query url)
+                                   url-tag)
+                         url))
+        (interval-map-set! docs start finish (url->string url2))))
     ;; References
     (define/override (syncheck:add-arrow/name-dup start-src-obj start-left start-right
                                                   end-src-obj end-left end-right

@@ -139,9 +139,10 @@
      (define pos (line/char->pos doc-text line ch))
      (define-values (start end text)
        (interval-map-ref/bounds hovers pos #f))
+     (define link (interval-map-ref (send doc-trace get-docs) pos #f))
      (define result
        (cond [text
-              (hasheq 'contents text
+              (hasheq 'contents (if link (~a text " - [docs](" (~a "https://docs.racket-lang.org/" (last (string-split link "/doc/"))) ")") text)
                       'range (Range #:start (abs-pos->Pos doc-text start)
                                     #:end   (abs-pos->Pos doc-text end)))]
              [else (hasheq 'contents empty)]))
