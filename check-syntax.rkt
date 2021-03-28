@@ -99,12 +99,6 @@
       (set-add! warn-diags diag))
     (super-new)))
 
-(define (diagnostics-message uri diags)
-  (hasheq 'jsonrpc "2.0"
-          'method "textDocument/publishDiagnostics"
-          'params (hasheq 'uri uri
-                          'diagnostics diags)))
-
 (define ((error-diagnostics src) exn)
   (define msg (exn-message exn))
   (cond

@@ -21,6 +21,13 @@
           'id id
           'error err*))
 
+;; Constructor for a response object representing diagnostics.
+(define (diagnostics-message uri diags)
+  (hasheq 'jsonrpc "2.0"
+          'method "textDocument/publishDiagnostics"
+          'params (hasheq 'uri uri
+                          'diagnostics diags)))
+
 (provide
  (contract-out
   [success-response
@@ -28,4 +35,6 @@
   [error-response
    (->* ((or/c number? string? (json-null)) number? string?)
         (any/c)
-        jsexpr?)]))
+        jsexpr?)]
+  [diagnostics-message
+   (string? list? . -> . jsexpr?)]))
