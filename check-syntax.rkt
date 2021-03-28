@@ -33,6 +33,7 @@
     (define hovers (make-interval-map))
     (define docs (make-interval-map))
     (define symbols (make-interval-map))
+    (define requires '())
     ;; decl -> (set pos ...)
     (define sym-decls (make-interval-map))
     ;; pos -> decl
@@ -43,12 +44,16 @@
     (define/public (get-hovers) hovers)
     (define/public (get-docs) docs)
     (define/public (get-symbols) symbols)
+    (define/public (get-requires) requires)
     (define/public (get-sym-decls) sym-decls)
     (define/public (get-sym-bindings) sym-bindings)
     ;; Overrides
     (define/override (syncheck:find-source-object stx)
       (and (equal? src (syntax-source stx))
            src))
+    ;; Track requires
+    (define/override (syncheck:add-require-open-menu text start finish file)
+      (set! requires (set-add requires file)))
     ;; Mouse-over status
     (define/override (syncheck:add-mouse-over-status src-obj start finish text)
       ;; Infer a length of 1 for zero-length ranges in the document.
