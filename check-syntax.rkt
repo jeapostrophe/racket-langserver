@@ -6,11 +6,16 @@
          racket/gui/base
          racket/match
          racket/set
+         racket/format
+         racket/list
+         syntax-color/module-lexer
+         syntax-color/racket-lexer
          net/url
          syntax/modread
          (only-in net/url path->url url->string)
          "interfaces.rkt"
-         "msg-io.rkt")
+         "msg-io.rkt"
+         "responses.rkt")
 
 (define path->uri (compose url->string path->url))
 
@@ -27,6 +32,7 @@
     (define warn-diags (mutable-seteq))
     (define hovers (make-interval-map))
     (define docs (make-interval-map))
+    (define symbols (make-interval-map))
     ;; decl -> (set pos ...)
     (define sym-decls (make-interval-map))
     ;; pos -> decl
@@ -36,6 +42,7 @@
     (define/public (get-warn-diags) warn-diags)
     (define/public (get-hovers) hovers)
     (define/public (get-docs) docs)
+    (define/public (get-symbols) symbols)
     (define/public (get-sym-decls) sym-decls)
     (define/public (get-sym-bindings) sym-bindings)
     ;; Overrides
@@ -146,6 +153,12 @@
     (make-traversal ns src))
   (define in (open-input-string (send doc-text get-text)))
   (port-count-lines! in)
+  (define lexer (get-lexer in))
+  (define symbols (send trace get-symbols))
+  (for ([lst (in-port (lexer-wrap lexer) in)] #:when (set-member? '(constant string symbol) (first (rest lst))))
+    (match-define (list text type paren? start end) lst)
+    (interval-map-set! symbols start end (list text type)))
+  
   (define err-diags
     (parameterize ([current-annotations trace]
                    [current-namespace ns]
@@ -160,6 +173,26 @@
   (define all-diags (append err-diags (set->list (send trace get-warn-diags))))
   (display-message/flush (diagnostics-message (path->uri src) all-diags))
   trace)
+
+;; Wrapper for in-port, returns a list or EOF.
+(define ((lexer-wrap lexer) in)
+  (define-values (txt type paren? start end)
+    (lexer in))
+  (if (eof-object? txt)
+      eof
+      (list txt type paren? start end)))
+
+;; Call module-lexer on an input port, then discard all
+;; values except the lexer.
+(define (get-lexer in)
+  (match-define-values
+    (_ _ _ _ _ _ lexer)
+    (module-lexer in 0 #f))
+  (if (procedure? lexer) ;; TODO: Is this an issue with module-lexer docs?
+      lexer
+      (if (eq? lexer 'no-lang-line)
+          racket-lexer
+          (error 'get-lexer "~v" lexer))))
 
 (provide
  (contract-out
