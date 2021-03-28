@@ -18,7 +18,8 @@
          "interfaces.rkt"
          "json-util.rkt"
          "responses.rkt"
-         "symbol-kinds.rkt")
+         "symbol-kinds.rkt"
+         "docs-helpers.rkt")
 
 (struct doc (text trace) #:transparent #:mutable)
 
@@ -139,7 +140,8 @@
      (define pos (line/char->pos doc-text line ch))
      (define-values (start end text)
        (interval-map-ref/bounds hovers pos #f))
-     (define link (interval-map-ref (send doc-trace get-docs) pos #f))
+     (define-values (link tag)
+       (interval-map-ref (send doc-trace get-docs) pos #f))
      (define result
        (cond [text
               (hasheq 'contents (if link (~a text " - [docs](" (~a "https://docs.racket-lang.org/" (last (string-split link "/doc/"))) ")") text)
@@ -149,6 +151,27 @@
      (success-response id result)]
     [_
      (error-response id INVALID-PARAMS "textDocument/hover failed")]))
+
+;; Signature Help request
+(define (signatureHelp id params)
+  (match params
+    [(hash-table ['textDocument (DocIdentifier #:uri uri)]
+                 ['position (Pos #:line line #:char ch)])
+     (unless (uri-is-path? uri)
+       (error 'signatureHelp "uri is not a path"))
+     (match-define (doc doc-text doc-trace)
+       (hash-ref open-docs (string->symbol uri)))
+     (define pos (line/char->pos doc-text line ch))
+     (define text (send doc-text get-text))
+     (define new-pos (find-containing-paren (- pos 1) text))
+     (define result
+       (cond [new-pos
+              (define tag (interval-map-ref (send doc-trace get-docs) (+ new-pos 1) #f))
+              (if tag (hasheq 'signatures (list (hasheq 'label "" 'documentation (get-docs-for-tag tag)))) (json-null))]
+             [else (json-null)]))
+     (success-response id result)]
+    [_
+     (error-response id INVALID-PARAMS "textDocument/signatureHelp failed")]))
 
 ;; Definition request
 (define (definition id params)
