@@ -6,7 +6,6 @@
          racket/gui/base
          racket/match
          racket/set
-         racket/format
          racket/list
          syntax-color/module-lexer
          syntax-color/racket-lexer

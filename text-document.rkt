@@ -9,9 +9,8 @@
          racket/match
          racket/string
          racket/set
-         racket/gui
-         syntax-color/module-lexer
-         syntax-color/racket-lexer
+         racket/dict
+         racket/format
          "append-message.rkt"
          "check-syntax.rkt"
          "error-codes.rkt"
