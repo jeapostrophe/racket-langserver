@@ -102,27 +102,31 @@
                             ['contentChanges content-changes]) params)
   (when (uri-is-path? uri)
     (define this-doc (hash-ref open-docs (string->symbol uri)))
-    (match-define (doc doc-text _) this-doc)
+    (match-define (doc doc-text doc-trace) this-doc)
     (define content-changes*
       (cond [(eq? (json-null) content-changes) empty]
             [(list? content-changes) content-changes]
             [else (list content-changes)]))
     (for ([change (in-list content-changes*)])
       (match change
-        [(ContentChangeEvent #:range (Range #:start (Pos #:line st-ln #:char st-ch))
-                             #:rangeLength range-ln
+        [(ContentChangeEvent #:range (Range #:start (Pos #:line st-ln #:char st-ch) #:end (Pos #:line ed-ln #:char ed-ch))
                              #:text text)
          (define st-pos (line/char->pos doc-text st-ln st-ch))
-         (define end-pos (+ st-pos range-ln))
+         (define end-pos (line/char->pos doc-text ed-ln ed-ch))
+         (define old-len (- end-pos st-pos))
+         (define new-len (string-length text))
+         (cond [(> new-len old-len) (send doc-trace expand end-pos (+ st-pos new-len))]
+               [(< new-len old-len) (send doc-trace contract (+ st-pos new-len) end-pos)])
          (send doc-text insert text st-pos end-pos)]
         [(ContentChangeEvent #:text text)
+         (send doc-trace reset)
          (send doc-text erase)
          (send doc-text insert text 0)]))
     ;; Only perform syntax check if the 'skip-syncheck' flag is *not*
     ;; set. See 'append-message.rkt' for more info.
     (unless (hash-ref params skip-syncheck #f)
       (define path (uri->path uri))
-      (check-syntax path doc-text (doc-trace this-doc))))
+      (check-syntax path doc-text doc-trace)))
   (void))
 
 ;; Hover request
