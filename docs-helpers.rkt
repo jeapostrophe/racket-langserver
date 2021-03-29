@@ -7,10 +7,7 @@
          racket/list
          setup/collects
          racket/string
-         scribble/xref
-         "msg-io.rkt"
-         racket/format
-         "responses.rkt")
+         scribble/xref)
 
 (define the-bluebox-cache (make-blueboxes-cache #t))
 (define pkg-cache (make-hash))
