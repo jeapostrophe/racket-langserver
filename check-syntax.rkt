@@ -176,6 +176,8 @@
   ;; Rewind input port and read syntax
   (set! in (open-input-string text))
   (port-count-lines! in)
+  (define warn-diags (send trace get-warn-diags))
+  (set-clear! warn-diags)
   (define err-diags
     (parameterize ([current-annotations trace]
                    [current-namespace ns]
@@ -187,7 +189,7 @@
         (add-syntax (expand stx))
         (done)
         (list))))
-  (define all-diags (append err-diags (set->list (send trace get-warn-diags))))
+  (define all-diags (append err-diags (set->list warn-diags)))
   (display-message/flush (diagnostics-message (path->uri src) all-diags))
   trace)
 
