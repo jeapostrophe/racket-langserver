@@ -38,6 +38,17 @@
     (define sym-decls (make-interval-map))
     ;; pos -> decl
     (define sym-bindings (make-interval-map))
+    (define/public (reset) 
+      (set-clear! warn-diags)
+      (set! hovers (make-interval-map))
+      (set! docs (make-interval-map))
+      (set! sym-decls (make-interval-map))
+      (set! sym-bindings (make-interval-map))
+      (set! requires '()))
+    (define/public (expand start end)
+      (map (lambda (int-map) (interval-map-expand! int-map start end)) (list hovers docs sym-decls sym-bindings)))
+    (define/public (contract start end)
+      (map (lambda (int-map) (interval-map-contract! int-map start end)) (list hovers docs sym-decls sym-bindings)))
     ;; Getters
     (define/public (get-indenter) indenter)
     (define/public (get-warn-diags) warn-diags)
@@ -152,16 +163,18 @@
     (make-traversal ns src))
   
   ;; Enumerate symbols
-  (define in (open-input-string (send doc-text get-text)))
+  (define text (send doc-text get-text))
+  (define in (open-input-string text))
   (port-count-lines! in)
   (define lexer (get-lexer in))
   (define symbols (send trace get-symbols))
+  (interval-map-remove! symbols 0 (string-length text))
   (for ([lst (in-port (lexer-wrap lexer) in)] #:when (set-member? '(constant string symbol) (first (rest lst))))
     (match-define (list text type paren? start end) lst)
     (interval-map-set! symbols start end (list text type)))
   
   ;; Rewind input port and read syntax
-  (set! in (open-input-string (send doc-text get-text)))
+  (set! in (open-input-string text))
   (port-count-lines! in)
   (define err-diags
     (parameterize ([current-annotations trace]
