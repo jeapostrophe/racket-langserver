@@ -182,7 +182,7 @@
                              [else #f])]))
               (cond [tag
                      (match-define (list sigs docs) (get-docs-for-tag tag))
-                     (hasheq 'signatures (map (lambda sig (hasheq 'label sig 'documentation docs)) sigs))]
+                     (hasheq 'signatures (map (lambda sig (hasheq 'label sig 'documentation (or docs (json-null)))) sigs))]
                     [else (json-null)])]
              [else (json-null)]))
      (success-response id result)]

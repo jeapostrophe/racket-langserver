@@ -52,7 +52,7 @@
       [(string-prefix? (list-ref strs i) "(") (loop strs (+ i 1))]
       [else i])))
   (cond [index (list (take strs index) (string-join (if index (drop strs index) strs) "\n"))]
-        [else (list strs)]))
+        [else (list strs #f)]))
 
 (provide find-containing-paren
          get-docs-for-tag
