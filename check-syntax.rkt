@@ -67,10 +67,10 @@
                                              (Decl (Decl-require? decl-set) (+ (car d-range) amt) (+ (cdr d-range) amt))
                                              #f)]
                                         [else 
-                                         (set-map decl-set (lambda (d-range) 
+                                         (list->set (set-map decl-set (lambda (d-range) 
                                                              (if (> (car d-range) after)
                                                                  (cons (+ (car d-range) amt) (+ (cdr d-range) amt))
-                                                                 d-range)))]))
+                                                                 d-range))))]))
                        (when result
                          (interval-map-set! int-map (car range) (cdr range) result)))))
     ;; Getters
