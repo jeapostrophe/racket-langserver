@@ -6,6 +6,7 @@
          racket/gui/base
          racket/match
          racket/set
+         racket/dict
          racket/list
          syntax-color/module-lexer
          syntax-color/racket-lexer
@@ -17,7 +18,6 @@
          "responses.rkt")
 
 (define path->uri (compose url->string path->url))
-
 (struct Decl (require? left right) #:transparent)
 
 (define Diag-Error 1)
@@ -37,17 +37,42 @@
     (define sym-decls (make-interval-map))
     ;; pos -> decl
     (define sym-bindings (make-interval-map))
-    (define/public (reset) 
+    (define/public (reset)
       (set-clear! warn-diags)
       (set! hovers (make-interval-map))
       (set! docs (make-interval-map))
       (set! sym-decls (make-interval-map))
       (set! sym-bindings (make-interval-map))
+      (set! symbols (make-interval-map))
       (set! requires '()))
     (define/public (expand start end)
-      (map (lambda (int-map) (interval-map-expand! int-map start end)) (list hovers docs sym-decls sym-bindings)))
+      (define inc (- end start))
+      (move-interior-intervals sym-decls (- start 1) inc)
+      (move-interior-intervals sym-bindings (- start 1) inc)
+      (map (lambda (int-map) (interval-map-expand! int-map start end)) (list hovers docs symbols sym-decls sym-bindings)))
     (define/public (contract start end)
-      (map (lambda (int-map) (interval-map-contract! int-map start end)) (list hovers docs sym-decls sym-bindings)))
+      (define dec (- 0 end start))
+      (move-interior-intervals sym-decls end dec)
+      (move-interior-intervals sym-bindings end dec)
+      (map (lambda (int-map) (interval-map-contract! int-map start end)) (list hovers docs symbols sym-decls sym-bindings)))
+    ;; some intervals are held inside of the interval maps... so we need to expand/contract these manually
+    (define/private (move-interior-intervals int-map after amt)
+      (dict-for-each int-map
+                     (lambda (range decl-set)
+                       (define is-decl (Decl? decl-set))
+                       (define result (cond 
+                                        [is-decl
+                                         (define d-range (cons (Decl-left decl-set) (Decl-right decl-set)))
+                                         (if (> (car d-range) after) 
+                                             (Decl (Decl-require? decl-set) (+ (car d-range) amt) (+ (cdr d-range) amt))
+                                             #f)]
+                                        [else 
+                                         (set-map decl-set (lambda (d-range) 
+                                                             (if (> (car d-range) after)
+                                                                 (cons (+ (car d-range) amt) (+ (cdr d-range) amt))
+                                                                 d-range)))]))
+                       (when result
+                         (interval-map-set! int-map (car range) (cdr range) result)))))
     ;; Getters
     (define/public (get-indenter) indenter)
     (define/public (get-warn-diags) warn-diags)
@@ -163,7 +188,7 @@
   
   ;; Enumerate symbols
   (define text (send doc-text get-text))
-  (define in (open-input-string text))
+  (define in (open-input-string text)) 
   (port-count-lines! in)
   (define lexer (get-lexer in))
   (define symbols (send trace get-symbols))
@@ -171,7 +196,7 @@
   (for ([lst (in-port (lexer-wrap lexer) in)] #:when (set-member? '(constant string symbol) (first (rest lst))))
     (match-define (list text type paren? start end) lst)
     (interval-map-set! symbols start end (list text type)))
-  
+
   ;; Rewind input port and read syntax
   (set! in (open-input-string text))
   (port-count-lines! in)
@@ -183,9 +208,10 @@
                    [current-load-relative-directory src-dir])
       (with-handlers ([(or/c exn:fail:read? exn:fail:syntax? exn:fail:filesystem?)
                        (error-diagnostics src)])
-        (define stx (with-module-reading-parameterization
-                      (λ () (read-syntax src in))))
-        (add-syntax (expand stx))
+        (define stx (expand (with-module-reading-parameterization
+                      (λ () (read-syntax src in)))))
+        (send trace reset)
+        (add-syntax stx)
         (done)
         (list))))
   (define all-diags (append err-diags (set->list warn-diags)))
