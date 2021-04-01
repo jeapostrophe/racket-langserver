@@ -8,6 +8,7 @@
          racket/set
          racket/dict
          racket/list
+         racket/format
          syntax-color/module-lexer
          syntax-color/racket-lexer
          net/url
@@ -15,7 +16,8 @@
          (only-in net/url path->url url->string)
          "interfaces.rkt"
          "msg-io.rkt"
-         "responses.rkt")
+         "responses.rkt"
+         "autocomplete.rkt")
 
 (define path->uri (compose url->string path->url))
 (struct Decl (require? left right) #:transparent)
@@ -32,6 +34,7 @@
     (define hovers (make-interval-map))
     (define docs (make-interval-map))
     (define symbols (make-interval-map))
+    (define completions (list))
     (define requires '())
     ;; decl -> (set pos ...)
     (define sym-decls (make-interval-map))
@@ -79,6 +82,8 @@
     (define/public (get-hovers) hovers)
     (define/public (get-docs) docs)
     (define/public (get-symbols) symbols)
+    (define/public (get-completions) completions)
+    (define/public (set-completions new-completions) (set! completions new-completions))
     (define/public (get-requires) requires)
     (define/public (get-sym-decls) sym-decls)
     (define/public (get-sym-bindings) sym-bindings)
@@ -211,6 +216,7 @@
         (define stx (expand (with-module-reading-parameterization
                       (λ () (read-syntax src in)))))
         (send trace reset)
+        (send trace set-completions (append (set->list (walk stx)) (set->list (walk-module stx))))
         (add-syntax stx)
         (done)
         (list))))

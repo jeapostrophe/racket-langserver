@@ -18,7 +18,8 @@
          "json-util.rkt"
          "responses.rkt"
          "symbol-kinds.rkt"
-         "docs-helpers.rkt")
+         "docs-helpers.rkt"
+         "autocomplete.rkt")
 
 (struct doc (text trace) #:transparent #:mutable)
 
@@ -188,6 +189,23 @@
      (success-response id result)]
     [_
      (error-response id INVALID-PARAMS "textDocument/signatureHelp failed")]))
+
+;; Completion Request
+(define (completion id params)
+  (match params
+    [(hash-table ['textDocument (DocIdentifier #:uri uri)]
+                 ['position (Pos #:line line #:char ch)])
+     (unless (uri-is-path? uri)
+       (error 'completion "uri is not a path"))
+     (match-define (doc doc-text doc-trace)
+       (hash-ref open-docs (string->symbol uri)))
+     (define completions (send doc-trace get-completions))
+     (define result
+       (for/list ([completion (in-list completions)])
+         (hasheq 'label (symbol->string completion))))
+     (success-response id result)]
+    [_
+     (error-response id INVALID-PARAMS "textDocument/completion failed")]))
 
 ;; Definition request
 (define (definition id params)
@@ -397,6 +415,7 @@
   [did-close! (jsexpr? . -> . void?)]
   [did-change! (jsexpr? . -> . void?)]
   [hover (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]
+  [completion (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]
   [signatureHelp (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]
   [definition (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]
   [document-highlight (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]

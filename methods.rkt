@@ -61,6 +61,8 @@
        (shutdown id)]
       ["textDocument/hover"
        (text-document/hover id params)]
+      ["textDocument/completion"
+       (text-document/completion id params)]
       ["textDocument/signatureHelp"
        (text-document/signatureHelp id params)]
       ["textDocument/definition"
@@ -112,6 +114,7 @@
                'hoverProvider #t
                'definitionProvider #t
                'referencesProvider #t
+               'completionProvider (hasheq 'triggerCharacters (list " " "("))
                'signatureHelpProvider (hasheq 'triggerCharacters (list " " ")"))
                'documentHighlightProvider #t
                'documentSymbolProvider #t
