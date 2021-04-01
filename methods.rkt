@@ -77,6 +77,8 @@
        (text-document/formatting! id params)]
       ["textDocument/rangeFormatting"
        (text-document/range-formatting! id params)]
+      ["textDocument/onTypeFormatting"
+       (text-document/on-type-formatting! id params)]
       [_
        (eprintf "invalid request for method ~v\n" method)
        (define err (format "The method ~v was not found" method))
@@ -119,7 +121,9 @@
                'documentHighlightProvider #t
                'documentSymbolProvider #t
                'documentFormattingProvider #t
-               'documentRangeFormattingProvider #t))
+               'documentRangeFormattingProvider #t
+               'documentOnTypeFormattingProvider (hasheq 'firstTriggerCharacter ")" 'moreTriggerCharacter (list "\n"))))
+
      (define resp (success-response id (hasheq 'capabilities server-capabilities)))
      (set! already-initialized? #t)
      resp]

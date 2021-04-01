@@ -335,10 +335,10 @@
        (hash-ref open-docs (string->symbol uri)))
      (define end-pos (send doc-text last-position))
      (range-formatting!
-       id
-       (hash-set params
-                 'range (Range #:start (abs-pos->Pos doc-text 0)
-                               #:end (abs-pos->Pos doc-text end-pos))))]
+      id
+      (hash-set params
+                'range (Range #:start (abs-pos->Pos doc-text 0)
+                              #:end (abs-pos->Pos doc-text end-pos))))]
     [_
      (error-response id INVALID-PARAMS "textDocument/formatting failed")]))
 
@@ -373,6 +373,34 @@
     [_
      (error-response id INVALID-PARAMS "textDocument/rangeFormatting failed")]))
 
+;; Full document formatting request
+(define (on-type-formatting! id params)
+  (match params
+    ;; We're ignoring 'options for now
+    [(hash-table ['textDocument (DocIdentifier #:uri uri)]
+                 ['position (Pos #:line line #:char char)]
+                 ['ch ch])
+     (match-define (doc doc-text doc-trace)
+       (hash-ref open-docs (string->symbol uri)))
+     (define pos (- (line/char->pos doc-text line char) 1))
+     (define range
+       (match ch
+         ["\n"
+          (Range 
+           #:start (abs-pos->Pos doc-text (send doc-text paragraph-start-position line)) 
+           #:end (abs-pos->Pos doc-text (send doc-text paragraph-end-position line)))]
+         [")"
+          (Range
+           #:start (abs-pos->Pos doc-text (or (find-containing-paren pos (send doc-text get-text)) 0))
+           #:end (abs-pos->Pos doc-text pos))]))
+     
+     (range-formatting!
+      id
+      (hash-set params
+                'range range))]
+    [_
+     (error-response id INVALID-PARAMS "textDocument/onTypeformatting failed")]))
+
 ;; Returns a TextEdit, or #f if the line is already correct.
 (define (indent-line! doc-text indenter line)
   (define line-start (send doc-text paragraph-start-position line))
@@ -404,7 +432,7 @@
      (define span (- current-spaces desired-spaces))
      (send doc-text delete line-start (+ line-start span))
      (TextEdit #:range (Range #:start (Pos #:line line #:char 0)
-                              #:end   (Pos #:line line #:char span))
+                      #:end   (Pos #:line line #:char span))
                #:newText "")]))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -422,4 +450,5 @@
   [references (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]
   [document-symbol (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]
   [formatting! (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]
-  [range-formatting! (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]))
+  [range-formatting! (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]
+  [on-type-formatting! (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]))
