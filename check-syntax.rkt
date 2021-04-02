@@ -51,7 +51,7 @@
       (move-interior-intervals sym-bindings (- start 1) inc)
       (map (lambda (int-map) (interval-map-expand! int-map start end)) (list hovers docs symbols sym-decls sym-bindings)))
     (define/public (contract start end)
-      (define dec (- 0 end start))
+      (define dec (- start end))
       (move-interior-intervals sym-decls end dec)
       (move-interior-intervals sym-bindings end dec)
       (map (lambda (int-map) (interval-map-contract! int-map start end)) (list hovers docs symbols sym-decls sym-bindings)))
