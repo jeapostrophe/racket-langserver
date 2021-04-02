@@ -115,7 +115,8 @@
          (define old-len (- end-pos st-pos))
          (define new-len (string-length text))
          (cond [(> new-len old-len) (send doc-trace expand end-pos (+ st-pos new-len))]
-               [(< new-len old-len) (send doc-trace contract (+ st-pos new-len) end-pos)])
+               [(< new-len old-len) (send doc-trace contract (+ st-pos new-len) end-pos)]
+               [else #f])
          (send doc-text insert text st-pos end-pos)]
         [(ContentChangeEvent #:text text)
          (send doc-trace reset)
@@ -132,28 +133,28 @@
 ;; Returns an object conforming to the Hover interface, to
 ;; be used as the result of the response message.
 (define (hover id params)
-  (match params
+    (match params
     [(hash-table ['textDocument (DocIdentifier #:uri uri)]
-                 ['position (Pos #:line line #:char ch)])
-     (unless (uri-is-path? uri)
-       (error 'hover "uri is not a path"))
-     (match-define (doc doc-text doc-trace)
-       (hash-ref open-docs (string->symbol uri)))
-     (define hovers (send doc-trace get-hovers))
-     (define pos (line/char->pos doc-text line ch))
-     (define-values (start end text)
-       (interval-map-ref/bounds hovers pos #f))
-     (match-define (list link tag)
-       (interval-map-ref (send doc-trace get-docs) pos (list #f #f)))
-     (define result
-       (cond [text
-              (hasheq 'contents (if link (~a text " - [docs](" (~a "https://docs.racket-lang.org/" (last (string-split link "/doc/"))) ")") text)
-                      'range (Range #:start (abs-pos->Pos doc-text start)
-                                    #:end   (abs-pos->Pos doc-text end)))]
-             [else (hasheq 'contents empty)]))
-     (success-response id result)]
-    [_
-     (error-response id INVALID-PARAMS "textDocument/hover failed")]))
+                  ['position (Pos #:line line #:char ch)])
+  (unless (uri-is-path? uri)
+    (error 'hover "uri is not a path"))
+  (match-define (doc doc-text doc-trace)
+    (hash-ref open-docs (string->symbol uri)))
+  (define hovers (send doc-trace get-hovers))
+  (define pos (line/char->pos doc-text line ch))
+  (define-values (start end text)
+    (interval-map-ref/bounds hovers pos #f))
+  (match-define (list link tag)
+    (interval-map-ref (send doc-trace get-docs) pos (list #f #f)))
+  (define result
+    (cond [text
+          (hasheq 'contents (if link (~a text " - [docs](" (~a "https://docs.racket-lang.org/" (last (string-split link "/doc/"))) ")") text)
+                  'range (Range #:start (abs-pos->Pos doc-text start)
+                                #:end   (abs-pos->Pos doc-text end)))]
+          [else (hasheq 'contents empty)]))
+  (success-response id result)]
+[_
+  (error-response id INVALID-PARAMS "textDocument/hover failed")]))
 
 ;; Signature Help request
 (define (signatureHelp id params)
