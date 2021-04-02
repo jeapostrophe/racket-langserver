@@ -355,7 +355,7 @@
     [_
      (error-response id INVALID-PARAMS "textDocument/rangeFormatting failed")]))
 
-;; Full document formatting request
+;; On-type formatting request
 (define (on-type-formatting! id params)
   (match params
     ;; We're ignoring 'options for now
@@ -414,7 +414,7 @@
      (define span (- current-spaces desired-spaces))
      (send doc-text delete line-start (+ line-start span))
      (TextEdit #:range (Range #:start (Pos #:line line #:char 0)
-                      #:end   (Pos #:line line #:char span))
+                              #:end   (Pos #:line line #:char span))
                #:newText "")]))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
