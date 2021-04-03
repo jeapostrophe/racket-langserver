@@ -19,7 +19,7 @@
          "responses.rkt"
          "symbol-kinds.rkt"
          "docs-helpers.rkt"
-         "autocomplete.rkt")
+         "doc-trace.rkt")
 
 (struct doc (text trace) #:transparent #:mutable)
 

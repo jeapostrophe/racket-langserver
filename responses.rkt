@@ -21,6 +21,11 @@
           'id id
           'error err*))
 
+(define Diag-Error 1)
+(define Diag-Warning 2)
+(define Diag-Information 3)
+(define Diag-Hint 4)
+
 ;; Constructor for a response object representing diagnostics.
 (define (diagnostics-message uri diags)
   (hasheq 'jsonrpc "2.0"
@@ -29,6 +34,10 @@
                           'diagnostics diags)))
 
 (provide
+ Diag-Error
+ Diag-Warning
+ Diag-Information
+ Diag-Hint
  (contract-out
   [success-response
    ((or/c number? string?) jsexpr? . -> . jsexpr?)]
