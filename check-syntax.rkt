@@ -191,7 +191,7 @@
   (port-count-lines! in)
   (define lexer (get-lexer in))
   (define symbols (send trace get-symbols))
-  (interval-map-remove! symbols 0 (string-length text))
+  (interval-map-remove! symbols 0 (+ (string-length text) 1))
   (for ([lst (in-port (lexer-wrap lexer) in)] #:when (set-member? '(constant string symbol) (first (rest lst))))
     (match-define (list text type paren? start end) lst)
     (interval-map-set! symbols start end (list text type)))
