@@ -56,7 +56,13 @@
   (when (and (list? data) (not (empty? data)) (syntax? (car data)))
     (define prop (syntax-property (car data) 'mouse-over-tooltips))
     (when (and prop (list? prop) (not (empty? prop)))
-      (match-define (vector _ start end msg) (car prop))
+      (define-values (start end msg)
+        (match prop
+          [(list (vector _ start _ _) (vector _ _ end msg))
+           (values start end msg)]
+          [(list (vector _ start end msg))
+           (values start end msg)]
+          [else (values #f #f #f)]))
       (when (string? msg)
         (list (Diagnostic #:range (Range #:start (abs-pos->Pos doc-text start) #:end (abs-pos->Pos doc-text end))
                           #:severity Diag-Error
