@@ -6,8 +6,10 @@
          racket/gui/base
          racket/match
          racket/set
+         racket/logging
          racket/dict
          racket/list
+         racket/string
          racket/format
          syntax-color/module-lexer
          syntax-color/racket-lexer
@@ -147,6 +149,8 @@
 (define ((error-diagnostics src) exn)
   (define msg (exn-message exn))
   (cond
+    ;; typed racket support: don't report error summaries
+    [(string-prefix? msg "Type Checker: Summary") (list)]
     [(exn:srclocs? exn)
      (define srclocs ((exn:srclocs-accessor exn) exn))
      (for/list ([sl (in-list srclocs)])
@@ -170,6 +174,18 @@
                        #:source "Racket"
                        #:message msg))]
     [else (error 'error-diagnostics "unexpected failure: ~a" exn)]))
+
+(define (check-typed-racket-log doc-text log)
+  (match-define (vector _ msg data _) log)
+  (when (and (list? data) (syntax? (car data)))
+    (define prop (syntax-property (car data) 'mouse-over-tooltips))
+    (when (and prop (list? prop))
+      (match-define (vector _ start end msg) (car prop))
+      (when (string? msg)
+        (list (Diagnostic #:range (Range #:start (abs-pos->Pos doc-text start) #:end (abs-pos->Pos doc-text end))
+                          #:severity Diag-Error
+                          #:source "Typed Racket"
+                          #:message msg))))))
 
 (define (get-indenter doc-text)
   ;; read-language seems to want to just throw instead of calling error-thunk
@@ -214,20 +230,27 @@
                           #:source "Racket"
                           #:message "Missing or invalid #lang line"))
         (list)))
+  (define diags (list))
   (define err-diags
     (parameterize ([current-annotations new-trace]
                    [current-namespace ns]
                    [current-load-relative-directory src-dir])
-      (with-handlers ([(or/c exn:fail:read? exn:fail:syntax? exn:fail:filesystem?)
-                       (error-diagnostics src)])
-        (define stx (expand (with-module-reading-parameterization
-                              (λ () (read-syntax src in)))))
-        (send new-trace set-completions (append (set->list (walk stx)) (set->list (walk-module stx))))
-        (add-syntax stx)
-        (set! valid #t)
-        (done)
-        (list))))
-  (define all-diags (append err-diags (set->list warn-diags) lang-diag))
+      (with-intercepted-logging 
+          (lambda (l)
+            (define result (check-typed-racket-log doc-text l))
+            (when (list? result) (set! diags (append diags result))))
+        (lambda () 
+          (with-handlers ([(or/c exn:fail:read? exn:fail:syntax? exn:fail:filesystem?)
+                           (error-diagnostics src)])
+            (define stx (expand (with-module-reading-parameterization
+                                  (λ () (read-syntax src in)))))
+            (send new-trace set-completions (append (set->list (walk stx)) (set->list (walk-module stx))))
+            (add-syntax stx)
+            (set! valid #t)
+            (done)
+            (list)))
+        'info)))
+  (define all-diags (append err-diags (set->list warn-diags) lang-diag diags))
   (display-message/flush (diagnostics-message (path->uri src) all-diags))
   (if valid new-trace (or trace new-trace)))
 
