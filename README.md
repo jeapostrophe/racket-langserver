@@ -10,6 +10,10 @@ A Racket runtime is a prerequisite, so before using `racket-langserver`, ensure 
 
 You can use the [atom-ide-racket](https://github.com/cfinegan/atom-ide-racket) package. The language server will be automatically installed when `atom-ide-racket` installs.
 
+### VSCode
+
+Use the [Magic Racket](https://marketplace.visualstudio.com/items?itemName=evzen-wybitul.magic-racket) extension.
+
 ### Other editors and IDEs
 
 First, install an LSP runtime for your editor.
