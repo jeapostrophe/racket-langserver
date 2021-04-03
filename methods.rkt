@@ -73,6 +73,8 @@
        (text-document/references id params)]
       ["textDocument/documentSymbol"
        (text-document/document-symbol id params)]
+      ["textDocument/rename"
+       (text-document/rename id params)]
       ["textDocument/formatting"
        (text-document/formatting! id params)]
       ["textDocument/rangeFormatting"
@@ -118,6 +120,7 @@
                'referencesProvider #t
                'completionProvider (hasheq 'triggerCharacters (list " " "("))
                'signatureHelpProvider (hasheq 'triggerCharacters (list " " ")"))
+               'renameProvider #t
                'documentHighlightProvider #t
                'documentSymbolProvider #t
                'documentFormattingProvider #t
