@@ -177,9 +177,9 @@
 
 (define (check-typed-racket-log doc-text log)
   (match-define (vector _ msg data _) log)
-  (when (and (list? data) (syntax? (car data)))
+  (when (and (list? data) (not (empty? data)) (syntax? (car data)))
     (define prop (syntax-property (car data) 'mouse-over-tooltips))
-    (when (and prop (list? prop))
+    (when (and prop (list? prop) (not (empty? prop)))
       (match-define (vector _ start end msg) (car prop))
       (when (string? msg)
         (list (Diagnostic #:range (Range #:start (abs-pos->Pos doc-text start) #:end (abs-pos->Pos doc-text end))
