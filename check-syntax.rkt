@@ -232,11 +232,10 @@
   (match-define-values
     (_ _ _ _ _ _ lexer)
     (module-lexer in 0 #f))
-  (if (procedure? lexer) ;; TODO: Is this an issue with module-lexer docs?
-      lexer
-      (if (eq? lexer 'no-lang-line)
-          racket-lexer
-          (error 'get-lexer "~v" lexer))))
+  (cond 
+    [(procedure? lexer) lexer]
+    [(eq? lexer 'no-lang-line) racket-lexer]
+    [(eq? lexer 'before-lang-line) racket-lexer]))
 
 (provide
  (contract-out
