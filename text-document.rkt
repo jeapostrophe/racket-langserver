@@ -258,6 +258,35 @@
     [_
      (error-response id INVALID-PARAMS "textDocument/documentHighlight failed")]))
 
+;; Rename request
+(define (_rename id params)
+  (match params
+    [(hash-table ['textDocument (DocIdentifier #:uri uri)]
+                 ['position (Pos #:line line #:char char)]
+                 ['newName new-name])
+     (unless (uri-is-path? uri)
+       (error 'definition "uri is not a path"))
+     (match-define (doc doc-text doc-trace)
+       (hash-ref open-docs (string->symbol uri)))
+     (define pos (line/char->pos doc-text line char))
+     (define doc-decls (send doc-trace get-sym-decls))
+     (define doc-bindings (send doc-trace get-sym-bindings))
+     (define-values (start end maybe-bindings) (interval-map-ref/bounds doc-decls pos #f))
+     (define maybe-decl (interval-map-ref doc-bindings pos #f))
+     (define result
+      (if (or maybe-bindings maybe-decl)
+       (let 
+         ([start (or start (Decl-left maybe-decl))]
+         [end (or end (Decl-right maybe-decl))]
+         [bindings (or maybe-bindings (and start (interval-map-ref doc-decls start #f)))])
+         (hasheq 'changes (hasheq (string->symbol uri)
+                                  (for/list ([range (in-list (append (set->list bindings) (list (cons start end))))])
+                                            (TextEdit #:range (Range #:start (abs-pos->Pos doc-text (car range)) #:end (abs-pos->Pos doc-text (cdr range))) #:newText new-name)))))
+       (json-null)))
+     (success-response id result)]
+    [_
+     (error-response id INVALID-PARAMS "textDocument/documentHighlight failed")]))
+
 ;; Gets the document highlights for the current position and returns
 ;; a list of Range objects containing those highlights. Right now this
 ;; function is used by both 'references' and 'document-highlight' because
@@ -450,6 +479,7 @@
   [document-highlight (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]
   [references (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]
   [document-symbol (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]
+  [rename _rename rename (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]
   [formatting! (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]
   [range-formatting! (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]
   [on-type-formatting! (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]))
