@@ -172,14 +172,19 @@
     [else (error 'error-diagnostics "unexpected failure: ~a" exn)]))
 
 (define (get-indenter doc-text)
-  (define lang-info (read-language (open-input-string (send doc-text get-text)) (lambda () #f)))
-  (and lang-info (lang-info 'drracket:indentation #f)))
+  ;; read-language seems to want to just throw instead of calling error-thunk
+  ;; on several types of exceptions... so just handle them with #f
+  (with-handlers ([exn:fail:read? (lambda (e) #f)]
+                  [exn:missing-module? (lambda (e) #f)]) 
+    (define lang-info (read-language (open-input-string (send doc-text get-text)) (lambda () #f)))
+    (if (procedure? lang-info)
+        (lang-info 'drracket:indentation #f)
+        'missing)))
 
 (define (check-syntax src doc-text trace)
   (define indenter (get-indenter doc-text))
   (define ns (make-base-namespace))
-  (unless trace
-    (set! trace (new build-trace% [src src] [doc-text doc-text] [indenter indenter])))
+  (define new-trace (new build-trace% [src src] [doc-text doc-text] [indenter indenter]))
   (match-define-values (src-dir _ #f)
     (split-path src))
   (define-values (add-syntax done)
@@ -190,33 +195,41 @@
   (define in (open-input-string text)) 
   (port-count-lines! in)
   (define lexer (get-lexer in))
-  (define symbols (send trace get-symbols))
-  (interval-map-remove! symbols 0 (+ (string-length text) 1))
+  (define symbols (send new-trace get-symbols))
   (for ([lst (in-port (lexer-wrap lexer) in)] #:when (set-member? '(constant string symbol) (first (rest lst))))
     (match-define (list text type paren? start end) lst)
     (interval-map-set! symbols start end (list text type)))
-
+  
   ;; Rewind input port and read syntax
   (set! in (open-input-string text))
   (port-count-lines! in)
-  (define warn-diags (send trace get-warn-diags))
-  (set-clear! warn-diags)
+  (when trace
+    (set-clear! (send trace get-warn-diags)))
+  (define valid #f)
+  (define warn-diags (send new-trace get-warn-diags))
+  (define lang-diag 
+    (if (eq? indenter 'missing)
+        (list (Diagnostic #:range (Range #:start (Pos #:line 0 #:char 0) #:end (Pos #:line 0 #:char 0)) 
+                          #:severity Diag-Error
+                          #:source "Racket"
+                          #:message "Missing or invalid #lang line"))
+        (list)))
   (define err-diags
-    (parameterize ([current-annotations trace]
+    (parameterize ([current-annotations new-trace]
                    [current-namespace ns]
                    [current-load-relative-directory src-dir])
       (with-handlers ([(or/c exn:fail:read? exn:fail:syntax? exn:fail:filesystem?)
                        (error-diagnostics src)])
         (define stx (expand (with-module-reading-parameterization
-                      (λ () (read-syntax src in)))))
-        (send trace reset)
-        (send trace set-completions (append (set->list (walk stx)) (set->list (walk-module stx))))
+                              (λ () (read-syntax src in)))))
+        (send new-trace set-completions (append (set->list (walk stx)) (set->list (walk-module stx))))
         (add-syntax stx)
+        (set! valid #t)
         (done)
         (list))))
-  (define all-diags (append err-diags (set->list warn-diags)))
+  (define all-diags (append err-diags (set->list warn-diags) lang-diag))
   (display-message/flush (diagnostics-message (path->uri src) all-diags))
-  trace)
+  (if valid new-trace (or trace new-trace)))
 
 ;; Wrapper for in-port, returns a list or EOF.
 (define ((lexer-wrap lexer) in)
