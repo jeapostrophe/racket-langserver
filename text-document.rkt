@@ -362,13 +362,15 @@
            (let ([r-text (new racket:text%)]) (send r-text insert (send doc-text get-text)) r-text)
            (send doc-text copy-self)))
      (define results
-       (let loop ([line start-line])
-         (if (> line end-line)
-             null
-             (let ([edit (indent-line! mut-doc-text indenter line)])
-               (if edit
-                   (cons edit (loop (add1 line)))
-                   (loop (add1 line)))))))
+       (if indenter 
+           (let loop ([line start-line])
+             (if (> line end-line)
+                 null
+                 (let ([edit (indent-line! mut-doc-text indenter line)])
+                   (if edit
+                       (cons edit (loop (add1 line)))
+                       (loop (add1 line))))))
+           (json-null)))
      (success-response id results)]
     [_
      (error-response id INVALID-PARAMS "textDocument/rangeFormatting failed")]))

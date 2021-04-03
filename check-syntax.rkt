@@ -71,9 +71,9 @@
                                              #f)]
                                         [else 
                                          (list->set (set-map decl-set (lambda (d-range) 
-                                                             (if (> (car d-range) after)
-                                                                 (cons (+ (car d-range) amt) (+ (cdr d-range) amt))
-                                                                 d-range))))]))
+                                                                        (if (> (car d-range) after)
+                                                                            (cons (+ (car d-range) amt) (+ (cdr d-range) amt))
+                                                                            d-range))))]))
                        (when result
                          (interval-map-set! int-map (car range) (cdr range) result)))))
     ;; Getters
@@ -164,22 +164,16 @@
      ;; This is very close to DrRacket's behavior:  it also has no source location to work with,
      ;; however it simply doesn't highlight any code.
      (define silly-range
-      (Range #:start (Pos #:line 0 #:char 0) #:end (Pos #:line 0 #:char 0)))
+       (Range #:start (Pos #:line 0 #:char 0) #:end (Pos #:line 0 #:char 0)))
      (list (Diagnostic #:range silly-range
                        #:severity Diag-Error
                        #:source "Racket"
                        #:message msg))]
-      [else (error 'error-diagnostics "unexpected failure: ~a" exn)]))
+    [else (error 'error-diagnostics "unexpected failure: ~a" exn)]))
 
-;; XXX Want to use read-language for this, but can't just assume this
-;; XXX is the first line because there might be comments.
-;; XXX Look into ways to efficiently read from doc-text like a port.
-;; XXX (This would make get-lexer faster too.)
-;; XXX For now, use default indentation for everything (until we support
-;; XXX custom #langs).
 (define (get-indenter doc-text)
-  (define lang-info (read-language (open-input-string (send doc-text get-text))))
-  (lang-info 'drracket:indentation #f))
+  (define lang-info (read-language (open-input-string (send doc-text get-text)) (lambda () #f)))
+  (and lang-info (lang-info 'drracket:indentation #f)))
 
 (define (check-syntax src doc-text trace)
   (define indenter (get-indenter doc-text))
