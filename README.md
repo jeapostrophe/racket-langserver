@@ -42,16 +42,15 @@ You may need to restart your LSP runtime or your editor for `racket-langserver` 
   - *Note:* Currently only considers references within the current file.
 - **Document Highlight** (textDocument/documentHighlight)
 - **Diagnostics** (textDocument/publishDiagnostics)
-- **Code Formatting** (textDocument/formatting & textDocument/rangeFormatting)
+- **Code Formatting** (textDocument/formatting & textDocument/rangeFormatting & textDocument/onTypeFormatting)
+- **Signature Help** (textDocument/signatureHelp)
+- **Rename** (textDocument/rename & textDocument/prepareRename)
+  - *Note:* Currently only allows renaming symbols defined within the current file.
+- **Code completion** (textDocument/completion)
 
 #### *Work in Progress:*
 
 - **Document Outline** (textDocument/documentSymbol)
-
-#### *Would be Nice:*
-
-- **Rename** (textDocument/rename)
-- **Code completion** (textDocument/completion)
 
 ## Notes for Contributers
 
