@@ -19,7 +19,7 @@
     (define docs (make-interval-map))
     (define symbols (make-interval-map))
     (define completions (list))
-    (define requires '())
+    (define requires (make-interval-map))
     ;; decl -> (set pos ...)
     (define sym-decls (make-interval-map))
     ;; pos -> decl
@@ -31,7 +31,7 @@
       (set! sym-decls (make-interval-map))
       (set! sym-bindings (make-interval-map))
       (set! symbols (make-interval-map))
-      (set! requires '()))
+      (set! requires (make-interval-map)))
     (define/public (expand start end)
       (define inc (- end start))
       (move-interior-intervals sym-decls (- start 1) inc)
@@ -78,7 +78,7 @@
            src))
     ;; Track requires
     (define/override (syncheck:add-require-open-menu text start finish file)
-      (set! requires (set-add requires file)))
+      (interval-map-set! requires start finish file))
     ;; Mouse-over status
     (define/override (syncheck:add-mouse-over-status src-obj start finish text)
       ;; Infer a length of 1 for zero-length ranges in the document.
