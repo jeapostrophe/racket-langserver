@@ -80,6 +80,7 @@
 ;;;;;;;;;;;;
 
 (define open-docs (make-hasheq))
+(define check-threads (make-hasheq))
 
 (define (did-open! params)
   (match-define (hash-table ['textDocument (DocItem #:uri uri #:text text)]) params)
@@ -90,7 +91,8 @@
   (define doc-text (new racket:text%))
   (send doc-text insert text 0)
   (define trace (check-syntax path doc-text #f))
-  (hash-set! open-docs (string->symbol uri) (doc doc-text trace)))
+  (hash-set! open-docs (string->symbol uri) (doc doc-text trace))
+  (hash-set! check-threads (string->symbol uri) (cons #f #f)))
 
 (define (did-close! params)
   (match-define (hash-table ['textDocument (DocItem #:uri uri)]) params)
