@@ -127,7 +127,7 @@
     ;; set. See 'append-message.rkt' for more info.
     (unless (hash-ref params skip-syncheck #f)
       (define path (uri->path uri))
-      (check-syntax path doc-text doc-trace)))
+      (set-doc-trace! this-doc (check-syntax path doc-text doc-trace))))
   (void))
 
 ;; Hover request
@@ -150,8 +150,7 @@
      (define result
        (cond [text
               (hasheq 'contents (if link (~a text " - [docs](" (~a "https://docs.racket-lang.org/" (last (string-split link "/doc/"))) ")") text)
-                      'range (Range #:start (abs-pos->Pos doc-text start)
-                                    #:end   (abs-pos->Pos doc-text end)))]
+                      'range (start/end->Range doc-text start end))]
              [else (hasheq 'contents empty)]))
      (success-response id result)]
     [_
@@ -212,20 +211,15 @@
   (match params
     [(hash-table ['textDocument (DocIdentifier #:uri uri)]
                  ['position (Pos #:line line #:char char)])
-     (unless (uri-is-path? uri)
-       (error 'definition "uri is not a path"))
+     (define-values (start end decl) (get-decl uri line char))
      (match-define (doc doc-text doc-trace)
        (hash-ref open-docs (string->symbol uri)))
-     (define doc-bindings (send doc-trace get-sym-bindings))
-     (define pos (line/char->pos doc-text line char))
-     (define decl (interval-map-ref doc-bindings pos #f))
      (define result
        (match decl
          [#f (json-null)]
          [(Decl _ start end)
           (Location #:uri uri
-                    #:range (Range #:start (abs-pos->Pos doc-text start)
-                                   #:end   (abs-pos->Pos doc-text end)))]))
+                    #:range (start/end->Range doc-text start end))]))
      (success-response id result)]
     [_
      (error-response id INVALID-PARAMS "textDocument/definition failed")]))
@@ -236,11 +230,19 @@
     [(hash-table ['textDocument (DocIdentifier #:uri uri)]
                  ['position (Pos #:line line #:char char)]
                  ['context (hash-table ['includeDeclaration include-decl?])])
-     (define ranges (get-doc-refs uri line char include-decl?))
+     (define-values (start end decl) (get-decl uri line char))
+     (match-define (doc doc-text doc-trace)
+       (hash-ref open-docs (string->symbol uri)))
      (define result
-       (for/list ([range (in-list ranges)])
-         (Location #:uri uri
-                   #:range range)))
+       (match decl
+         [(Decl req? left right)
+          (define ranges 
+            (if req?
+                (list (start/end->Range doc-text start end) (start/end->Range doc-text left right))
+                (or (get-bindings uri decl))))
+          (for/list ([range (in-list ranges)])
+            (hasheq 'uri uri 'range range))]
+         [#f (json-null)]))
      (success-response id result)]
     [_
      (error-response id INVALID-PARAMS "textDocument/references failed")]))
@@ -250,10 +252,19 @@
   (match params
     [(hash-table ['textDocument (DocIdentifier #:uri uri)]
                  ['position (Pos #:line line #:char char)])
-     (define ranges (get-doc-refs uri line char #t))
+     (define-values (start end decl) (get-decl uri line char))
+     (match-define (doc doc-text doc-trace)
+       (hash-ref open-docs (string->symbol uri)))
      (define result
-       (for/list ([range (in-list ranges)])
-         (DocHighlight #:range range)))
+       (match decl
+         [(Decl req? left right)
+          (define ranges 
+            (if req?
+                (list (start/end->Range doc-text start end) (start/end->Range doc-text left right))
+                (or (append (get-bindings uri decl) (list (start/end->Range doc-text left right))))))
+          (for/list ([range (in-list ranges)])
+            (hasheq 'range range))]
+         [#f (json-null)]))
      (success-response id result)]
     [_
      (error-response id INVALID-PARAMS "textDocument/documentHighlight failed")]))
@@ -264,68 +275,70 @@
     [(hash-table ['textDocument (DocIdentifier #:uri uri)]
                  ['position (Pos #:line line #:char char)]
                  ['newName new-name])
-     (unless (uri-is-path? uri)
-       (error 'definition "uri is not a path"))
+     (define-values (start end decl) (get-decl uri line char))
      (match-define (doc doc-text doc-trace)
        (hash-ref open-docs (string->symbol uri)))
-     (define pos (line/char->pos doc-text line char))
-     (define doc-decls (send doc-trace get-sym-decls))
-     (define doc-bindings (send doc-trace get-sym-bindings))
-     (define-values (start end maybe-bindings) (interval-map-ref/bounds doc-decls pos #f))
-     (define maybe-decl (interval-map-ref doc-bindings pos #f))
      (define result
-      (if (or maybe-bindings maybe-decl)
-       (let 
-         ([start (or start (Decl-left maybe-decl))]
-         [end (or end (Decl-right maybe-decl))]
-         [bindings (or maybe-bindings (and start (interval-map-ref doc-decls start #f)))])
-         (hasheq 'changes (hasheq (string->symbol uri)
-                                  (for/list ([range (in-list (append (set->list bindings) (list (cons start end))))])
-                                            (TextEdit #:range (Range #:start (abs-pos->Pos doc-text (car range)) #:end (abs-pos->Pos doc-text (cdr range))) #:newText new-name)))))
-       (json-null)))
+       (match decl
+         [(Decl req? left right)
+          (cond [req? (json-null)]
+                [else 
+                 (define ranges (cons (start/end->Range doc-text left right) (get-bindings uri decl)))
+                 (hasheq 'changes 
+                         (hasheq (string->symbol uri)
+                                 (for/list ([range (in-list ranges)])
+                                   (TextEdit #:range range #:newText new-name))))])]
+         [#f (json-null)]))
      (success-response id result)]
     [_
      (error-response id INVALID-PARAMS "textDocument/documentHighlight failed")]))
 
-;; Gets the document highlights for the current position and returns
-;; a list of Range objects containing those highlights. Right now this
-;; function is used by both 'references' and 'document-highlight' because
-;; there is currently no support for project-wide symbol references.
-(define (get-doc-refs uri line char include-decl?)
+;; Prepare rename
+(define (prepareRename id params)
+  (match params
+    [(hash-table ['textDocument (DocIdentifier #:uri uri)]
+                 ['position (Pos #:line line #:char char)])
+     (define-values (start end decl) (get-decl uri line char))
+     (match-define (doc doc-text doc-trace)
+       (hash-ref open-docs (string->symbol uri)))
+     (if (and decl (not (Decl-require? decl)))
+         (success-response id (start/end->Range doc-text start end))
+         (success-response id (json-null)))]
+    [_
+     (error-response id INVALID-PARAMS "textDocument/documentHighlight failed")]))
+
+;; Gets a list of Range objects indicating bindings related to the
+;; symbol at the given position. If #:include-decl is #t, the list includes
+;; the declaration. If #:include-decl is 'all, the list includes the declaration
+;; and all bound occurrences.
+(define (get-bindings uri decl)
   (unless (uri-is-path? uri)
-    (error 'get-doc-refs "uri is not a path"))
+    (error 'get-bindings "uri is not a path"))
   (match-define (doc doc-text doc-trace)
     (hash-ref open-docs (string->symbol uri)))
   (define doc-decls (send doc-trace get-sym-decls))
-  (define doc-bindings (send doc-trace get-sym-bindings))
+  (match-define (Decl req? left right) decl)
+  (define-values (bind-start bind-end bindings) (interval-map-ref/bounds doc-decls left #f))
+  (if bindings
+      (for/list ([range (in-set bindings)])
+        (start/end->Range doc-text (car range) (cdr range)))
+      #f))
+
+(define (get-decl uri line char)
+  (unless (uri-is-path? uri)
+    (error 'get-decl "uri is not a path"))
+  (match-define (doc doc-text doc-trace)
+    (hash-ref open-docs (string->symbol uri)))
   (define pos (line/char->pos doc-text line char))
-  (define (refs-from-decl decl-left decl-right bindings)
-    (if include-decl?
-        (set-add bindings (cons decl-left decl-right))
-        bindings))
-  (define (refs-from-binding)
-    (define-values (use-left use-right decl)
-      (interval-map-ref/bounds doc-bindings pos #f))
-    (match decl
-      [#f (set)]
-      [(Decl require? decl-left decl-right)
-       (cond [(and require? include-decl?)
-              (set (cons decl-left decl-right) (cons use-left use-right))]
-             [require? (set (cons use-left use-right))]
-             [else
-              (define bindings (interval-map-ref doc-decls decl-left))
-              (if include-decl?
-                  (set-add bindings (cons decl-left decl-right))
-                  bindings)])]))
-  (define-values (decl-left decl-right bindings)
-    (interval-map-ref/bounds doc-decls pos #f))
-  (define refs (if bindings
-                   (refs-from-decl decl-left decl-right bindings)
-                   (refs-from-binding)))
-  (for/list ([rf (in-set refs)])
-    (match-define (cons start end) rf)
-    (Range #:start (abs-pos->Pos doc-text start)
-           #:end   (abs-pos->Pos doc-text end))))
+  (define doc-decls (send doc-trace get-sym-decls))
+  (define doc-bindings (send doc-trace get-sym-bindings))
+  (define-values (start end maybe-decl) (interval-map-ref/bounds doc-bindings pos #f))
+  (define-values (bind-start bind-end maybe-bindings) (interval-map-ref/bounds doc-decls pos #f))
+  (if maybe-decl 
+      (values start end maybe-decl)
+      (if maybe-bindings
+         (values bind-start bind-end (interval-map-ref doc-bindings (car (set-first maybe-bindings)) #f))
+         (values #f #f #f))))
 
 ;; Document Symbol request
 (define (document-symbol id params)
@@ -480,6 +493,7 @@
   [references (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]
   [document-symbol (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]
   [rename _rename rename (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]
+  [prepareRename (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]
   [formatting! (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]
   [range-formatting! (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]
   [on-type-formatting! (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]))

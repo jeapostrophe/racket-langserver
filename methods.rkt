@@ -75,6 +75,8 @@
        (text-document/document-symbol id params)]
       ["textDocument/rename"
        (text-document/rename id params)]
+       ["textDocument/prepareRename"
+       (text-document/prepareRename id params)]
       ["textDocument/formatting"
        (text-document/formatting! id params)]
       ["textDocument/rangeFormatting"
@@ -118,14 +120,14 @@
                'hoverProvider #t
                'definitionProvider #t
                'referencesProvider #t
-               'completionProvider (hasheq 'triggerCharacters (list " " "("))
-               'signatureHelpProvider (hasheq 'triggerCharacters (list " " ")"))
-               'renameProvider #t
+               'completionProvider (hasheq 'triggerCharacters (list "("))
+               'signatureHelpProvider (hasheq 'triggerCharacters (list " " ")" "]"))
+               'renameProvider (hasheq 'prepareProvider #t)
                'documentHighlightProvider #t
                'documentSymbolProvider #t
                'documentFormattingProvider #t
                'documentRangeFormattingProvider #t
-               'documentOnTypeFormattingProvider (hasheq 'firstTriggerCharacter ")" 'moreTriggerCharacter (list "\n"))))
+               'documentOnTypeFormattingProvider (hasheq 'firstTriggerCharacter ")" 'moreTriggerCharacter (list "\n" "]"))))
 
      (define resp (success-response id (hasheq 'capabilities server-capabilities)))
      (set! already-initialized? #t)

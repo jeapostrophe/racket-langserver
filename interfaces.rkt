@@ -43,4 +43,7 @@
 (define (line/char->pos t line char)
   (+ char (send t paragraph-start-position line)))
 
+(define (start/end->Range t start end)
+  (Range #:start (abs-pos->Pos t start) #:end (abs-pos->Pos t end)))
+
 (provide (all-defined-out))
