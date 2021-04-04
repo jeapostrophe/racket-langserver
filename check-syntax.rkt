@@ -1,6 +1,5 @@
 #lang racket/base
-(require data/interval-map
-         drracket/check-syntax
+(require drracket/check-syntax
          racket/class
          racket/contract/base
          racket/gui/base
@@ -9,8 +8,6 @@
          racket/logging
          racket/list
          racket/string
-         syntax-color/module-lexer
-         syntax-color/racket-lexer
          net/url
          syntax/modread
          (only-in net/url path->url url->string)
@@ -88,20 +85,9 @@
   (define-values (add-syntax done)
     (make-traversal ns src))
   
-  ;; Enumerate symbols
+  ;; Rewind input port and read syntax
   (define text (send doc-text get-text))
   (define in (open-input-string text)) 
-  (port-count-lines! in)
-  (define lexer (get-lexer in))
-  (define symbols (send new-trace get-symbols))
-  (for ([lst (in-port (lexer-wrap lexer) in)] #:when (set-member? '(constant string symbol) (first (rest lst))))
-    (match-define (list text type paren? start end) lst)
-    (interval-map-set! symbols start end (list text type)))
-  (when trace
-    (send trace set-symbols symbols))
-  
-  ;; Rewind input port and read syntax
-  (set! in (open-input-string text))
   (port-count-lines! in)
   (when trace
     (set-clear! (send trace get-warn-diags)))
@@ -143,25 +129,6 @@
   (define all-diags (append err-diags (set->list warn-diags) lang-diag diags))
   (display-message/flush (diagnostics-message (path->uri src) all-diags))
   (if valid new-trace (or trace new-trace)))
-
-;; Wrapper for in-port, returns a list or EOF.
-(define ((lexer-wrap lexer) in)
-  (define-values (txt type paren? start end)
-    (lexer in))
-  (if (eof-object? txt)
-      eof
-      (list txt type paren? start end)))
-
-;; Call module-lexer on an input port, then discard all
-;; values except the lexer.
-(define (get-lexer in)
-  (match-define-values
-    (_ _ _ _ _ _ lexer)
-    (module-lexer in 0 #f))
-  (cond 
-    [(procedure? lexer) lexer]
-    [(eq? lexer 'no-lang-line) racket-lexer]
-    [(eq? lexer 'before-lang-line) racket-lexer]))
 
 (provide
  (contract-out
