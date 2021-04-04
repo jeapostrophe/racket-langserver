@@ -182,7 +182,9 @@
                              [else #f])]))
               (cond [tag
                      (match-define (list sigs docs) (get-docs-for-tag tag))
-                     (hasheq 'signatures (map (lambda sig (hasheq 'label sig 'documentation (or docs (json-null)))) sigs))]
+                     (if sigs
+                         (hasheq 'signatures (map (lambda sig (hasheq 'label sig 'documentation (or docs (json-null)))) sigs))
+                         (json-null))]
                     [else (json-null)])]
              [else (json-null)]))
      (success-response id result)]
@@ -337,8 +339,8 @@
   (if maybe-decl 
       (values start end maybe-decl)
       (if maybe-bindings
-         (values bind-start bind-end (interval-map-ref doc-bindings (car (set-first maybe-bindings)) #f))
-         (values #f #f #f))))
+          (values bind-start bind-end (interval-map-ref doc-bindings (car (set-first maybe-bindings)) #f))
+          (values #f #f #f))))
 
 ;; Document Symbol request
 (define (document-symbol id params)

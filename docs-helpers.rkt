@@ -2,7 +2,6 @@
 
 (require scribble/blueboxes
          setup/xref
-         racket/set
          racket/class
          racket/list
          racket/dict
@@ -37,20 +36,24 @@
   (for/or ([mp (in-list mps)])
     (define definition-tag (xref-binding->definition-tag xref (list mp (string->symbol id)) #f))
     (cond
-          [definition-tag
-            (define-values (path url-tag) (xref-tag->path+anchor xref definition-tag))
-            (if path definition-tag #f)]
-          [else #f])))
+      [definition-tag
+        (define-values (path url-tag) (xref-tag->path+anchor xref definition-tag))
+        (if path definition-tag #f)]
+      [else #f])))
 
 (define (get-docs-for-tag tag)
-  (define strs (drop (fetch-blueboxes-strs tag #:blueboxes-cache the-bluebox-cache) 1))
-  (define index (let loop ((strs strs) (i 0))
-    (cond
-      [(>= i (length strs)) #f]
-      [(string-prefix? (list-ref strs i) "(") (loop strs (+ i 1))]
-      [else i])))
-  (cond [index (list (take strs index) (string-join (if index (drop strs index) strs) "\n"))]
-        [else (list strs #f)]))
+  (define bb-strs (fetch-blueboxes-strs tag #:blueboxes-cache the-bluebox-cache))
+  (cond [bb-strs
+         (define strs (drop bb-strs 1))
+         (define index (let loop ((strs strs) (i 0))
+                         (cond
+                           [(>= i (length strs)) #f]
+                           [(string-prefix? (list-ref strs i) "(") (loop strs (+ i 1))]
+                           [else i])))
+         (cond [index (list (take strs index) (string-join (if index (drop strs index) strs) "\n"))]
+               [else (list strs #f)])]
+        [else (list #f #f)]))
+
 
 (provide find-containing-paren
          get-docs-for-tag
