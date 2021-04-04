@@ -11,6 +11,8 @@
          racket/set
          racket/dict
          racket/format
+         syntax-color/module-lexer
+         syntax-color/racket-lexer
          "check-syntax.rkt"
          "error-codes.rkt"
          "interfaces.rkt"
@@ -200,9 +202,9 @@
               (define tag
                 (cond [maybe-tag (last maybe-tag)]
                       [else
-                       (define doc-symbols (send doc-trace get-symbols))
+                       (define symbols (get-symbols doc-text))
                        (define-values (start end symbol)
-                         (interval-map-ref/bounds doc-symbols (+ new-pos 2) #f))
+                         (interval-map-ref/bounds symbols (+ new-pos 2) #f))
                        (cond [symbol
                               (id-to-tag (first symbol) doc-trace)]
                              [else #f])]))
@@ -216,6 +218,36 @@
      (success-response id result)]
     [_
      (error-response id INVALID-PARAMS "textDocument/signatureHelp failed")]))
+
+(define (get-symbols doc-text)
+  (define text (send doc-text get-text))
+  (define in (open-input-string text)) 
+  (port-count-lines! in)
+  (define lexer (get-lexer in))
+  (define symbols (make-interval-map))
+  (for ([lst (in-port (lexer-wrap lexer) in)] #:when (set-member? '(constant string symbol) (first (rest lst))))
+    (match-define (list text type paren? start end) lst)
+    (interval-map-set! symbols start end (list text type)))
+  symbols)
+
+;; Wrapper for in-port, returns a list or EOF.
+(define ((lexer-wrap lexer) in)
+  (define-values (txt type paren? start end)
+    (lexer in))
+  (if (eof-object? txt)
+      eof
+      (list txt type paren? start end)))
+
+;; Call module-lexer on an input port, then discard all
+;; values except the lexer.
+(define (get-lexer in)
+  (match-define-values
+    (_ _ _ _ _ _ lexer)
+    (module-lexer in 0 #f))
+  (cond 
+    [(procedure? lexer) lexer]
+    [(eq? lexer 'no-lang-line) racket-lexer]
+    [(eq? lexer 'before-lang-line) racket-lexer]))
 
 ;; Completion Request
 (define (completion id params)
@@ -377,7 +409,7 @@
      (match-define (doc doc-text doc-trace)
        (hash-ref open-docs (string->symbol uri)))
      (define results
-       (dict-map (send doc-trace get-symbols)
+       (dict-map (get-symbols doc-text)
                  (λ (key value)
                    (match-define (cons start end) key)
                    (match-define (list text type) value)
