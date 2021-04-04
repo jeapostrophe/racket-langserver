@@ -97,6 +97,8 @@
   (for ([lst (in-port (lexer-wrap lexer) in)] #:when (set-member? '(constant string symbol) (first (rest lst))))
     (match-define (list text type paren? start end) lst)
     (interval-map-set! symbols start end (list text type)))
+  (when trace
+    (send trace set-symbols symbols))
   
   ;; Rewind input port and read syntax
   (set! in (open-input-string text))
@@ -126,7 +128,10 @@
                            (error-diagnostics src)])
             (define stx (expand (with-module-reading-parameterization
                                   (λ () (read-syntax src in)))))
-            (send new-trace set-completions (append (set->list (walk stx)) (set->list (walk-module stx))))
+            (define completions (append (set->list (walk stx)) (set->list (walk-module stx))))
+            (send new-trace set-completions completions)
+            (when trace
+              (send trace set-completions completions))
             (add-syntax stx)
             (set! valid #t)
             (done)

@@ -66,6 +66,7 @@
     (define/public (get-hovers) hovers)
     (define/public (get-docs) docs)
     (define/public (get-symbols) symbols)
+    (define/public (set-symbols new-symbols) (set! symbols new-symbols))
     (define/public (get-completions) completions)
     (define/public (set-completions new-completions) (set! completions new-completions))
     (define/public (get-requires) requires)
