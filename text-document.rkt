@@ -11,7 +11,6 @@
          racket/set
          racket/dict
          racket/format
-         "append-message.rkt"
          "check-syntax.rkt"
          "error-codes.rkt"
          "interfaces.rkt"
@@ -125,16 +124,41 @@
          (send doc-trace reset)
          (send doc-text erase)
          (send doc-text insert text 0)]))
-    ;; Only perform syntax check if the 'skip-syncheck' flag is *not*
-    ;; set. See 'append-message.rkt' for more info.
-    (unless (hash-ref params skip-syncheck #f)
-      (define path (uri->path uri))
-      (set-doc-trace! this-doc (check-syntax path doc-text doc-trace))))
+    (queue-check (string->symbol uri) this-doc))
   (void))
+
+(define (queue-check uri this-doc)
+  (match-define (cons wait check) (hash-ref check-threads uri))
+  (match-define (doc doc-text doc-trace) this-doc)
+  (define text (send doc-text get-text))
+  (define (do-check)
+    (define new-text (new racket:text%))
+    (send new-text insert text)
+    (define new-trace (check-syntax (uri->path (symbol->string uri)) new-text doc-trace))
+    (match-define (cons wait check) (hash-ref check-threads uri))
+    (unless (thread? wait)
+      (set-doc-trace! this-doc new-trace))
+    (when (thread? wait) (thread-send wait #t #f))
+    (hash-set! check-threads uri (cons #f wait)))
+  (define (do-wait)
+    (match (thread-receive)
+      [#t 
+       (do-check)]
+      [new-text
+       (set! text new-text)
+       (do-wait)]))
+  (cond 
+    [(and wait (thread-running? wait) check (thread-running? check))
+     (thread-send wait text #f)]
+    [(and check (thread-running? check))
+     (hash-set! check-threads uri (cons (thread do-wait) check))]
+    [else
+     (hash-set! check-threads uri (cons #f (thread do-check)))]))
 
 ;; Hover request
 ;; Returns an object conforming to the Hover interface, to
 ;; be used as the result of the response message.
+(require "msg-io.rkt" "responses.rkt")
 (define (hover id params)
   (match params
     [(hash-table ['textDocument (DocIdentifier #:uri uri)]
