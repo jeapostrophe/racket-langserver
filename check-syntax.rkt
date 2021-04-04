@@ -128,6 +128,9 @@
                            (error-diagnostics src)])
             (define stx (expand (with-module-reading-parameterization
                                   (λ () (read-syntax src in)))))
+            ;; reading and expanding succeeded, clear out any syntax errors before the
+            ;; heavy stuff in order to be responsive to the user
+            (display-message/flush (diagnostics-message (path->uri src) (list)))
             (define completions (append (set->list (walk stx)) (set->list (walk-module stx))))
             (send new-trace set-completions completions)
             (when trace
