@@ -115,6 +115,13 @@
                'change TextDocSync-Incremental
                'willSave #f
                'willSaveWaitUntil #f))
+     (define renameProvider
+       (match capabilities
+         [(hash-table ['textDocument 
+                       (hash-table ['rename
+                                    (hash-table ['prepareSupport #t])])])
+          (hasheq 'prepareProvider #t)]
+         [_ #t]))
      (define server-capabilities
        (hasheq 'textDocumentSync sync-options
                'hoverProvider #t
@@ -122,7 +129,7 @@
                'referencesProvider #t
                'completionProvider (hasheq 'triggerCharacters (list "("))
                'signatureHelpProvider (hasheq 'triggerCharacters (list " " ")" "]"))
-               'renameProvider (hasheq 'prepareProvider #t)
+               'renameProvider renameProvider
                'documentHighlightProvider #t
                'documentSymbolProvider #t
                'documentFormattingProvider #t
