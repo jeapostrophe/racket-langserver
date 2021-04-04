@@ -5,6 +5,7 @@
          racket/set
          racket/class
          racket/list
+         racket/dict
          setup/collects
          racket/string
          scribble/xref)
@@ -31,7 +32,7 @@
   ;; in drracket/private/syncheck/blueboxes-gui.rkt
   (define xref (load-collections-xref))
   (define mps
-    (for/list ([require-candidate (in-set (send trace get-requires))])
+    (for/list ([(k require-candidate) (in-dict (send trace get-requires))])
       (path->module-path require-candidate #:cache pkg-cache)))
   (for/or ([mp (in-list mps)])
     (define definition-tag (xref-binding->definition-tag xref (list mp (string->symbol id)) #f))
