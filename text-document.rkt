@@ -23,6 +23,7 @@
          "doc-trace.rkt")
 
 (struct doc (text trace) #:transparent #:mutable)
+(struct checkq (text thread) #:transparent #:mutable)
 
 (define (uri-is-path? str)
   (string-prefix? str "file://"))
@@ -81,7 +82,7 @@
 ;;;;;;;;;;;;
 
 (define open-docs (make-hasheq))
-(define check-threads (make-hasheq))
+(define syn-checks (make-hasheq))
 
 (define (did-open! params)
   (match-define (hash-table ['textDocument (DocItem #:uri uri #:text text)]) params)
@@ -93,11 +94,14 @@
   (send doc-text insert text 0)
   (define trace (check-syntax path doc-text #f))
   (hash-set! open-docs (string->symbol uri) (doc doc-text trace))
-  (hash-set! check-threads (string->symbol uri) (cons #f #f)))
+  (define q (checkq #f (thread (λ () (check-loop uri)))))
+  (hash-set! syn-checks (string->symbol uri) q)
+  (thread-send (checkq-thread q) text))
 
 (define (did-close! params)
   (match-define (hash-table ['textDocument (DocItem #:uri uri)]) params)
   (when (uri-is-path? uri)
+    (kill-thread (checkq-thread (hash-ref syn-checks (string->symbol uri))))
     (hash-remove! open-docs (string->symbol uri))))
 
 (define (did-change! params)
@@ -126,36 +130,25 @@
          (send doc-trace reset)
          (send doc-text erase)
          (send doc-text insert text 0)]))
-    (queue-check (string->symbol uri) this-doc))
+    (define new-text (send doc-text get-text))
+    (define queue (hash-ref syn-checks (string->symbol uri)))
+    (define old-text (checkq-text queue))
+    (set-checkq-text! queue new-text)
+    (unless old-text
+      (thread-send (checkq-thread queue) new-text)))
   (void))
 
-(define (queue-check uri this-doc)
-  (match-define (cons wait check) (hash-ref check-threads uri))
+(define (check-loop uri)
+  (define q (hash-ref syn-checks (string->symbol uri)))
+  (define text (thread-receive))
+  (define this-doc (hash-ref open-docs (string->symbol uri)))
   (match-define (doc doc-text doc-trace) this-doc)
-  (define text (send doc-text get-text))
-  (define (do-check)
-    (define new-text (new racket:text%))
-    (send new-text insert text)
-    (define new-trace (check-syntax (uri->path (symbol->string uri)) new-text doc-trace))
-    (match-define (cons wait check) (hash-ref check-threads uri))
-    (unless (thread? wait)
-      (set-doc-trace! this-doc new-trace))
-    (when (thread? wait) (thread-send wait #t #f))
-    (hash-set! check-threads uri (cons #f wait)))
-  (define (do-wait)
-    (match (thread-receive)
-      [#t 
-       (do-check)]
-      [new-text
-       (set! text new-text)
-       (do-wait)]))
-  (cond 
-    [(and wait (thread-running? wait) check (thread-running? check))
-     (thread-send wait text #f)]
-    [(and check (thread-running? check))
-     (hash-set! check-threads uri (cons (thread do-wait) check))]
-    [else
-     (hash-set! check-threads uri (cons #f (thread do-check)))]))
+  (define new-text (new racket:text%))
+  (send new-text insert (or (checkq-text q) text))
+  (set-checkq-text! q #f)
+  (define new-trace (check-syntax (uri->path uri) new-text doc-trace))
+  (set-doc-trace! this-doc new-trace)
+  (check-loop uri))
 
 ;; Hover request
 ;; Returns an object conforming to the Hover interface, to
