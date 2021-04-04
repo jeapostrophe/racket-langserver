@@ -432,7 +432,7 @@
           (Range 
            #:start (abs-pos->Pos doc-text (send doc-text paragraph-start-position line)) 
            #:end (abs-pos->Pos doc-text (send doc-text paragraph-end-position line)))]
-         [")"
+         [_
           (Range
            #:start (abs-pos->Pos doc-text (or (find-containing-paren pos (send doc-text get-text)) 0))
            #:end (abs-pos->Pos doc-text pos))]))
