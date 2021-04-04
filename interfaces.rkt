@@ -1,7 +1,7 @@
 #lang racket/base
 (require (for-syntax racket/base
                      syntax/parse)
-                     racket/class
+         racket/class
          racket/contract/base
          racket/match
          "json-util.rkt")
