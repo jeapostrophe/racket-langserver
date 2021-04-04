@@ -5,7 +5,6 @@
          racket/function
          racket/list
          racket/match
-         "append-message.rkt"
          "error-codes.rkt"
          "methods.rkt"
          "msg-io.rkt"
@@ -26,7 +25,7 @@
                   (wrap-evt
                    (channel-recv-evt in-ch)
                    (λ (m)
-                     (serve (append-message msgs m))))
+                     (serve (append msgs (list m)))))
                   (wrap-evt
                    (channel-send-evt out-ch (first msgs))
                    (thunk*
