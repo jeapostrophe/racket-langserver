@@ -24,8 +24,16 @@
   (write-json msg out))
 
 (define (display-message/flush msg [out (current-output-port)])
+  (channel-put in-ch msg))
+
+(define (read-loop in-ch [out (current-output-port)])
+  (define msg (channel-get in-ch))
   (display-message msg out)
-  (flush-output out))
+  (flush-output out)
+  (read-loop in-ch out))
+
+(define in-ch (make-channel))
+(define message-th (thread (lambda () (read-loop in-ch))))
 
 (provide
  verbose-io?
