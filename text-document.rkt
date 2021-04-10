@@ -352,7 +352,7 @@
   (if bindings
       (for/list ([range (in-set bindings)])
         (start/end->Range doc-text (car range) (cdr range)))
-      #f))
+      empty))
 
 (define (get-decl uri line char)
   (unless (uri-is-path? uri)
