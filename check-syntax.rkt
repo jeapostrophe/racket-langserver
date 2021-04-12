@@ -66,15 +66,18 @@
                           #:source "Typed Racket"
                           #:message msg))))))
 
+(define default-indenter ((read-language (open-input-string "#lang racket/base")) 'drracket:indentation #f))
+
 (define (get-indenter doc-text)
-  ;; read-language seems to want to just throw instead of calling error-thunk
-  ;; on several types of exceptions... so just handle them with #f
-  (with-handlers ([exn:fail:read? (lambda (e) #f)]
-                  [exn:missing-module? (lambda (e) #f)]) 
-    (define lang-info (read-language (open-input-string (send doc-text get-text)) (lambda () #f)))
-    (if (procedure? lang-info)
-        (lang-info 'drracket:indentation #f)
-        'missing)))
+  (define lang-info 
+    (with-handlers ([exn:fail:read? (lambda (e) 'missing)]
+                    [exn:missing-module? (lambda (e) #f)]) 
+      (read-language (open-input-string (send doc-text get-text)) (lambda () 'missing))))
+  (cond 
+    [(procedure? lang-info)
+     (lang-info 'drracket:indentation #f)]
+    [(eq? lang-info 'missing) lang-info]
+    [else default-indenter]))
 
 (define (check-syntax src doc-text trace)
   (define indenter (get-indenter doc-text))
