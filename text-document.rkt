@@ -202,11 +202,20 @@
 
 ;; Wrapper for in-port, returns a list or EOF.
 (define ((lexer-wrap lexer) in)
-  (define-values (txt type paren? start end)
-    (lexer in))
-  (if (eof-object? txt)
-      eof
-      (list txt type paren? start end)))
+  (define (eof-or-list txt type paren? start end)
+    (if (eof-object? txt) 
+        eof
+        (list txt type paren? start end)))
+  (cond
+    [(procedure? lexer) 
+     (define-values (txt type paren? start end)
+      (lexer in))
+     (eof-or-list txt type paren? start end)]
+    [(cons? lexer)
+     (define-values (txt type paren? start end backup mode)
+       ((car lexer) in 0 (cdr lexer)))
+     (set! lexer (cons (car lexer) mode))
+     (eof-or-list txt type paren? start end)]))
 
 ;; Call module-lexer on an input port, then discard all
 ;; values except the lexer.
@@ -216,6 +225,7 @@
     (module-lexer in 0 #f))
   (cond 
     [(procedure? lexer) lexer]
+    [(cons? lexer) lexer]
     [(eq? lexer 'no-lang-line) racket-lexer]
     [(eq? lexer 'before-lang-line) racket-lexer]))
 
