@@ -1,8 +1,8 @@
 #lang racket/base
-
 (require racket/match
          framework
          racket/class
+         "debug.rkt"
          "check-syntax.rkt"
          "interfaces.rkt")
 
@@ -48,6 +48,8 @@
 
 (define (try-queue-check src doc)
     (when (and (thread-running? waiter-th) (thread-running? server-th))
-        (channel-put in-ch (list src (send (doc-text doc) get-text) doc))))
+        (define txt (send (doc-text doc) get-text))
+        (maybe-debug-file txt)
+        (channel-put in-ch (list src txt doc))))
 
 (provide try-queue-check)

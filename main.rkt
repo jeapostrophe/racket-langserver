@@ -5,6 +5,7 @@
          racket/function
          racket/list
          racket/match
+         "debug.rkt"
          "error-codes.rkt"
          "methods.rkt"
          "msg-io.rkt"
@@ -57,6 +58,7 @@
        (define err "Invalid JSON was received by the server.")
        (display-message/flush (error-response (json-null) PARSE-ERROR err))]
       [_
+       (maybe-debug-log msg)
        (with-handlers ([exn:fail? report-error])
          (process-message msg))])
     (consume))
