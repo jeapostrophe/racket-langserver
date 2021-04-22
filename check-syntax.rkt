@@ -66,8 +66,6 @@
                           #:source "Typed Racket"
                           #:message msg))))))
 
-(define default-indenter ((read-language (open-input-string "#lang racket/base")) 'drracket:indentation #f))
-
 (define (get-indenter doc-text)
   (define lang-info 
     (with-handlers ([exn:fail:read? (lambda (e) 'missing)]
@@ -77,7 +75,7 @@
     [(procedure? lang-info)
      (lang-info 'drracket:indentation #f)]
     [(eq? lang-info 'missing) lang-info]
-    [else default-indenter]))
+    [else #f]))
 
 (define (check-syntax src doc-text trace)
   (define indenter (get-indenter doc-text))
