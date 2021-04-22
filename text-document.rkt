@@ -497,7 +497,7 @@
             [else i])))
   (define desired-spaces
     (if indenter
-        (indenter doc-text line-start)
+        (or (indenter doc-text line-start) (send doc-text compute-racket-amount-to-indent line-start))
         (send doc-text compute-racket-amount-to-indent line-start)))
   (cond
     [(not (number? desired-spaces)) #f]
