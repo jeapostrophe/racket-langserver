@@ -257,10 +257,7 @@
      (define result
        (match decl
          [#f (json-null)]
-         [(Decl #t start end)
-          (Location #:uri uri
-                    #:range (start/end->Range doc-text start end))]
-         [(Decl #f start end)
+         [(or (Decl #t start end) (Decl #f start end))
           (Location #:uri uri
                     #:range (start/end->Range doc-text start end))]
          [(Decl path start end)
