@@ -11,9 +11,12 @@
          racket/set
          racket/dict
          racket/format
+         racket/gui
          net/url
          syntax-color/module-lexer
          syntax-color/racket-lexer
+         drracket/check-syntax
+         syntax/modread
          "check-syntax.rkt"
          "error-codes.rkt"
          "interfaces.rkt"
@@ -247,6 +250,31 @@
      (error-response id INVALID-PARAMS "textDocument/completion failed")]))
 
 ;; Definition request
+(define defs%
+  (class (annotations-mixin object%)
+    (define defs (make-hash))
+    (define/public (get id) (hash-ref defs id #f))
+    (define/override (syncheck:add-definition-target source-obj start end id mods)
+      (hash-set! defs id (cons start end)))
+    (super-new)))
+(define (get-def path id)
+  (define collector (new defs%))
+  (define-values (src-dir file dir?)
+    (split-path path))
+  (define text (new text%))
+  (send text load-file path)
+  (define in (open-input-string (send text get-text)))
+
+  (define ns (make-base-namespace))
+  (define-values (add-syntax done)
+    (make-traversal ns path))
+  (parameterize ([current-annotations collector]
+                 [current-namespace ns]
+                 [current-load-relative-directory src-dir])
+    (define stx (expand (with-module-reading-parameterization
+                          (λ () (read-syntax path in)))))
+    (add-syntax stx))
+  (send collector get id))
 (define (definition id params)
   (match params
     [(hash-table ['textDocument (DocIdentifier #:uri uri)]
@@ -257,10 +285,11 @@
      (define result
        (match decl
          [#f (json-null)]
-         [(or (Decl #t start end) (Decl #f start end))
+         [(or (Decl #t id start end) (Decl #f id start end))
           (Location #:uri uri
                     #:range (start/end->Range doc-text start end))]
-         [(Decl path start end)
+         [(Decl path id 0 0)
+          (match-define (cons start end) (get-def path id))
           (Location #:uri (path->uri path)
                     #:range (start/end->Range doc-text start end))]))
      (success-response id result)]
@@ -278,7 +307,7 @@
        (hash-ref open-docs (string->symbol uri)))
      (define result
        (match decl
-         [(Decl req? left right)
+         [(Decl req? id left right)
           (define ranges
             (if req?
                 (list (start/end->Range doc-text start end) (start/end->Range doc-text left right))
@@ -300,7 +329,7 @@
        (hash-ref open-docs (string->symbol uri)))
      (define result
        (match decl
-         [(Decl req? left right)
+         [(Decl req? id left right)
           (define ranges 
             (if req?
                 (list (start/end->Range doc-text start end) (start/end->Range doc-text left right))
@@ -323,7 +352,7 @@
        (hash-ref open-docs (string->symbol uri)))
      (define result
        (match decl
-         [(Decl req? left right)
+         [(Decl req? id left right)
           (cond [req? (json-null)]
                 [else 
                  (define ranges (cons (start/end->Range doc-text left right) (get-bindings uri decl)))
@@ -360,7 +389,7 @@
   (match-define (doc doc-text doc-trace)
     (hash-ref open-docs (string->symbol uri)))
   (define doc-decls (send doc-trace get-sym-decls))
-  (match-define (Decl req? left right) decl)
+  (match-define (Decl req? id left right) decl)
   (define-values (bind-start bind-end bindings) (interval-map-ref/bounds doc-decls left #f))
   (if bindings
       (for/list ([range (in-set bindings)])
