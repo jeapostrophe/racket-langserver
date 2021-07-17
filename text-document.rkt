@@ -9,9 +9,9 @@
          racket/match
          racket/string
          racket/set
-         racket/exn
          racket/dict
          racket/format
+         net/url
          syntax-color/module-lexer
          syntax-color/racket-lexer
          "check-syntax.rkt"
@@ -19,12 +19,12 @@
          "interfaces.rkt"
          "json-util.rkt"
          "responses.rkt"
-         "msg-io.rkt"
          "symbol-kinds.rkt"
          "docs-helpers.rkt"
          "doc-trace.rkt"
          "queue-only-latest.rkt")
 
+(define path->uri (compose url->string path->url))
 (define (uri-is-path? str)
   (string-prefix? str "file://"))
 
@@ -257,8 +257,14 @@
      (define result
        (match decl
          [#f (json-null)]
-         [(Decl _ start end)
+         [(Decl #t start end)
           (Location #:uri uri
+                    #:range (start/end->Range doc-text start end))]
+         [(Decl #f start end)
+          (Location #:uri uri
+                    #:range (start/end->Range doc-text start end))]
+         [(Decl path start end)
+          (Location #:uri (path->uri path)
                     #:range (start/end->Range doc-text start end))]))
      (success-response id result)]
     [_
@@ -276,7 +282,7 @@
      (define result
        (match decl
          [(Decl req? left right)
-          (define ranges 
+          (define ranges
             (if req?
                 (list (start/end->Range doc-text start end) (start/end->Range doc-text left right))
                 (or (get-bindings uri decl))))
