@@ -9,7 +9,7 @@
          "interfaces.rkt"
          "responses.rkt")
 
-(struct Decl (require? left right) #:transparent)
+(struct Decl (require? id left right) #:transparent)
 
 (define build-trace%
   (class (annotations-mixin object%)
@@ -44,12 +44,11 @@
     (define/private (move-interior-intervals int-map after amt)
       (dict-for-each int-map
                      (lambda (range decl-set)
-                       (define is-decl (Decl? decl-set))
                        (define result (cond
-                                        [is-decl
+                                        [(Decl? decl-set)
                                          (define d-range (cons (Decl-left decl-set) (Decl-right decl-set)))
                                          (if (> (car d-range) after)
-                                             (Decl (Decl-require? decl-set) (+ (car d-range) amt) (+ (cdr d-range) amt))
+                                             (Decl (Decl-require? decl-set) #f (+ (car d-range) amt) (+ (cdr d-range) amt))
                                              #f)]
                                         [else
                                          (list->set (set-map decl-set (lambda (d-range)
@@ -100,7 +99,7 @@
                          url))
         (interval-map-set! docs start finish (list (url->string url2) def-tag))))
     (define/override (syncheck:add-jump-to-definition source-obj start end id filename submods)
-      (define decl (Decl filename 0 0))
+      (define decl (Decl filename id 0 0))
       (interval-map-set! sym-bindings start (add1 end) decl))
     ;; References
     (define/override (syncheck:add-arrow/name-dup start-src-obj start-left start-right
@@ -117,7 +116,7 @@
       (interval-map-set! sym-decls start-left start-right new-bindings)
       ;; Mapping from binding to declaration.
       (unless require-arrow?
-        (define new-decl (Decl require-arrow? start-left start-right))
+        (define new-decl (Decl require-arrow? #f start-left start-right))
         (interval-map-set! sym-bindings end-left end-right new-decl)))
     ;; Unused requires
     (define/override (syncheck:add-unused-require src left right)
@@ -132,5 +131,6 @@
 (provide build-trace%
          (contract-out
           [struct Decl ([require? any/c]
+                        [id any/c]
                         [left exact-nonnegative-integer?]
                         [right exact-nonnegative-integer?])]))
