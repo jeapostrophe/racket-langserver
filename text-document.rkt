@@ -257,13 +257,11 @@
     (define/override (syncheck:add-definition-target source-obj start end id mods)
       (hash-set! defs id (cons start end)))
     (super-new)))
-(define (get-def path id)
+(define (get-def path doc-text id)
   (define collector (new defs%))
   (define-values (src-dir file dir?)
     (split-path path))
-  (define text (new text%))
-  (send text load-file path)
-  (define in (open-input-string (send text get-text)))
+  (define in (open-input-string (send doc-text get-text)))
 
   (define ns (make-base-namespace))
   (define-values (add-syntax done)
@@ -289,7 +287,9 @@
           (Location #:uri uri
                     #:range (start/end->Range doc-text start end))]
          [(Decl path id 0 0)
-          (match-define (cons start end) (get-def path id))
+          (define doc-text (new text%))
+          (send doc-text load-file path)
+          (match-define (cons start end) (get-def path doc-text id))
           (Location #:uri (path->uri path)
                     #:range (start/end->Range doc-text start end))]))
      (success-response id result)]
