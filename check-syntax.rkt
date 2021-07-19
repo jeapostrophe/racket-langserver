@@ -84,7 +84,7 @@
   (match-define-values (src-dir _ #f)
     (split-path src))
   (define-values (add-syntax done)
-    (make-traversal ns src))
+    (make-traversal ns src-dir))
   
   ;; Rewind input port and read syntax
   (define text (send doc-text get-text))
