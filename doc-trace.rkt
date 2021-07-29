@@ -116,7 +116,7 @@
       (interval-map-set! sym-decls start-left start-right new-bindings)
       ;; Mapping from binding to declaration.
       (unless require-arrow?
-        (define new-decl (Decl require-arrow? #f start-left start-right))
+        (define new-decl (Decl #f #f start-left start-right))
         (interval-map-set! sym-bindings end-left end-right new-decl)))
     ;; Unused requires
     (define/override (syncheck:add-unused-require src left right)

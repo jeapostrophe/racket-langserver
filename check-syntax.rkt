@@ -8,16 +8,13 @@
          racket/logging
          racket/list
          racket/string
-         net/url
          syntax/modread
-         (only-in net/url path->url url->string)
          "msg-io.rkt"
+         "path-util.rkt"
          "responses.rkt"
          "interfaces.rkt"
          "autocomplete.rkt"
          "doc-trace.rkt")
-
-(define path->uri (compose url->string path->url))
 
 (define ((error-diagnostics src) exn)
   (define msg (exn-message exn))

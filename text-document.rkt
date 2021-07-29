@@ -1,18 +1,8 @@
 #lang racket/base
-(require (for-syntax racket/base)
-         data/interval-map
+(require data/interval-map
          framework
          json
-         racket/class
-         racket/contract/base
-         racket/list
-         racket/match
-         racket/string
-         racket/set
-         racket/dict
-         racket/format
          racket/gui
-         net/url
          syntax-color/module-lexer
          syntax-color/racket-lexer
          drracket/check-syntax
@@ -21,27 +11,12 @@
          "error-codes.rkt"
          "interfaces.rkt"
          "json-util.rkt"
+         "path-util.rkt"
          "responses.rkt"
          "symbol-kinds.rkt"
          "docs-helpers.rkt"
          "doc-trace.rkt"
          "queue-only-latest.rkt")
-
-(define path->uri (compose url->string path->url))
-(define (uri-is-path? str)
-  (string-prefix? str "file://"))
-
-(define (uri->path uri)
-  (cond
-    [(eq? (system-type 'os) 'windows)
-     ;; If a file URI begins with file:// or file:////, Windows translates it
-     ;; as a UNC path. If it begins with file:///, it's translated to an MS-DOS
-     ;; path. (https://en.wikipedia.org/wiki/File_URI_scheme#Windows_2)
-     (cond
-       [(string-prefix? uri "file:////") (substring uri 7)]
-       [(string-prefix? uri "file:///") (substring uri 8)]
-       [else (string-append "//" (substring uri 7))])]
-    [else (substring uri 7)]))
 
 ;;
 ;; Match Expanders
@@ -283,7 +258,7 @@
      (define result
        (match decl
          [#f (json-null)]
-         [(or (Decl #t id start end) (Decl #f id start end))
+         [(Decl #f id start end)
           (Location #:uri uri
                     #:range (start/end->Range doc-text start end))]
          [(Decl path id 0 0)
