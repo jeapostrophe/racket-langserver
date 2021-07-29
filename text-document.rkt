@@ -194,7 +194,7 @@
 
 (define (get-symbols doc-text)
   (define text (send doc-text get-text))
-  (define in (open-input-string text)) 
+  (define in (open-input-string text))
   (port-count-lines! in)
   (define lexer (get-lexer in))
   (define symbols (make-interval-map))
@@ -206,13 +206,13 @@
 ;; Wrapper for in-port, returns a list or EOF.
 (define ((lexer-wrap lexer) in)
   (define (eof-or-list txt type paren? start end)
-    (if (eof-object? txt) 
+    (if (eof-object? txt)
         eof
         (list txt type paren? start end)))
   (cond
-    [(procedure? lexer) 
+    [(procedure? lexer)
      (define-values (txt type paren? start end)
-      (lexer in))
+       (lexer in))
      (eof-or-list txt type paren? start end)]
     [(cons? lexer)
      (define-values (txt type paren? start end backup mode)
@@ -226,7 +226,7 @@
   (match-define-values
     (_ _ _ _ _ _ lexer)
     (module-lexer in 0 #f))
-  (cond 
+  (cond
     [(procedure? lexer) lexer]
     [(cons? lexer) lexer]
     [(eq? lexer 'no-lang-line) racket-lexer]
@@ -330,7 +330,7 @@
      (define result
        (match decl
          [(Decl req? id left right)
-          (define ranges 
+          (define ranges
             (if req?
                 (list (start/end->Range doc-text start end) (start/end->Range doc-text left right))
                 (or (append (get-bindings uri decl) (list (start/end->Range doc-text left right))))))
@@ -354,9 +354,9 @@
        (match decl
          [(Decl req? id left right)
           (cond [req? (json-null)]
-                [else 
+                [else
                  (define ranges (cons (start/end->Range doc-text left right) (get-bindings uri decl)))
-                 (hasheq 'changes 
+                 (hasheq 'changes
                          (hasheq (string->symbol uri)
                                  (for/list ([range (in-list ranges)])
                                    (TextEdit #:range range #:newText new-name))))])]
@@ -406,7 +406,7 @@
   (define doc-bindings (send doc-trace get-sym-bindings))
   (define-values (start end maybe-decl) (interval-map-ref/bounds doc-bindings pos #f))
   (define-values (bind-start bind-end maybe-bindings) (interval-map-ref/bounds doc-decls pos #f))
-  (if maybe-decl 
+  (if maybe-decl
       (values start end maybe-decl)
       (if maybe-bindings
           (values bind-start bind-end (interval-map-ref doc-bindings (car (set-first maybe-bindings)) #f))
@@ -475,15 +475,24 @@
        (if (is-a? doc-text racket:text%)
            (let ([r-text (new racket:text%)]) (send r-text insert (send doc-text get-text)) r-text)
            (send doc-text copy-self)))
+     (define skip-this-line? #f)
      (define results
        (if (eq? indenter 'missing) (json-null)
            (let loop ([line start-line])
+             (define line-start (send mut-doc-text paragraph-start-position line))
+             (define line-end (send mut-doc-text paragraph-end-position line))
+             (for ([i (range line-start (add1 line-end))])
+               (when (char=? #\" (send mut-doc-text get-character i))
+                 (set! skip-this-line? (not skip-this-line?))))
              (if (> line end-line)
                  null
-                 (let ([edit (indent-line! mut-doc-text indenter line)])
-                   (if edit
-                       (cons edit (loop (add1 line)))
-                       (loop (add1 line))))))))
+                 (let ([edit2 (remove-trailing-space! mut-doc-text skip-this-line? line)]
+                       [edit (indent-line! mut-doc-text indenter line)])
+                   (cond
+                     [(and edit edit2) (append (list edit edit2) (loop (add1 line)))]
+                     [edit (cons edit (loop (add1 line)))]
+                     [edit2 (cons edit2 (loop (add1 line)))]
+                     [else (loop (add1 line))]))))))
      (success-response id results)]
     [_
      (error-response id INVALID-PARAMS "textDocument/rangeFormatting failed")]))
@@ -501,14 +510,14 @@
      (define range
        (match ch
          ["\n"
-          (Range 
-           #:start (abs-pos->Pos doc-text (send doc-text paragraph-start-position line)) 
+          (Range
+           #:start (abs-pos->Pos doc-text (send doc-text paragraph-start-position line))
            #:end (abs-pos->Pos doc-text (send doc-text paragraph-end-position line)))]
          [_
           (Range
            #:start (abs-pos->Pos doc-text (or (find-containing-paren pos (send doc-text get-text)) 0))
            #:end (abs-pos->Pos doc-text pos))]))
-     
+
      (range-formatting!
       id
       (hash-set params
@@ -516,6 +525,20 @@
     [_
      (error-response id INVALID-PARAMS "textDocument/onTypeformatting failed")]))
 
+;; Returns a TextEdit, or #f if the line is a part of multiple-line string
+(define (remove-trailing-space! doc-text in-string? line)
+  (define line-start (send doc-text paragraph-start-position line))
+  (define line-end (send doc-text paragraph-end-position line))
+  (define line-text (send doc-text get-text line-start line-end))
+  (cond
+    [(not in-string?)
+     (define from (string-length (string-trim line-text #px"\\s+" #:left? #f)))
+     (define to (string-length line-text))
+     (send doc-text delete (+ line-start from) (+ line-start to))
+     (TextEdit #:range (Range #:start (Pos #:line line #:char from)
+                              #:end   (Pos #:line line #:char to))
+               #:newText "")]
+    [else #f]))
 ;; Returns a TextEdit, or #f if the line is already correct.
 (define (indent-line! doc-text indenter line)
   (define line-start (send doc-text paragraph-start-position line))
