@@ -15,7 +15,7 @@
 ;; for more information.
 
 (require (for-syntax racket/base)
-         racket/set 
+         racket/set
          syntax/kerncase
          racket/sequence
          racket/bool)
@@ -104,20 +104,20 @@
   sym-set)
 
 (define (walk-module fpe)
-  
+
   (define declared-modules (mutable-set))
-  
+
   (define ids (mutable-set))
-  
+
   (define alls (mutable-set))
   (define prefixs (mutable-set))
   (define all-excepts (mutable-set))
   (define prefix-all-excepts (mutable-set))
-  
+
   (define (push! sth)
     (when (ext-module-path? sth)
       (set-add! declared-modules (syntax->datum sth))))
-  
+
   (define (ext-module-path? r)
     (syntax-case* r (submod quote)
       sym=?
@@ -126,14 +126,14 @@
       [(submod (quote _) _ ...) #f]
       [(quote x) (module-predefined? r)]
       [_ #t]))
-  
+
   (define (phaseless-spec spec just)
     (define-syntax-rule (with-datum ([id0 exp0] [id exp] ...) body ...)
       (let ([id0 (syntax->datum exp0)])
         (when (ext-module-path? id0)
           (let ([id (syntax->datum exp)] ...)
             body ...))))
-    
+
     (syntax-case* spec
       (only prefix all-except prefix-all-except rename)
       sym=?
@@ -172,11 +172,11 @@
          (with-datum ([mod #'?raw-module-path])
            (set-add! declared-modules mod)
            (set-add! alls (cons just mod))))]))
-  
+
   (define (each f syn . args)
     (for ([s (in-syntax syn)])
       (apply f s args)))
-  
+
   (define (raw-require-spec spec)
     (define (maybe-just-meta spec)
       (syntax-case* spec (just-meta) sym=?
@@ -186,7 +186,7 @@
              (each phaseless-spec #'(?phaseless-spec* ...) n)))]
         [?phaseless-spec
          (phaseless-spec #'?phaseless-spec #f)]))
-    
+
     (define (maybe-shift spec just)
       (syntax-case* spec
         (for-meta for-syntax for-template for-label)
@@ -203,7 +203,7 @@
          (each phaseless-spec #'(?phaseless-spec ...) just)]
         [?phaseless-spec
          (phaseless-spec #'?phaseless-spec just)]))
-    
+
     (syntax-case* spec
       (for-meta for-syntax for-template for-label just-meta)
       sym=?
@@ -221,7 +221,7 @@
            (each maybe-shift #'(?raw-require-spec ...) level)))]
       [?phaseless-spec
        (phaseless-spec #'?phaseless-spec #f)]))
-  
+
   (define (walk form phase)
     (kernel-syntax-case/phase form phase
                               [(module ?id ?path (_ ?form ...))
@@ -242,16 +242,16 @@
                               [(begin-for-syntax ?form ...)
                                (walk* #'(?form ...) (add1 phase))]
                               [_ (void)]))
-  
+
   (define (walk* form* phase)
     (for-each (λ (s) (walk s phase)) (syntax->list form*)))
-  
+
   (kernel-syntax-case fpe #f
     [(module ?id ?path (#%plain-module-begin ?form ...))
      (begin
        (phaseless-spec #'?path #f)
        (walk* #'(?form ...) (namespace-base-phase))
-       
+
        (define (get-exports mod just)
          (define (filter-exports exports)
            (cond
@@ -264,10 +264,10 @@
              [else (set)]))
          (let-values ([(a b) (module->exports mod)])
            (set-union (filter-exports a) (filter-exports b))))
-       
+
        (for ([mod (in-set declared-modules)])
          ((current-module-name-resolver) mod #f #f #t))
-       
+
        (for ([jm (in-set alls)])
          (for ([id (in-set (get-exports (cdr jm) (car jm)))])
            (set-add! ids id)))
@@ -279,7 +279,7 @@
          (define e (foldl (λ (v s) (set-remove s v)) (get-exports (cadr jm) (car jm)) (cddr jm)))
          (for ([id (in-set e)])
            (set-add! ids id)))
-       
+
        (for ([jm (in-set prefix-all-excepts)])
          (define e (foldl (λ (v s) (set-remove s v)) (get-exports (cadr jm) (car jm)) (cdddr jm)))
          (for ([id (in-set e)])
