@@ -237,7 +237,7 @@
   (define-values (src-dir file dir?)
     (split-path path))
   (define in (open-input-string (send doc-text get-text)))
-  
+
   (define ns (make-base-namespace))
   (define-values (add-syntax done)
     (make-traversal ns src-dir))
@@ -457,7 +457,8 @@
              (define line-start (send mut-doc-text paragraph-start-position line))
              (define line-end (send mut-doc-text paragraph-end-position line))
              (for ([i (range line-start (add1 line-end))])
-               (when (char=? #\" (send mut-doc-text get-character i))
+               (when (and (char=? #\" (send mut-doc-text get-character i))
+                          (not (char=? #\\ (send mut-doc-text get-character (sub1 i)))))
                  (set! skip-this-line? (not skip-this-line?))))
              (if (> line end-line)
                  null
@@ -492,7 +493,7 @@
           (Range
            #:start (abs-pos->Pos doc-text (or (find-containing-paren pos (send doc-text get-text)) 0))
            #:end (abs-pos->Pos doc-text pos))]))
-     
+
      (range-formatting!
       id
       (hash-set params
