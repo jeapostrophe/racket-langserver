@@ -135,7 +135,7 @@
                'documentFormattingProvider #t
                'documentRangeFormattingProvider #t
                'documentOnTypeFormattingProvider (hasheq 'firstTriggerCharacter ")" 'moreTriggerCharacter (list "\n" "]"))))
-     
+
      (define resp (success-response id (hasheq 'capabilities server-capabilities)))
      (set! already-initialized? #t)
      resp]

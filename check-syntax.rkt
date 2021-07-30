@@ -64,11 +64,11 @@
                           #:message msg))))))
 
 (define (get-indenter doc-text)
-  (define lang-info 
+  (define lang-info
     (with-handlers ([exn:fail:read? (lambda (e) 'missing)]
-                    [exn:missing-module? (lambda (e) #f)]) 
+                    [exn:missing-module? (lambda (e) #f)])
       (read-language (open-input-string (send doc-text get-text)) (lambda () 'missing))))
-  (cond 
+  (cond
     [(procedure? lang-info)
      (lang-info 'drracket:indentation #f)]
     [(eq? lang-info 'missing) lang-info]
@@ -82,18 +82,18 @@
     (split-path src))
   (define-values (add-syntax done)
     (make-traversal ns src-dir))
-  
+
   ;; Rewind input port and read syntax
   (define text (send doc-text get-text))
-  (define in (open-input-string text)) 
+  (define in (open-input-string text))
   (port-count-lines! in)
   (when trace
     (set-clear! (send trace get-warn-diags)))
   (define valid #f)
   (define warn-diags (send new-trace get-warn-diags))
-  (define lang-diag 
+  (define lang-diag
     (if (eq? indenter 'missing)
-        (list (Diagnostic #:range (Range #:start (Pos #:line 0 #:char 0) #:end (Pos #:line 0 #:char 0)) 
+        (list (Diagnostic #:range (Range #:start (Pos #:line 0 #:char 0) #:end (Pos #:line 0 #:char 0))
                           #:severity Diag-Error
                           #:source "Racket"
                           #:message "Missing or invalid #lang line"))
@@ -103,11 +103,11 @@
     (parameterize ([current-annotations new-trace]
                    [current-namespace ns]
                    [current-load-relative-directory src-dir])
-      (with-intercepted-logging 
+      (with-intercepted-logging
           (lambda (l)
             (define result (check-typed-racket-log doc-text l))
             (when (list? result) (set! diags (append diags result))))
-        (lambda () 
+        (lambda ()
           (with-handlers ([(or/c exn:fail:read? exn:fail:syntax? exn:fail:filesystem?)
                            (error-diagnostics src)])
             (define stx (expand (with-module-reading-parameterization

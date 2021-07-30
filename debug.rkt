@@ -15,8 +15,8 @@
     (with-output-to-file dp
       #:exists 'append
       (lambda ()
-       (writeln m)))))
+        (writeln m)))))
 
 (provide
-  maybe-debug-log
-  maybe-debug-file)
+ maybe-debug-log
+ maybe-debug-file)
