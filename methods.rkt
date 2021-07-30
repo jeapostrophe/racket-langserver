@@ -75,7 +75,7 @@
        (text-document/document-symbol id params)]
       ["textDocument/rename"
        (text-document/rename id params)]
-       ["textDocument/prepareRename"
+      ["textDocument/prepareRename"
        (text-document/prepareRename id params)]
       ["textDocument/formatting"
        (text-document/formatting! id params)]
@@ -117,7 +117,7 @@
                'willSaveWaitUntil #f))
      (define renameProvider
        (match capabilities
-         [(hash-table ['textDocument 
+         [(hash-table ['textDocument
                        (hash-table ['rename
                                     (hash-table ['prepareSupport #t])])])
           (hasheq 'prepareProvider #t)]
@@ -135,7 +135,7 @@
                'documentFormattingProvider #t
                'documentRangeFormattingProvider #t
                'documentOnTypeFormattingProvider (hasheq 'firstTriggerCharacter ")" 'moreTriggerCharacter (list "\n" "]"))))
-
+     
      (define resp (success-response id (hasheq 'capabilities server-capabilities)))
      (set! already-initialized? #t)
      resp]

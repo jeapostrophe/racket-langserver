@@ -19,19 +19,19 @@
       (channel-put out-ch doc)
       (run #f #f))
     (sync (handle-evt in-ch
-            (lambda (doc)
-              (cond
-                [ready? (send-doc! doc)]
-                [else   (run doc #f)])))
+                      (lambda (doc)
+                        (cond
+                          [ready? (send-doc! doc)]
+                          [else   (run doc #f)])))
           (handle-evt ready-ch
-            (lambda (ignore)
-              (cond
-                [doc  (send-doc! doc)]
-                [else (run #f #t)])))))
+                      (lambda (ignore)
+                        (cond
+                          [doc  (send-doc! doc)]
+                          [else (run #f #t)])))))
   (run #f #t))
 
 (define (check in-ch ready-ch)
-  (define (run)    
+  (define (run)
     (define doc (sync in-ch))
     (do-check-and-stuff! doc)
     (channel-put ready-ch #t)
@@ -47,9 +47,9 @@
 (define server-th (thread (lambda () (check wait->check ready-ch))))
 
 (define (try-queue-check src doc)
-    (when (and (thread-running? waiter-th) (thread-running? server-th))
-        (define txt (send (doc-text doc) get-text))
-        (maybe-debug-file txt)
-        (channel-put in-ch (list src txt doc))))
+  (when (and (thread-running? waiter-th) (thread-running? server-th))
+    (define txt (send (doc-text doc) get-text))
+    (maybe-debug-file txt)
+    (channel-put in-ch (list src txt doc))))
 
 (provide try-queue-check)
