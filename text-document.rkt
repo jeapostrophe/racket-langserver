@@ -532,6 +532,7 @@
   (cond
     [(not (number? desired-spaces)) #f]
     [(= current-spaces desired-spaces) #f]
+    [(= line-length 0) #f]
     [(< current-spaces desired-spaces)
      ;; Insert spaces
      (define insert-count (- desired-spaces current-spaces))
