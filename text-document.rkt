@@ -16,7 +16,8 @@
          "symbol-kinds.rkt"
          "docs-helpers.rkt"
          "doc-trace.rkt"
-         "queue-only-latest.rkt")
+         "queue-only-latest.rkt"
+         "documentation-parser.rkt")
 
 ;;
 ;; Match Expanders
@@ -125,7 +126,20 @@
        (interval-map-ref (send doc-trace get-docs) pos (list #f #f)))
      (define result
        (cond [text
-              (hasheq 'contents (if link (~a text " - [docs](" (~a "https://docs.racket-lang.org/" (last (string-split link "/doc/"))) ")") text)
+              ;; We want signatures from `scribble/blueboxes` as they have better indentation,
+              ;; but in some super rare cases blueboxes aren't accessible, thus we try to use the parsed signature instead
+              (match-define (list sigs args-descr) (if tag (get-docs-for-tag tag) (list #f #f)))
+              (define maybe-signature
+                (if sigs (~a "```\n" (string-join sigs "\n") (if args-descr (~a "\n" args-descr) "") "\n```\n---\n") #f))
+              (define documentation-text
+                (if link (~a (or maybe-signature "")
+                             (or (extract-documentation-for-selected-element
+                                  link #:include-signature? (not maybe-signature)) "")) ""))
+              (define contents (if link
+                                   (~a text " - [online docs](" (make-proper-url-for-online-documentation link) ")\n"
+                                       (if (non-empty-string? documentation-text) (~a "\n---\n" documentation-text) ""))
+                                   text))
+              (hasheq 'contents contents
                       'range (start/end->Range doc-text start end))]
              [else (hasheq 'contents empty)]))
      (success-response id result)]
