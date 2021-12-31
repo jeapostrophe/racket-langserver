@@ -7,7 +7,8 @@
          data/interval-map
          net/url
          "interfaces.rkt"
-         "responses.rkt")
+         "responses.rkt"
+         "docs-helpers.rkt")
 
 (struct Decl (require? id left right) #:transparent)
 
@@ -86,18 +87,12 @@
       (when url
         (when (= start finish)
           (set! finish (add1 finish)))
-        (define url (path->url path))
-        (define url2 (if url-tag
-                         (make-url (url-scheme url)
-                                   (url-user url)
-                                   (url-host url)
-                                   (url-port url)
-                                   (url-path-absolute? url)
-                                   (url-path url)
-                                   (url-query url)
-                                   url-tag)
-                         url))
-        (interval-map-set! docs start finish (list (url->string url2) def-tag))))
+        (define path-url (path->url path))
+        (define link+tag (cond
+                           [url-tag (struct-copy url path-url [fragment url-tag])]
+                           [def-tag (struct-copy url path-url [fragment (def-tag->html-anchor-tag def-tag)])]
+                           [else path-url]))
+        (interval-map-set! docs start finish (list (url->string link+tag) def-tag))))
     (define/override (syncheck:add-jump-to-definition source-obj start end id filename submods)
       (define decl (Decl filename id 0 0))
       (interval-map-set! sym-bindings start (add1 end) decl))

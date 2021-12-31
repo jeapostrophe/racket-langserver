@@ -8,6 +8,7 @@
                "syntax-color-lib"
                "scribble-lib" ;; for blueboxes (scribble/blueboxes)
                "racket-index" ;; for cross references (setup/xref)
+               "html-parsing" ;; for parsing documentation text
                ))
 (define build-deps '("chk"))
 (define pkg-desc "Language Server Protocol implementation for Racket.")
