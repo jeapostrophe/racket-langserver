@@ -342,13 +342,17 @@
      (define result
        (match decl
          [(Decl req? id left right)
+          (define new-text
+            (if (string-contains? new-name " ")
+                (string-append "|" new-name "|")
+                new-name))
           (cond [req? (json-null)]
                 [else
                  (define ranges (cons (start/end->Range doc-text left right) (get-bindings uri decl)))
                  (hasheq 'changes
                          (hasheq (string->symbol uri)
                                  (for/list ([range (in-list ranges)])
-                                   (TextEdit #:range range #:newText new-name))))])]
+                                   (TextEdit #:range range #:newText new-text))))])]
          [#f (json-null)]))
      (success-response id result)]
     [_
