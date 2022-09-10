@@ -350,7 +350,7 @@
                                  (for/list ([range (in-list ranges)])
                                    (TextEdit #:range range
                                              #:newText
-                                             (string-trim (format "~v" (string->symbol new-name)) "'")))))])]
+                                             (format "~s" (string->symbol new-name))))))])]
          [#f (json-null)]))
      (success-response id result)]
     [_
