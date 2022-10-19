@@ -476,13 +476,12 @@
                  (set! skip-this-line? (not skip-this-line?))))
              (if (> line end-line)
                  null
-                 (let ([edit2 (remove-trailing-space! mut-doc-text skip-this-line? line)]
-                       [edit (indent-line! mut-doc-text indenter line)])
-                   (cond
-                     [(and edit edit2) (append (list edit edit2) (loop (add1 line)))]
-                     [edit (cons edit (loop (add1 line)))]
-                     [edit2 (cons edit2 (loop (add1 line)))]
-                     [else (loop (add1 line))]))))))
+                 (append (filter-map
+                          identity
+                          ; NOTE: The order is important somehow
+                          (list (remove-trailing-space! mut-doc-text skip-this-line? line)
+                                (indent-line! mut-doc-text indenter line)))
+                         (loop (add1 line)))))))
      (success-response id results)]
     [_
      (error-response id INVALID-PARAMS "textDocument/rangeFormatting failed")]))
