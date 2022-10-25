@@ -6,6 +6,7 @@
          "error-codes.rkt"
          "msg-io.rkt"
          "responses.rkt"
+         (prefix-in workspace/ "workspace.rkt")
          (prefix-in text-document/ "text-document.rkt"))
 
 ;; TextDocumentSynKind enumeration
@@ -59,6 +60,8 @@
        (initialize id params)]
       ["shutdown"
        (shutdown id)]
+      ["workspace/willRenameFiles"
+       (workspace/willRenameFiles id params)]
       ["textDocument/hover"
        (text-document/hover id params)]
       ["textDocument/completion"
@@ -115,6 +118,14 @@
                'change TextDocSync-Incremental
                'willSave #f
                'willSaveWaitUntil #f))
+     (define workspace-options
+       (hasheq
+        ; https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#workspaceFoldersServerCapabilities
+        'workspaceFolders (hasheq 'supported #t
+                                  'changeNotifications #t)
+        ; https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#fileOperationRegistrationOptions
+        ;'fileOperations (hasheq 'willRename (hasheq 'filters (list )))
+        ))
      (define renameProvider
        (match capabilities
          [(hash-table ['textDocument
@@ -124,6 +135,7 @@
          [_ #t]))
      (define server-capabilities
        (hasheq 'textDocumentSync sync-options
+               'workspace workspace-options
                'hoverProvider #t
                'definitionProvider #t
                'referencesProvider #t
