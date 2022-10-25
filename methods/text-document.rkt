@@ -7,7 +7,7 @@
          syntax-color/racket-lexer
          drracket/check-syntax
          syntax/modread
-         "../check-syntax.rkt"
+         "../store/docs.rkt"
          "../error-codes.rkt"
          "../interfaces.rkt"
          "../json-util.rkt"
@@ -52,37 +52,27 @@
   [kind exact-positive-integer?]
   [location any/c])
 
-(define-json-expander TextEdit
-  [range any/c]
-  [newText string?])
-
 ;;
 ;; Methods
 ;;;;;;;;;;;;
-
-(define open-docs (make-hasheq))
 
 (define (did-open! params)
   (match-define (hash-table ['textDocument (DocItem #:uri uri #:text text)]) params)
   (unless (uri-is-path? uri)
     ;; TODO: send user diagnostic or something
     (error 'did-open "uri is not a path."))
-  (define path (uri->path uri))
-  (define doc-text (new racket:text%))
-  (send doc-text insert text 0)
-  (define trace (check-syntax path doc-text #f))
-  (hash-set! open-docs (string->symbol uri) (doc doc-text trace)))
+  (add-doc uri))
 
 (define (did-close! params)
   (match-define (hash-table ['textDocument (DocItem #:uri uri)]) params)
   (when (uri-is-path? uri)
-    (hash-remove! open-docs (string->symbol uri))))
+    (remove-doc uri)))
 
 (define (did-change! params)
   (match-define (hash-table ['textDocument (DocIdentifier #:uri uri)]
                             ['contentChanges content-changes]) params)
   (when (uri-is-path? uri)
-    (define this-doc (hash-ref open-docs (string->symbol uri)))
+    (define this-doc (get-doc uri))
     (match-define (doc doc-text doc-trace) this-doc)
     (define content-changes*
       (cond [(eq? (json-null) content-changes) empty]
@@ -117,7 +107,7 @@
      (unless (uri-is-path? uri)
        (error 'hover "uri is not a path"))
      (match-define (doc doc-text doc-trace)
-       (hash-ref open-docs (string->symbol uri)))
+       (get-doc uri))
      (define hovers (send doc-trace get-hovers))
      (define pos (line/char->pos doc-text line ch))
      (define-values (start end text)
@@ -154,7 +144,7 @@
      (unless (uri-is-path? uri)
        (error 'signatureHelp "uri is not a path"))
      (match-define (doc doc-text doc-trace)
-       (hash-ref open-docs (string->symbol uri)))
+       (get-doc uri))
      (define pos (line/char->pos doc-text line ch))
      (define text (send doc-text get-text))
      (define new-pos (find-containing-paren (- pos 1) text))
@@ -229,7 +219,7 @@
      (unless (uri-is-path? uri)
        (error 'completion "uri is not a path"))
      (match-define (doc doc-text doc-trace)
-       (hash-ref open-docs (string->symbol uri)))
+       (get-doc uri))
      (define completions (send doc-trace get-completions))
      (define result
        (for/list ([completion (in-list completions)])
@@ -268,7 +258,7 @@
                  ['position (Pos #:line line #:char char)])
      (define-values (start end decl) (get-decl uri line char))
      (match-define (doc doc-text doc-trace)
-       (hash-ref open-docs (string->symbol uri)))
+       (get-doc uri))
      (define result
        (match decl
          [#f (json-null)]
@@ -293,7 +283,7 @@
                  ['context (hash-table ['includeDeclaration include-decl?])])
      (define-values (start end decl) (get-decl uri line char))
      (match-define (doc doc-text doc-trace)
-       (hash-ref open-docs (string->symbol uri)))
+       (get-doc uri))
      (define result
        (match decl
          [(Decl req? id left right)
@@ -315,7 +305,7 @@
                  ['position (Pos #:line line #:char char)])
      (define-values (start end decl) (get-decl uri line char))
      (match-define (doc doc-text doc-trace)
-       (hash-ref open-docs (string->symbol uri)))
+       (get-doc uri))
      (define result
        (match decl
          [(Decl req? id left right)
@@ -338,7 +328,7 @@
                  ['newName new-name])
      (define-values (start end decl) (get-decl uri line char))
      (match-define (doc doc-text doc-trace)
-       (hash-ref open-docs (string->symbol uri)))
+       (get-doc uri))
      (define result
        (match decl
          [(Decl req? id left right)
@@ -361,7 +351,7 @@
                  ['position (Pos #:line line #:char char)])
      (define-values (start end decl) (get-decl uri line char))
      (match-define (doc doc-text doc-trace)
-       (hash-ref open-docs (string->symbol uri)))
+       (get-doc uri))
      (if (and decl (not (Decl-require? decl)))
          (success-response id (start/end->Range doc-text start end))
          (success-response id (json-null)))]
@@ -376,7 +366,7 @@
   (unless (uri-is-path? uri)
     (error 'get-bindings "uri is not a path"))
   (match-define (doc doc-text doc-trace)
-    (hash-ref open-docs (string->symbol uri)))
+    (get-doc uri))
   (define doc-decls (send doc-trace get-sym-decls))
   (match-define (Decl req? id left right) decl)
   (define-values (bind-start bind-end bindings) (interval-map-ref/bounds doc-decls left #f))
@@ -389,7 +379,7 @@
   (unless (uri-is-path? uri)
     (error 'get-decl "uri is not a path"))
   (match-define (doc doc-text doc-trace)
-    (hash-ref open-docs (string->symbol uri)))
+    (get-doc uri))
   (define pos (line/char->pos doc-text line char))
   (define doc-decls (send doc-trace get-sym-decls))
   (define doc-bindings (send doc-trace get-sym-bindings))
@@ -408,7 +398,7 @@
      (unless (uri-is-path? uri)
        (error 'document-symbol "uri is not a path"))
      (match-define (doc doc-text doc-trace)
-       (hash-ref open-docs (string->symbol uri)))
+       (get-doc uri))
      (define results
        (dict-map (get-symbols doc-text)
                  (λ (key value)
@@ -435,7 +425,7 @@
     ;; We're ignoring 'options for now
     [(hash-table ['textDocument (DocIdentifier #:uri uri)])
      (match-define (doc doc-text doc-trace)
-       (hash-ref open-docs (string->symbol uri)))
+       (get-doc uri))
      (define end-pos (send doc-text last-position))
      (range-formatting!
       id
@@ -454,7 +444,7 @@
      (unless (uri-is-path? uri)
        (error 'range-formatting! "uri is not a path"))
      (match-define (doc doc-text doc-trace)
-       (hash-ref open-docs (string->symbol uri)))
+       (get-doc uri))
      (define indenter (send doc-trace get-indenter))
      (define start-pos (Pos->abs-pos doc-text start))
      (define end-pos (Pos->abs-pos doc-text end))
@@ -494,7 +484,7 @@
                  ['position (Pos #:line line #:char char)]
                  ['ch ch])
      (match-define (doc doc-text doc-trace)
-       (hash-ref open-docs (string->symbol uri)))
+       (get-doc uri))
      (define pos (- (line/char->pos doc-text line char) 1))
      (define range
        (match ch

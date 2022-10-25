@@ -6,6 +6,7 @@
          "error-codes.rkt"
          "msg-io.rkt"
          "responses.rkt"
+         "store/workspace.rkt"
          (prefix-in workspace/ "methods/workspace.rkt")
          (prefix-in text-document/ "methods/text-document.rkt"))
 
@@ -112,7 +113,10 @@
 (define (initialize id params)
   (match params
     [(hash-table ['processId (? (or/c number? (json-null)) process-id)]
+                 ['rootUri (? (or/c string? (json-null)) uri)]
                  ['capabilities (? jsexpr? capabilities)])
+     (unless (eq? uri 'null)
+       (set-box! rootUri uri))
      (define sync-options
        (hasheq 'openClose #t
                'change TextDocSync-Incremental

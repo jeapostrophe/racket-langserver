@@ -20,6 +20,7 @@
     (define docs (make-interval-map))
     (define completions (list))
     (define requires (make-interval-map))
+    (define requires-occurs (make-hash))
     ;; decl -> (set pos ...)
     (define sym-decls (make-interval-map))
     ;; pos -> decl
@@ -30,7 +31,8 @@
       (set! docs (make-interval-map))
       (set! sym-decls (make-interval-map))
       (set! sym-bindings (make-interval-map))
-      (set! requires (make-interval-map)))
+      (set! requires (make-interval-map))
+      (set! requires-occurs (make-hash)))
     (define/public (expand start end)
       (define inc (- end start))
       (move-interior-intervals sym-decls (- start 1) inc)
@@ -66,6 +68,7 @@
     (define/public (get-completions) completions)
     (define/public (set-completions new-completions) (set! completions new-completions))
     (define/public (get-requires) requires)
+    (define/public (get-requires-occurs) requires-occurs)
     (define/public (get-sym-decls) sym-decls)
     (define/public (get-sym-bindings) sym-bindings)
     ;; Overrides
@@ -74,6 +77,7 @@
            src))
     ;; Track requires
     (define/override (syncheck:add-require-open-menu text start finish file)
+      (hash-set! requires-occurs file (cons start finish))
       (interval-map-set! requires start finish file))
     ;; Mouse-over status
     (define/override (syncheck:add-mouse-over-status src-obj start finish text)

@@ -30,6 +30,10 @@
   [start any/c]
   [end any/c])
 
+(define-json-expander TextEdit
+  [range any/c]
+  [newText string?])
+
 (define (abs-pos->Pos t pos)
   (define line (send t position-paragraph pos))
   (define line-begin (send t paragraph-start-position line))
