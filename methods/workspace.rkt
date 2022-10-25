@@ -1,9 +1,9 @@
 #lang racket/base
 (require json
          racket/gui
-         "error-codes.rkt"
-         "json-util.rkt"
-         "responses.rkt")
+         "../error-codes.rkt"
+         "../json-util.rkt"
+         "../responses.rkt")
 
 ; https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#fileRename
 (define-json-expander FileRename

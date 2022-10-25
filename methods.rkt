@@ -6,8 +6,8 @@
          "error-codes.rkt"
          "msg-io.rkt"
          "responses.rkt"
-         (prefix-in workspace/ "workspace.rkt")
-         (prefix-in text-document/ "text-document.rkt"))
+         (prefix-in workspace/ "methods/workspace.rkt")
+         (prefix-in text-document/ "methods/text-document.rkt"))
 
 ;; TextDocumentSynKind enumeration
 (define TextDocSync-None 0)

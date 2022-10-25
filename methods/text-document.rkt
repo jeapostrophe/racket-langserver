@@ -7,17 +7,17 @@
          syntax-color/racket-lexer
          drracket/check-syntax
          syntax/modread
-         "check-syntax.rkt"
-         "error-codes.rkt"
-         "interfaces.rkt"
-         "json-util.rkt"
-         "path-util.rkt"
-         "responses.rkt"
-         "symbol-kinds.rkt"
-         "docs-helpers.rkt"
-         "doc-trace.rkt"
-         "queue-only-latest.rkt"
-         "documentation-parser.rkt")
+         "../check-syntax.rkt"
+         "../error-codes.rkt"
+         "../interfaces.rkt"
+         "../json-util.rkt"
+         "../path-util.rkt"
+         "../responses.rkt"
+         "../symbol-kinds.rkt"
+         "../docs-helpers.rkt"
+         "../doc-trace.rkt"
+         "../queue-only-latest.rkt"
+         "../documentation-parser.rkt")
 
 ;;
 ;; Match Expanders
