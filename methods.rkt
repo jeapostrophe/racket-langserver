@@ -73,6 +73,8 @@
        (text-document/references id params)]
       ["textDocument/documentSymbol"
        (text-document/document-symbol id params)]
+      ["textDocument/inlayHint"
+       (text-document/inlay-hint id params)]
       ["textDocument/rename"
        (text-document/rename id params)]
       ["textDocument/prepareRename"
@@ -129,6 +131,7 @@
                'referencesProvider #t
                'completionProvider (hasheq 'triggerCharacters (list "("))
                'signatureHelpProvider (hasheq 'triggerCharacters (list " " ")" "]"))
+               'inlayHintProvider #t
                'renameProvider renameProvider
                'documentHighlightProvider #t
                'documentSymbolProvider #t

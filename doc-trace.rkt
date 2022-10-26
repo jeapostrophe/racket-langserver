@@ -20,6 +20,7 @@
     (define docs (make-interval-map))
     (define completions (list))
     (define requires (make-interval-map))
+    (define definitions (make-hash))
     ;; decl -> (set pos ...)
     (define sym-decls (make-interval-map))
     ;; pos -> decl
@@ -30,7 +31,8 @@
       (set! docs (make-interval-map))
       (set! sym-decls (make-interval-map))
       (set! sym-bindings (make-interval-map))
-      (set! requires (make-interval-map)))
+      (set! requires (make-interval-map))
+      (set! definitions (make-hash)))
     (define/public (expand start end)
       (define inc (- end start))
       (move-interior-intervals sym-decls (- start 1) inc)
@@ -68,10 +70,14 @@
     (define/public (get-requires) requires)
     (define/public (get-sym-decls) sym-decls)
     (define/public (get-sym-bindings) sym-bindings)
+    (define/public (get-definitions) definitions)
     ;; Overrides
     (define/override (syncheck:find-source-object stx)
       (and (equal? src (syntax-source stx))
            src))
+    ;; Definitions
+    (define/override (syncheck:add-definition-target src-obj start end id mods)
+      (hash-set! definitions id (Decl src id start end)))
     ;; Track requires
     (define/override (syncheck:add-require-open-menu text start finish file)
       (interval-map-set! requires start finish file))
