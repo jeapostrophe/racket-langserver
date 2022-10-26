@@ -56,6 +56,13 @@
   [range any/c]
   [newText string?])
 
+(define-json-expander InlayHint
+  ; must a position `Pos`, defined in interfaces.rkt
+  [position any/c]
+  ; should be `string | InlayHintLabelPart[]`
+  ; but let's stay in simple case for now
+  [label string?])
+
 ;;
 ;; Methods
 ;;;;;;;;;;;;
@@ -239,16 +246,14 @@
      (error-response id INVALID-PARAMS "textDocument/completion failed")]))
 
 ;; Definition request
-(define defs%
-  (class (annotations-mixin object%)
-    (define defs (make-hash))
-    (define/public (get id) (hash-ref defs id #f))
-    (define/override (syncheck:add-definition-target source-obj start end id mods)
-      (hash-set! defs id (cons start end)))
-    (super-new)))
 (define (get-def path doc-text id)
-  (define collector (new defs%))
-  (define-values (src-dir file dir?)
+  (define collector (new (class (annotations-mixin object%)
+                           (define defs (make-hash))
+                           (define/public (get id) (hash-ref defs id #f))
+                           (define/override (syncheck:add-definition-target source-obj start end id mods)
+                             (hash-set! defs id (cons start end)))
+                           (super-new))))
+  (define-values (src-dir _file _dir?)
     (split-path path))
   (define in (open-input-string (send doc-text get-text)))
 
@@ -429,6 +434,23 @@
     [_
      (error-response id INVALID-PARAMS "textDocument/documentSymbol failed")]))
 
+;; Inlay Hint
+(define (inlay-hint id params)
+  (match params
+    [(hash-table ['textDocument (DocIdentifier #:uri uri)])
+     #:when (not (uri-is-path? uri))
+     (error-response id INVALID-PARAMS "document-symbol: uri is not a path")]
+    [(hash-table ['textDocument (DocIdentifier #:uri uri)]
+                 ['range (Range  #:start start #:end end)])
+     (match-define (doc doc-text doc-trace)
+       (hash-ref open-docs (string->symbol uri)))
+     (success-response id (map (lambda (decl)
+                                 (InlayHint #:position (abs-pos->Pos doc-text (Decl-left decl))
+                                            #:label (format "defined in ~a" (Decl-require? decl))))
+                               (dict-values (send doc-trace get-definitions))))
+     ]
+    [_ (error-response id INVALID-PARAMS "textDocument/inlayHint failed")]))
+
 ;; Full document formatting request
 (define (formatting! id params)
   (match params
@@ -577,6 +599,7 @@
   [document-highlight (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]
   [references (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]
   [document-symbol (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]
+  [inlay-hint (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]
   [rename _rename rename (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]
   [prepareRename (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]
   [formatting! (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]
