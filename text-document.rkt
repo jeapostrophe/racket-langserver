@@ -442,13 +442,7 @@
      (error-response id INVALID-PARAMS "document-symbol: uri is not a path")]
     [(hash-table ['textDocument (DocIdentifier #:uri uri)]
                  ['range (Range  #:start start #:end end)])
-     (match-define (doc doc-text doc-trace)
-       (hash-ref open-docs (string->symbol uri)))
-     (success-response id (map (lambda (decl)
-                                 (InlayHint #:position (abs-pos->Pos doc-text (Decl-left decl))
-                                            #:label (format "defined in ~a" (Decl-require? decl))))
-                               (dict-values (send doc-trace get-definitions))))
-     ]
+     (success-response id '())]
     [_ (error-response id INVALID-PARAMS "textDocument/inlayHint failed")]))
 
 ;; Full document formatting request
