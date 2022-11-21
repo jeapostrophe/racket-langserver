@@ -87,6 +87,13 @@
       ;; XXX This might not exactly match the behavior in DrRacket.
       (when (= start finish)
         (set! finish (add1 finish)))
+      (when (string=? "no bound occurrences" text)
+        (define diag (Diagnostic #:range (Range #:start (abs-pos->Pos doc-text start)
+                                                #:end   (abs-pos->Pos doc-text finish))
+                                 #:severity Diag-Information
+                                 #:source src-obj
+                                 #:message "unused variable"))
+        (set-add! warn-diags diag))
       (interval-map-set! hovers start finish text))
     ;; Docs
     (define/override (syncheck:add-docs-menu text start finish id label path def-tag url-tag)
