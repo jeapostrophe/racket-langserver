@@ -61,6 +61,8 @@
        (shutdown id)]
       ["textDocument/hover"
        (text-document/hover id params)]
+      ["textDocument/codeAction"
+       (text-document/code-action id params)]
       ["textDocument/completion"
        (text-document/completion id params)]
       ["textDocument/signatureHelp"
@@ -127,6 +129,7 @@
      (define server-capabilities
        (hasheq 'textDocumentSync sync-options
                'hoverProvider #t
+               'codeActionProvider #t
                'definitionProvider #t
                'referencesProvider #t
                'completionProvider (hasheq 'triggerCharacters (list "("))
@@ -155,3 +158,4 @@
  (contract-out
   [process-message
    (jsexpr? . -> . void?)]))
+

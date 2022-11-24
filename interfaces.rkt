@@ -11,6 +11,14 @@
 (define-json-expander TextEdit
   [range any/c]
   [newText string?])
+(define-json-expander CodeAction
+  [title string?]
+  [kind string?]
+  [diagnostics any/c]
+  [isPreferred boolean?]
+  [edit any/c]
+  ;; here, we put edit range
+  [data any/c])
 
 (define-json-expander Diagnostic
   [range any/c]
