@@ -22,7 +22,7 @@
     (define completions (list))
     (define requires (make-interval-map))
     (define definitions (make-hash))
-    (define quickfixs (mutable-set))
+    (define quickfixs (make-interval-map))
     ;; decl -> (set pos ...)
     (define sym-decls (make-interval-map))
     ;; pos -> decl
@@ -35,7 +35,7 @@
       (set! sym-bindings (make-interval-map))
       (set! requires (make-interval-map))
       (set! definitions (make-hash))
-      (set! quickfixs (mutable-set)))
+      (set! quickfixs (make-interval-map)))
     (define/public (expand start end)
       (define inc (- end start))
       (move-interior-intervals sym-decls (- start 1) inc)
@@ -94,20 +94,21 @@
                                  #:source (path->uri src-obj)
                                  #:message "unused variable"))
 
-        (set-add! quickfixs
-                  (CodeAction
-                   #:title "Add prefix `_` to ignore"
-                   #:kind "quickfix"
-                   #:diagnostics (list diag)
-                   #:isPreferred #f
-                   #:edit (WorkspaceEdit
-                           #:changes
-                           (hasheq (string->symbol (path->uri src-obj))
-                                   (TextEdit #:range (Range #:start (abs-pos->Pos doc-text start)
-                                                            #:end   (abs-pos->Pos doc-text finish))
-                                             #:newText "_")))
-                   #:data (Range #:start (abs-pos->Pos doc-text start)
-                                 #:end   (abs-pos->Pos doc-text finish))))
+        (interval-map-set!
+         quickfixs start (add1 finish)
+         (CodeAction
+          #:title "Add prefix `_` to ignore"
+          #:kind "quickfix"
+          #:diagnostics (list diag)
+          #:isPreferred #f
+          #:edit (WorkspaceEdit
+                  #:changes
+                  (hasheq (string->symbol (path->uri src-obj))
+                          (TextEdit #:range (Range #:start (abs-pos->Pos doc-text start)
+                                                   #:end   (abs-pos->Pos doc-text finish))
+                                    #:newText "_")))
+          #:data (Range #:start (abs-pos->Pos doc-text start)
+                        #:end   (abs-pos->Pos doc-text finish))))
 
         (set-add! warn-diags diag)))
     (define/override (syncheck:add-mouse-over-status src-obj start finish text)
