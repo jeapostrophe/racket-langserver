@@ -77,29 +77,30 @@
       (and (equal? src (syntax-source stx))
            src))
     ;; Definitions
-    (define/override (syncheck:add-definition-target src-obj start end id mods)
+    (define/override (syncheck:add-definition-target _src-obj start end id _mods)
       (hash-set! definitions id (Decl src id start end)))
     ;; Track requires
-    (define/override (syncheck:add-require-open-menu text start finish file)
+    (define/override (syncheck:add-require-open-menu _text start finish file)
       (interval-map-set! requires start finish file))
     ;; Mouse-over status
-    (define (hint-unused-variable src-obj text start finish)
-      (define diag (Diagnostic #:range (Range #:start (abs-pos->Pos doc-text start)
-                                              #:end   (abs-pos->Pos doc-text finish))
-                               #:severity Diag-Information
-                               #:source (path->uri src-obj)
-                               #:message "unused variable"))
-      (set-add! warn-diags diag))
+    (define (hint-unused-variable src-obj start finish)
+      (unless (string=? "_" (send doc-text get-text start (add1 start)))
+        (define diag (Diagnostic #:range (Range #:start (abs-pos->Pos doc-text start)
+                                                #:end   (abs-pos->Pos doc-text finish))
+                                 #:severity Diag-Information
+                                 #:source (path->uri src-obj)
+                                 #:message "unused variable"))
+        (set-add! warn-diags diag)))
     (define/override (syncheck:add-mouse-over-status src-obj start finish text)
       ;; Infer a length of 1 for zero-length ranges in the document.
       ;; XXX This might not exactly match the behavior in DrRacket.
       (when (= start finish)
         (set! finish (add1 finish)))
       (when (string=? "no bound occurrences" text)
-        (hint-unused-variable src-obj text start finish))
+        (hint-unused-variable src-obj start finish))
       (interval-map-set! hovers start finish text))
     ;; Docs
-    (define/override (syncheck:add-docs-menu text start finish id label path def-tag url-tag)
+    (define/override (syncheck:add-docs-menu _text start finish _id _label path def-tag url-tag)
       (when url
         (when (= start finish)
           (set! finish (add1 finish)))
@@ -109,14 +110,14 @@
                            [def-tag (struct-copy url path-url [fragment (def-tag->html-anchor-tag def-tag)])]
                            [else path-url]))
         (interval-map-set! docs start finish (list (url->string link+tag) def-tag))))
-    (define/override (syncheck:add-jump-to-definition source-obj start end id filename submods)
+    (define/override (syncheck:add-jump-to-definition _src-obj start end id filename _submods)
       (define decl (Decl filename id 0 0))
       (interval-map-set! sym-bindings start (add1 end) decl))
     ;; References
-    (define/override (syncheck:add-arrow/name-dup start-src-obj start-left start-right
-                                                  end-src-obj end-left end-right
-                                                  actual? phase-level
-                                                  require-arrow? name-dup?)
+    (define/override (syncheck:add-arrow/name-dup _start-src-obj start-left start-right
+                                                  _end-src-obj end-left end-right
+                                                  _actual? _phase-level
+                                                  require-arrow? _name-dup?)
       (when (= start-left start-right)
         (set! start-right (add1 start-right)))
       (when (= end-left end-right)
@@ -130,7 +131,7 @@
         (define new-decl (Decl #f #f start-left start-right))
         (interval-map-set! sym-bindings end-left end-right new-decl)))
     ;; Unused requires
-    (define/override (syncheck:add-unused-require src left right)
+    (define/override (syncheck:add-unused-require _src left right)
       (define diag (Diagnostic #:range (Range #:start (abs-pos->Pos doc-text left)
                                               #:end   (abs-pos->Pos doc-text right))
                                #:severity Diag-Information
