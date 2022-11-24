@@ -149,6 +149,25 @@
     [_
      (error-response id INVALID-PARAMS "textDocument/hover failed")]))
 
+;; Code Action request
+(define (code-action id params)
+  (match params
+    [(hash-table ['textDocument (DocIdentifier #:uri uri)]
+                 ['range range]
+                 ; TODO: _ctx has three fields
+                 ; 1. `diagnostics`
+                 ; 2. `only: CodeActionKind[]` server should use this to filter out client-unwanted code action
+                 ; 3. `triggerKind?: CodeActionTriggerKind` the reason why code action were requested
+                 ['context _ctx])
+     #:when (uri-is-path? uri)
+     (match-define (doc _doc-text doc-trace)
+       (hash-ref open-docs (string->symbol uri)))
+     (define code-action-list (set->list (send doc-trace get-quickfixs)))
+     (success-response id code-action-list)]
+    [(hash-table ['textDocument (DocIdentifier #:uri uri)])
+     (error-response id INVALID-PARAMS (format "textDocument/codeAction failed uri is not a path ~a" uri))]
+    [_ (error-response id INVALID-PARAMS "textDocument/codeAction failed")]))
+
 ;; Signature Help request
 (define (signatureHelp id params)
   (match params
@@ -584,6 +603,7 @@
   [did-close! (jsexpr? . -> . void?)]
   [did-change! (jsexpr? . -> . void?)]
   [hover (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]
+  [code-action (exact-positive-integer? jsexpr? . -> . jsexpr?)]
   [completion (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]
   [signatureHelp (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]
   [definition (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]

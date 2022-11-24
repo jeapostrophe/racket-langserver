@@ -22,6 +22,7 @@
     (define completions (list))
     (define requires (make-interval-map))
     (define definitions (make-hash))
+    (define quickfixs (mutable-set))
     ;; decl -> (set pos ...)
     (define sym-decls (make-interval-map))
     ;; pos -> decl
@@ -33,7 +34,8 @@
       (set! sym-decls (make-interval-map))
       (set! sym-bindings (make-interval-map))
       (set! requires (make-interval-map))
-      (set! definitions (make-hash)))
+      (set! definitions (make-hash))
+      (set! quickfixs (mutable-set)))
     (define/public (expand start end)
       (define inc (- end start))
       (move-interior-intervals sym-decls (- start 1) inc)
@@ -72,6 +74,7 @@
     (define/public (get-sym-decls) sym-decls)
     (define/public (get-sym-bindings) sym-bindings)
     (define/public (get-definitions) definitions)
+    (define/public (get-quickfixs) quickfixs)
     ;; Overrides
     (define/override (syncheck:find-source-object stx)
       (and (equal? src (syntax-source stx))
@@ -90,6 +93,22 @@
                                  #:severity Diag-Information
                                  #:source (path->uri src-obj)
                                  #:message "unused variable"))
+
+        (set-add! quickfixs
+                  (CodeAction
+                   #:title "Add prefix `_` to ignore"
+                   #:kind "quickfix"
+                   #:diagnostics (list diag)
+                   #:isPreferred #f
+                   #:edit (WorkspaceEdit
+                           #:changes
+                           (hasheq (string->symbol (path->uri src-obj))
+                                   (TextEdit #:range (Range #:start (abs-pos->Pos doc-text start)
+                                                            #:end   (abs-pos->Pos doc-text finish))
+                                             #:newText "_")))
+                   #:data (Range #:start (abs-pos->Pos doc-text start)
+                                 #:end   (abs-pos->Pos doc-text finish))))
+
         (set-add! warn-diags diag)))
     (define/override (syncheck:add-mouse-over-status src-obj start finish text)
       ;; Infer a length of 1 for zero-length ranges in the document.
