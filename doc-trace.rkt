@@ -8,6 +8,7 @@
          net/url
          "interfaces.rkt"
          "responses.rkt"
+         "path-util.rkt"
          "docs-helpers.rkt")
 
 (struct Decl (require? id left right) #:transparent)
@@ -82,18 +83,20 @@
     (define/override (syncheck:add-require-open-menu text start finish file)
       (interval-map-set! requires start finish file))
     ;; Mouse-over status
+    (define (hint-unused-variable src-obj text start finish)
+      (define diag (Diagnostic #:range (Range #:start (abs-pos->Pos doc-text start)
+                                              #:end   (abs-pos->Pos doc-text finish))
+                               #:severity Diag-Information
+                               #:source (path->uri src-obj)
+                               #:message "unused variable"))
+      (set-add! warn-diags diag))
     (define/override (syncheck:add-mouse-over-status src-obj start finish text)
       ;; Infer a length of 1 for zero-length ranges in the document.
       ;; XXX This might not exactly match the behavior in DrRacket.
       (when (= start finish)
         (set! finish (add1 finish)))
       (when (string=? "no bound occurrences" text)
-        (define diag (Diagnostic #:range (Range #:start (abs-pos->Pos doc-text start)
-                                                #:end   (abs-pos->Pos doc-text finish))
-                                 #:severity Diag-Information
-                                 #:source src-obj
-                                 #:message "unused variable"))
-        (set-add! warn-diags diag))
+        (hint-unused-variable src-obj text start finish))
       (interval-map-set! hovers start finish text))
     ;; Docs
     (define/override (syncheck:add-docs-menu text start finish id label path def-tag url-tag)
