@@ -16,9 +16,7 @@
   [kind string?]
   [diagnostics any/c]
   [isPreferred boolean?]
-  [edit any/c]
-  ;; here, we put edit range
-  [data any/c])
+  [edit any/c])
 
 (define-json-expander Diagnostic
   [range any/c]
