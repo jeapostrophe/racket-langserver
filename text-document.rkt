@@ -153,17 +153,19 @@
 (define (code-action id params)
   (match params
     [(hash-table ['textDocument (DocIdentifier #:uri uri)]
-                 ['range range]
+                 ['range (Range #:start start #:end _end)]
                  ; TODO: _ctx has three fields
                  ; 1. `diagnostics`
                  ; 2. `only: CodeActionKind[]` server should use this to filter out client-unwanted code action
                  ; 3. `triggerKind?: CodeActionTriggerKind` the reason why code action were requested
                  ['context _ctx])
      #:when (uri-is-path? uri)
-     (match-define (doc _doc-text doc-trace)
+     (match-define (doc doc-text doc-trace)
        (hash-ref open-docs (string->symbol uri)))
-     (define code-action-list (set->list (send doc-trace get-quickfixs)))
-     (success-response id code-action-list)]
+     (define act (interval-map-ref (send doc-trace get-quickfixs) (Pos->abs-pos doc-text start) #f))
+     (if act
+         (success-response id (list act))
+         (success-response id (list)))]
     [(hash-table ['textDocument (DocIdentifier #:uri uri)])
      (error-response id INVALID-PARAMS (format "textDocument/codeAction failed uri is not a path ~a" uri))]
     [_ (error-response id INVALID-PARAMS "textDocument/codeAction failed")]))
