@@ -52,10 +52,6 @@
   [kind exact-positive-integer?]
   [location any/c])
 
-(define-json-expander TextEdit
-  [range any/c]
-  [newText string?])
-
 (define-json-expander InlayHint
   ; must a position `Pos`, defined in interfaces.rkt
   [position any/c]
@@ -350,10 +346,11 @@
           (cond [req? (json-null)]
                 [else
                  (define ranges (cons (start/end->Range doc-text left right) (get-bindings uri decl)))
-                 (hasheq 'changes
-                         (hasheq (string->symbol uri)
-                                 (for/list ([range (in-list ranges)])
-                                   (TextEdit #:range range #:newText new-name))))])]
+                 (WorkspaceEdit
+                  #:changes
+                  (hasheq (string->symbol uri)
+                          (for/list ([range (in-list ranges)])
+                            (TextEdit #:range range #:newText new-name))))])]
          [#f (json-null)]))
      (success-response id result)]
     [_
