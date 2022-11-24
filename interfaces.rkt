@@ -6,6 +6,12 @@
          racket/match
          "json-util.rkt")
 
+(define-json-expander WorkspaceEdit
+  [changes any/c])
+(define-json-expander TextEdit
+  [range any/c]
+  [newText string?])
+
 (define-json-expander Diagnostic
   [range any/c]
   [severity (or/c 1 2 3 4)]
