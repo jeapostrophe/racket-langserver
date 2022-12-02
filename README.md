@@ -43,6 +43,7 @@ You may need to restart your LSP runtime or your editor for `racket-langserver` 
 - **Document Highlight** (textDocument/documentHighlight)
 - **Diagnostics** (textDocument/publishDiagnostics)
 - **Code Formatting** (textDocument/formatting & textDocument/rangeFormatting & textDocument/onTypeFormatting)
+- **Code Action** (textDocument/codeAction)
 - **Signature Help** (textDocument/signatureHelp)
 - **Rename** (textDocument/rename & textDocument/prepareRename)
   - *Note:* Currently only allows renaming symbols defined within the current file.
