@@ -508,7 +508,7 @@
                (when (and (char=? #\" (send mut-doc-text get-character i))
                           (not (char=? #\\ (send mut-doc-text get-character (sub1 i)))))
                  (set! skip-this-line? (not skip-this-line?))))
-             (if (> line end-line)
+             (if (>= line end-line)
                  null
                  (append (filter-map
                           identity
