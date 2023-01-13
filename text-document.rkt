@@ -491,7 +491,7 @@
        (hash-ref open-docs (string->symbol uri)))
      (define indenter (send doc-trace get-indenter))
      (define start-pos (Pos->abs-pos doc-text start))
-     (define end-pos (Pos->abs-pos doc-text end))
+     (define end-pos (max 0 (sub1 (Pos->abs-pos doc-text end))))
      (define start-line (send doc-text position-paragraph start-pos))
      (define end-line (send doc-text position-paragraph end-pos))
      (define mut-doc-text
@@ -508,7 +508,7 @@
                (when (and (char=? #\" (send mut-doc-text get-character i))
                           (not (char=? #\\ (send mut-doc-text get-character (sub1 i)))))
                  (set! skip-this-line? (not skip-this-line?))))
-             (if (>= line end-line)
+             (if (> line end-line)
                  null
                  (append (filter-map
                           identity
