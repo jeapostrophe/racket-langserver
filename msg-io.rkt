@@ -2,11 +2,9 @@
 (require json
          racket/contract/base
          racket/match
-         racket/string
-         (only-in racket/port open-output-nowhere))
+         racket/string)
 
-(define verbose-io? (make-parameter #f))
-
+;; (->* () (input-port?) (or/c jsexpr? eof-object? 'parse-json-error))
 (define (read-message [in (current-input-port)])
   (match (read-line in 'return-linefeed)
     ["" (with-handlers ([exn:fail:read? (λ (exn) 'parse-json-error)])
@@ -14,36 +12,32 @@
     [(? eof-object?) eof]
     [_ (read-message in)]))
 
+;; (->* (jsexpr?) (output-port?) void?)
 (define (display-message msg [out (current-output-port)])
-  (when (verbose-io?)
-    (eprintf "\nresp = ~v\n" msg))
-  (define null-port (open-output-nowhere))
-  (write-json msg null-port)
-  (define content-length (file-position null-port))
+  (define json-bstr (jsexpr->bytes msg))
+  (define content-length (bytes-length json-bstr))
+
   (fprintf out "Content-Length: ~a\r\n\r\n" content-length)
-  (write-json msg out))
+  (write-bytes json-bstr out))
 
+;; (->* (jsexpr?) (output-port?) void?)
 (define (display-message/flush msg [out (current-output-port)])
-  (channel-put in-ch msg))
+  (channel-put out-ch (list out msg)))
 
-(define (read-loop in-ch [out (current-output-port)])
-  (define msg (channel-get in-ch))
+(define (read-loop out-ch)
+  (match-define (list out msg) (channel-get out-ch))
   (display-message msg out)
   (flush-output out)
-  (read-loop in-ch out))
+  (read-loop out-ch))
 
-(define in-ch (make-channel))
-(define message-th (thread (lambda () (read-loop in-ch))))
+(define out-ch (make-channel))
+(define out-t (thread (lambda () (read-loop out-ch))))
 
 (provide
- verbose-io?
  (contract-out
   [read-message (->* ()
                      (input-port?)
                      (or/c jsexpr? eof-object? 'parse-json-error))]
-  [display-message (->* (jsexpr?)
-                        (output-port?)
-                        void?)]
   [display-message/flush (->* (jsexpr?)
                               (output-port?)
                               void?)]))
