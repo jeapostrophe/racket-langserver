@@ -25,4 +25,29 @@
                 (syntax/loc stx
                   (make-hasheq (list (cons 'key key_) ...)))])))))]))
 
-(provide define-json-expander)
+(define (jsexpr-has-key? jsexpr keys)
+  (cond [(null? keys) #t]
+        [else (and (hash-has-key? jsexpr (car keys))
+                   (jsexpr-has-key? (hash-ref jsexpr (car keys)) (cdr keys)))]))
+
+(define (jsexpr-ref jsexpr keys)
+  (cond [(null? keys) jsexpr]
+        [else (jsexpr-ref (hash-ref jsexpr (car keys)) (cdr keys))]))
+
+(define (jsexpr-set jsexpr keys v)
+  (cond [(null? keys) jsexpr]
+        [(null? (cdr keys)) (hash-set jsexpr (car keys) v)]
+        [else (hash-set jsexpr (car keys)
+                        (jsexpr-set (hash-ref jsexpr (car keys)) (cdr keys) v))]))
+
+(define (jsexpr-remove jsexpr keys)
+  (cond [(null? keys) jsexpr]
+        [(null? (cdr keys)) (hash-remove jsexpr (car keys))]
+        [else (hash-set jsexpr (car keys)
+                        (jsexpr-remove (hash-ref jsexpr (car keys)) (cdr keys)))]))
+
+(provide define-json-expander
+         jsexpr-has-key?
+         jsexpr-ref
+         jsexpr-set
+         jsexpr-remove)

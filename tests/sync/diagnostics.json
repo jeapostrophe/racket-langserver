@@ -1,0 +1,14 @@
+{
+    "range": {
+        "end": {
+            "character": 0,
+            "line": 0
+        },
+        "start": {
+            "character": 0,
+            "line": 0
+        }
+    },
+    "severity": 1,
+    "source": "Racket"
+}

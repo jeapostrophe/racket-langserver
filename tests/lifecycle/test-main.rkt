@@ -1,9 +1,10 @@
 #lang racket/base
 (require chk
+         json
          racket/os
-         "../msg-io.rkt")
+         "../../msg-io.rkt")
 
-(define init-msg
+(define init-req
   (hasheq 'jsonrpc "2.0"
           'id 0
           'method "initialize"
@@ -12,7 +13,7 @@
                           'rootUri "file:///home/conor/racket-langserver/"
                           'capabilities (hasheq))))
 
-(define shutdown-msg
+(define shutdown-req
   (hasheq 'jsonrpc "2.0"
           'id 1
           'method "shutdown"))
@@ -28,22 +29,21 @@
 (module+ test
   (define racket-path (find-executable-path "racket"))
   (define-values (sp stdout stdin stderr)
-    (subprocess #f #f #f racket-path "-t" "../main.rkt"))
+    (subprocess #f #f #f racket-path "-t" "../../main.rkt"))
   (define err-thd (thread (forward-errors stderr)))
+
   ;; Initialize request
-  (display-message/flush init-msg stdin)
+  (display-message/flush init-req stdin)
   (let ([resp (read-message stdout)])
-    (chk*
-     (chk #:= (hash-ref resp 'jsonrpc) "2.0")
-     (chk #:= (hash-ref init-msg 'id) (hash-ref resp 'id))
-     (chk (not (hash-ref resp 'error #f)))))
+    (chk #:= resp (read-json (open-input-file "init_resp.json"))))
+
   ;; Shutdown request
-  (display-message/flush shutdown-msg stdin)
+  (display-message/flush shutdown-req stdin)
   (let ([resp (read-message stdout)])
-    (chk*
-     (chk #:= (hash-ref resp 'jsonrpc) "2.0")
-     (chk #:= (hash-ref shutdown-msg 'id) (hash-ref resp 'id))
-     (chk (not (hash-ref resp 'error #f)))))
+    (chk #:= resp (hasheq 'id (hash-ref shutdown-req 'id)
+                          'jsonrpc "2.0"
+                          'result (json-null))))
+
   ;; Exit
   (display-message/flush exit-notf stdin)
   (subprocess-wait sp)
