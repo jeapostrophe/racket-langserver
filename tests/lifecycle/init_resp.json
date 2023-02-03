@@ -1,0 +1,43 @@
+{
+    "id": 0,
+    "jsonrpc": "2.0",
+    "result": {
+        "capabilities": {
+            "codeActionProvider": true,
+            "completionProvider": {
+                "triggerCharacters": [
+                    "("
+                ]
+            },
+            "definitionProvider": true,
+            "documentFormattingProvider": true,
+            "documentHighlightProvider": true,
+            "documentOnTypeFormattingProvider": {
+                "firstTriggerCharacter": ")",
+                "moreTriggerCharacter": [
+                    "\n",
+                    "]"
+                ]
+            },
+            "documentRangeFormattingProvider": true,
+            "documentSymbolProvider": true,
+            "hoverProvider": true,
+            "inlayHintProvider": true,
+            "referencesProvider": true,
+            "renameProvider": true,
+            "signatureHelpProvider": {
+                "triggerCharacters": [
+                    " ",
+                    ")",
+                    "]"
+                ]
+            },
+            "textDocumentSync": {
+                "change": 2,
+                "openClose": true,
+                "willSave": false,
+                "willSaveWaitUntil": false
+            }
+        }
+    }
+}

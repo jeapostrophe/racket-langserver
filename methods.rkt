@@ -52,6 +52,7 @@
 
 ;; Processes a request. This procedure should always return a jsexpr
 ;; which is a suitable response object.
+;; (-> (or/c integer? string?) string? jsexpr? jsexpr?)
 (define (process-request id method params)
   (with-handlers ([exn:fail? (report-request-error id method)])
     (match method

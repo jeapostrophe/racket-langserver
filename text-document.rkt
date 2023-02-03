@@ -93,7 +93,8 @@
             [else (list content-changes)]))
     (for ([change (in-list content-changes*)])
       (match change
-        [(ContentChangeEvent #:range (Range #:start (Pos #:line st-ln #:char st-ch) #:end (Pos #:line ed-ln #:char ed-ch))
+        [(ContentChangeEvent #:range (Range #:start (Pos #:line st-ln #:char st-ch)
+                                            #:end (Pos #:line ed-ln #:char ed-ch))
                              #:text text)
          (define st-pos (line/char->pos doc-text st-ln st-ch))
          (define end-pos (line/char->pos doc-text ed-ln ed-ch))
@@ -130,17 +131,34 @@
      (define result
        (cond [text
               ;; We want signatures from `scribble/blueboxes` as they have better indentation,
-              ;; but in some super rare cases blueboxes aren't accessible, thus we try to use the parsed signature instead
-              (match-define (list sigs args-descr) (if tag (get-docs-for-tag tag) (list #f #f)))
+              ;; but in some super rare cases blueboxes aren't accessible, thus we try to use the
+              ;; parsed signature instead
+              (match-define (list sigs args-descr)
+                (if tag
+                    (get-docs-for-tag tag)
+                    (list #f #f)))
               (define maybe-signature
-                (if sigs (~a "```\n" (string-join sigs "\n") (if args-descr (~a "\n" args-descr) "") "\n```\n---\n") #f))
+                (if sigs
+                    (~a "```\n"
+                        (string-join sigs "\n")
+                        (if args-descr (~a "\n" args-descr) "")
+                        "\n```\n---\n")
+                    #f))
               (define documentation-text
-                (if link (~a (or maybe-signature "")
-                             (or (extract-documentation-for-selected-element
-                                  link #:include-signature? (not maybe-signature)) "")) ""))
+                (if link
+                    (~a (or maybe-signature "")
+                        (or (extract-documentation-for-selected-element
+                             link #:include-signature? (not maybe-signature))
+                            ""))
+                    ""))
               (define contents (if link
-                                   (~a text " - [online docs](" (make-proper-url-for-online-documentation link) ")\n"
-                                       (if (non-empty-string? documentation-text) (~a "\n---\n" documentation-text) ""))
+                                   (~a text
+                                       " - [online docs]("
+                                       (make-proper-url-for-online-documentation link)
+                                       ")\n"
+                                       (if (non-empty-string? documentation-text)
+                                           (~a "\n---\n" documentation-text)
+                                           ""))
                                    text))
               (hasheq 'contents contents
                       'range (start/end->Range doc-text start end))]
@@ -162,12 +180,15 @@
      #:when (uri-is-path? uri)
      (match-define (doc doc-text doc-trace)
        (hash-ref open-docs (string->symbol uri)))
-     (define act (interval-map-ref (send doc-trace get-quickfixs) (Pos->abs-pos doc-text start) #f))
+     (define act (interval-map-ref (send doc-trace get-quickfixs)
+                                   (Pos->abs-pos doc-text start)
+                                   #f))
      (if act
          (success-response id (list act))
          (success-response id (list)))]
     [(hash-table ['textDocument (DocIdentifier #:uri uri)])
-     (error-response id INVALID-PARAMS (format "textDocument/codeAction failed uri is not a path ~a" uri))]
+     (error-response id INVALID-PARAMS 
+                     (format "textDocument/codeAction failed uri is not a path ~a" uri))]
     [_ (error-response id INVALID-PARAMS "textDocument/codeAction failed")]))
 
 ;; Signature Help request
@@ -197,7 +218,10 @@
               (cond [tag
                      (match-define (list sigs docs) (get-docs-for-tag tag))
                      (if sigs
-                         (hasheq 'signatures (map (lambda (sig) (hasheq 'label sig 'documentation (or docs (json-null)))) sigs))
+                         (hasheq 'signatures (map (lambda (sig)
+                                                    (hasheq 'label sig
+                                                            'documentation (or docs (json-null))))
+                                                  sigs))
                          (json-null))]
                     [else (json-null)])]
              [else (json-null)]))
@@ -211,7 +235,8 @@
   (port-count-lines! in)
   (define lexer (get-lexer in))
   (define symbols (make-interval-map))
-  (for ([lst (in-port (lexer-wrap lexer) in)] #:when (set-member? '(constant string symbol) (first (rest lst))))
+  (for ([lst (in-port (lexer-wrap lexer) in)]
+        #:when (set-member? '(constant string symbol) (first (rest lst))))
     (match-define (list text type paren? start end) lst)
     (interval-map-set! symbols start end (list text type)))
   symbols)
@@ -264,12 +289,13 @@
 
 ;; Definition request
 (define (get-def path doc-text id)
-  (define collector (new (class (annotations-mixin object%)
-                           (define defs (make-hash))
-                           (define/public (get id) (hash-ref defs id #f))
-                           (define/override (syncheck:add-definition-target source-obj start end id mods)
-                             (hash-set! defs id (cons start end)))
-                           (super-new))))
+  (define collector
+    (new (class (annotations-mixin object%)
+           (define defs (make-hash))
+           (define/public (get id) (hash-ref defs id #f))
+           (define/override (syncheck:add-definition-target source-obj start end id mods)
+             (hash-set! defs id (cons start end)))
+           (super-new))))
   (define-values (src-dir _file _dir?)
     (split-path path))
   (define in (open-input-string (send doc-text get-text)))
@@ -321,7 +347,8 @@
          [(Decl req? id left right)
           (define ranges
             (if req?
-                (list (start/end->Range doc-text start end) (start/end->Range doc-text left right))
+                (list (start/end->Range doc-text start end)
+                      (start/end->Range doc-text left right))
                 (or (get-bindings uri decl))))
           (for/list ([range (in-list ranges)])
             (hasheq 'uri uri 'range range))]
@@ -343,8 +370,10 @@
          [(Decl req? id left right)
           (define ranges
             (if req?
-                (list (start/end->Range doc-text start end) (start/end->Range doc-text left right))
-                (or (append (get-bindings uri decl) (list (start/end->Range doc-text left right))))))
+                (list (start/end->Range doc-text start end)
+                      (start/end->Range doc-text left right))
+                (or (append (get-bindings uri decl)
+                            (list (start/end->Range doc-text left right))))))
           (for/list ([range (in-list ranges)])
             (hasheq 'range range))]
          [#f (json-null)]))
@@ -366,7 +395,8 @@
          [(Decl req? id left right)
           (cond [req? (json-null)]
                 [else
-                 (define ranges (cons (start/end->Range doc-text left right) (get-bindings uri decl)))
+                 (define ranges (cons (start/end->Range doc-text left right)
+                                      (get-bindings uri decl)))
                  (WorkspaceEdit
                   #:changes
                   (hasheq (string->symbol uri)
@@ -402,7 +432,8 @@
     (hash-ref open-docs (string->symbol uri)))
   (define doc-decls (send doc-trace get-sym-decls))
   (match-define (Decl req? id left right) decl)
-  (define-values (bind-start bind-end bindings) (interval-map-ref/bounds doc-decls left #f))
+  (define-values (bind-start bind-end bindings)
+    (interval-map-ref/bounds doc-decls left #f))
   (if bindings
       (for/list ([range (in-set bindings)])
         (start/end->Range doc-text (car range) (cdr range)))
@@ -416,12 +447,16 @@
   (define pos (line/char->pos doc-text line char))
   (define doc-decls (send doc-trace get-sym-decls))
   (define doc-bindings (send doc-trace get-sym-bindings))
-  (define-values (start end maybe-decl) (interval-map-ref/bounds doc-bindings pos #f))
-  (define-values (bind-start bind-end maybe-bindings) (interval-map-ref/bounds doc-decls pos #f))
+  (define-values (start end maybe-decl)
+    (interval-map-ref/bounds doc-bindings pos #f))
+  (define-values (bind-start bind-end maybe-bindings)
+    (interval-map-ref/bounds doc-decls pos #f))
   (if maybe-decl
       (values start end maybe-decl)
       (if maybe-bindings
-          (values bind-start bind-end (interval-map-ref doc-bindings (car (set-first maybe-bindings)) #f))
+          (values bind-start
+                  bind-end
+                  (interval-map-ref doc-bindings (car (set-first maybe-bindings)) #f))
           (values #f #f #f))))
 
 ;; Document Symbol request
@@ -496,7 +531,9 @@
      (define end-line (send doc-text position-paragraph end-pos))
      (define mut-doc-text
        (if (is-a? doc-text racket:text%)
-           (let ([r-text (new racket:text%)]) (send r-text insert (send doc-text get-text)) r-text)
+           (let ([r-text (new racket:text%)])
+             (send r-text insert (send doc-text get-text))
+             r-text)
            (send doc-text copy-self)))
      (define skip-this-line? #f)
      (define results
@@ -538,7 +575,8 @@
            #:end (abs-pos->Pos doc-text (send doc-text paragraph-end-position line)))]
          [_
           (Range
-           #:start (abs-pos->Pos doc-text (or (find-containing-paren pos (send doc-text get-text)) 0))
+           #:start (abs-pos->Pos doc-text (or (find-containing-paren pos (send doc-text get-text))
+                                              0))
            #:end (abs-pos->Pos doc-text pos))]))
 
      (range-formatting!
@@ -575,7 +613,8 @@
             [else i])))
   (define desired-spaces
     (if indenter
-        (or (indenter doc-text line-start) (send doc-text compute-racket-amount-to-indent line-start))
+        (or (indenter doc-text line-start) 
+            (send doc-text compute-racket-amount-to-indent line-start))
         (send doc-text compute-racket-amount-to-indent line-start)))
   (cond
     [(not (number? desired-spaces)) #f]

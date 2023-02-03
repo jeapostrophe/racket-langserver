@@ -58,6 +58,7 @@
 (define (start/end->Range t start end)
   (Range #:start (abs-pos->Pos t start) #:end (abs-pos->Pos t end)))
 
+;; (struct/c doc (is-a?/c text%) (is-a?/c build-trace%))
 (struct doc (text trace) #:transparent #:mutable)
 
 (provide (all-defined-out))
