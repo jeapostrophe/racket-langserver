@@ -1,0 +1,47 @@
+{
+    "id": 0,
+    "jsonrpc": "2.0",
+    "result": [
+        {
+            "diagnostics": [
+                {
+                    "message": "unused variable",
+                    "range": {
+                        "end": {
+                            "character": 9,
+                            "line": 2
+                        },
+                        "start": {
+                            "character": 8,
+                            "line": 2
+                        }
+                    },
+                    "severity": 3,
+                    "source": "file:///test.rkt"
+                }
+            ],
+            "edit": {
+                "changes": {
+                    "file:///test.rkt": [
+                        {
+                            "newText": "_",
+                            "range": {
+                                "end": {
+                                    "character": 8,
+                                    "line": 2
+                                },
+                                "start": {
+                                    "character": 8,
+                                    "line": 2
+                                }
+                            }
+                        }
+                    ]
+                }
+            },
+            "isPreferred": false,
+            "kind": "quickfix",
+            "title": "Add prefix `_` to ignore"
+        }
+    ]
+}

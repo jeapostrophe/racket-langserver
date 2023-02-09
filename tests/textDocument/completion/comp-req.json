@@ -1,0 +1,18 @@
+{
+    "id": 0,
+    "jsonrpc": "2.0",
+    "method": "textDocument/completion",
+    "params": {
+        "context": {
+            "triggerCharacter": "(",
+            "triggerKind": 2
+        },
+        "position": {
+            "character": 1,
+            "line": 2
+        },
+        "textDocument": {
+            "uri": "file:///test.rkt"
+        }
+    }
+}

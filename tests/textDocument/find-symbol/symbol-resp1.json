@@ -1,0 +1,125 @@
+{
+    "id": 0,
+    "jsonrpc": "2.0",
+    "result": [
+        {
+            "kind": 13,
+            "location": {
+                "range": {
+                    "end": {
+                        "character": 8,
+                        "line": 2
+                    },
+                    "start": {
+                        "character": 2,
+                        "line": 2
+                    }
+                },
+                "uri": "file:///test.rkt"
+            },
+            "name": "define"
+        },
+        {
+            "kind": 13,
+            "location": {
+                "range": {
+                    "end": {
+                        "character": 10,
+                        "line": 2
+                    },
+                    "start": {
+                        "character": 9,
+                        "line": 2
+                    }
+                },
+                "uri": "file:///test.rkt"
+            },
+            "name": "x"
+        },
+        {
+            "kind": 14,
+            "location": {
+                "range": {
+                    "end": {
+                        "character": 12,
+                        "line": 2
+                    },
+                    "start": {
+                        "character": 11,
+                        "line": 2
+                    }
+                },
+                "uri": "file:///test.rkt"
+            },
+            "name": "0"
+        },
+        {
+            "kind": 13,
+            "location": {
+                "range": {
+                    "end": {
+                        "character": 5,
+                        "line": 4
+                    },
+                    "start": {
+                        "character": 2,
+                        "line": 4
+                    }
+                },
+                "uri": "file:///test.rkt"
+            },
+            "name": "let"
+        },
+        {
+            "kind": 13,
+            "location": {
+                "range": {
+                    "end": {
+                        "character": 9,
+                        "line": 4
+                    },
+                    "start": {
+                        "character": 8,
+                        "line": 4
+                    }
+                },
+                "uri": "file:///test.rkt"
+            },
+            "name": "x"
+        },
+        {
+            "kind": 14,
+            "location": {
+                "range": {
+                    "end": {
+                        "character": 11,
+                        "line": 4
+                    },
+                    "start": {
+                        "character": 10,
+                        "line": 4
+                    }
+                },
+                "uri": "file:///test.rkt"
+            },
+            "name": "1"
+        },
+        {
+            "kind": 13,
+            "location": {
+                "range": {
+                    "end": {
+                        "character": 4,
+                        "line": 5
+                    },
+                    "start": {
+                        "character": 3,
+                        "line": 5
+                    }
+                },
+                "uri": "file:///test.rkt"
+            },
+            "name": "x"
+        }
+    ]
+}

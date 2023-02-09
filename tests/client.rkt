@@ -1,14 +1,16 @@
-#lang racket/base
+#lang racket
 
 ;; This module provides a simple incomplete lsp client for test.
 
 (provide with-racket-lsp
+         Lsp?
          client-send
          client-wait-response
          make-request
          make-notification)
 
 (require racket/os
+         json
          "../msg-io.rkt")
 
 (struct Lsp
@@ -23,12 +25,13 @@
   (for ([str (in-port read-line in)])
     (displayln (format "LSP ERROR: ~a" str) (current-error-port))))
 
-;; (-> string? (-> Lsp? any/c) void?)
-(define (with-racket-lsp path thunk)
+(define/contract (with-racket-lsp path proc)
+  (-> string? (-> Lsp? any/c) void?)
+
   (define racket-path (find-executable-path "racket"))
   (define-values (sp stdout stdin stderr)
     (subprocess #f #f #f racket-path path))
-  (define err-thd (thread (forward-errors stderr)))
+  (define _err-thd (thread (forward-errors stderr)))
   (define lsp (Lsp stdout stdin stderr))
 
   (define init-req
@@ -38,7 +41,7 @@
   (client-send lsp init-req)
   (client-wait-response lsp)
 
-  (thunk (Lsp stdout stdin stderr))
+  (proc (Lsp stdout stdin stderr))
 
   (define shutdown-req
     (make-request lsp "shutdown" #f))
@@ -47,17 +50,28 @@
 
   (define exit-notf (make-notification "exit" #f))
   (client-send lsp exit-notf)
-  (client-wait-response lsp)
+  (client-should-no-response lsp)
 
   (subprocess-wait sp))
 
-(define (client-send lsp req)
+(define/contract (client-send lsp req)
+  (-> Lsp? jsexpr? void?)
+
   (display-message/flush req (Lsp-stdin lsp)))
 
-(define (client-wait-response lsp)
+(define/contract (client-wait-response lsp)
+  (-> Lsp? jsexpr?)
+
   (read-message (Lsp-stdout lsp)))
 
-(define (make-request lsp method params)
+(define/contract (client-should-no-response lsp)
+  (-> Lsp? eof-object?)
+  
+  (read-message (Lsp-stdout lsp)))
+
+(define/contract (make-request lsp method params)
+  (-> Lsp? string? jsexpr? jsexpr?)
+
   (define req
     (hasheq 'jsonrpc "2.0"
             'id (Lsp-genid lsp)
@@ -65,7 +79,9 @@
   (cond [(not params) req]
         [else (hash-set req 'params params)]))
 
-(define (make-notification method params)
+(define/contract (make-notification method params)
+  (-> string? jsexpr? jsexpr?)
+
   (define req
     (hasheq 'jsonrpc "2.0"
             'method method))

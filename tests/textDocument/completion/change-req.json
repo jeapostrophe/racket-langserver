@@ -1,0 +1,26 @@
+{
+    "jsonrpc": "2.0",
+    "method": "textDocument/didChange",
+    "params": {
+        "contentChanges": [
+            {
+                "range": {
+                    "end": {
+                        "character": 0,
+                        "line": 2
+                    },
+                    "start": {
+                        "character": 0,
+                        "line": 2
+                    }
+                },
+                "rangeLength": 0,
+                "text": "()"
+            }
+        ],
+        "textDocument": {
+            "uri": "file:///test.rkt",
+            "version": 1
+        }
+    }
+}
