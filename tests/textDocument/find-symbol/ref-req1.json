@@ -1,0 +1,17 @@
+{
+    "id": 0,
+    "jsonrpc": "2.0",
+    "method": "textDocument/references",
+    "params": {
+        "context": {
+            "includeDeclaration": true
+        },
+        "position": {
+            "character": 7,
+            "line": 4
+        },
+        "textDocument": {
+            "uri": "file:///test.rkt"
+        }
+    }
+}

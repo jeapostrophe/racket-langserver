@@ -30,7 +30,7 @@
   (define racket-path (find-executable-path "racket"))
   (define-values (sp stdout stdin stderr)
     (subprocess #f #f #f racket-path "-t" "../../main.rkt"))
-  (define err-thd (thread (forward-errors stderr)))
+  (define _err-thd (thread (forward-errors stderr)))
 
   ;; Initialize request
   (display-message/flush init-req stdin)

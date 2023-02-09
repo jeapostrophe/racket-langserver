@@ -1,0 +1,15 @@
+{
+    "id": 0,
+    "jsonrpc": "2.0",
+    "method": "textDocument/rename",
+    "params": {
+        "newName": "new-x",
+        "position": {
+            "character": 2,
+            "line": 5
+        },
+        "textDocument": {
+            "uri": "file:///test.rkt"
+        }
+    }
+}

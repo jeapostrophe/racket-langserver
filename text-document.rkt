@@ -187,7 +187,7 @@
          (success-response id (list act))
          (success-response id (list)))]
     [(hash-table ['textDocument (DocIdentifier #:uri uri)])
-     (error-response id INVALID-PARAMS 
+     (error-response id INVALID-PARAMS
                      (format "textDocument/codeAction failed uri is not a path ~a" uri))]
     [_ (error-response id INVALID-PARAMS "textDocument/codeAction failed")]))
 
@@ -613,7 +613,7 @@
             [else i])))
   (define desired-spaces
     (if indenter
-        (or (indenter doc-text line-start) 
+        (or (indenter doc-text line-start)
             (send doc-text compute-racket-amount-to-indent line-start))
         (send doc-text compute-racket-amount-to-indent line-start)))
   (cond
@@ -644,7 +644,7 @@
   [did-close! (jsexpr? . -> . void?)]
   [did-change! (jsexpr? . -> . void?)]
   [hover (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]
-  [code-action (exact-positive-integer? jsexpr? . -> . jsexpr?)]
+  [code-action (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]
   [completion (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]
   [signatureHelp (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]
   [definition (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]

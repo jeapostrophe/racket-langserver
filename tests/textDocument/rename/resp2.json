@@ -1,0 +1,14 @@
+{
+    "id": 0,
+    "jsonrpc": "2.0",
+    "result": {
+        "end": {
+            "character": 3,
+            "line": 5
+        },
+        "start": {
+            "character": 2,
+            "line": 5
+        }
+    }
+}

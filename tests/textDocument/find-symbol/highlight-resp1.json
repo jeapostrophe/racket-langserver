@@ -1,0 +1,30 @@
+{
+    "id": 0,
+    "jsonrpc": "2.0",
+    "result": [
+        {
+            "range": {
+                "end": {
+                    "character": 3,
+                    "line": 5
+                },
+                "start": {
+                    "character": 2,
+                    "line": 5
+                }
+            }
+        },
+        {
+            "range": {
+                "end": {
+                    "character": 8,
+                    "line": 4
+                },
+                "start": {
+                    "character": 7,
+                    "line": 4
+                }
+            }
+        }
+    ]
+}

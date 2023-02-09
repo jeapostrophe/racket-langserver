@@ -104,9 +104,9 @@
           #:edit (WorkspaceEdit
                   #:changes
                   (hasheq (string->symbol (path->uri src-obj))
-                          (TextEdit #:range (Range #:start (abs-pos->Pos doc-text start)
-                                                   #:end   (abs-pos->Pos doc-text finish))
-                                    #:newText "_")))))
+                          (list (TextEdit #:range (Range #:start (abs-pos->Pos doc-text start)
+                                                         #:end   (abs-pos->Pos doc-text start))
+                                          #:newText "_"))))))
 
         (set-add! warn-diags diag)))
     (define/override (syncheck:add-mouse-over-status src-obj start finish text)
