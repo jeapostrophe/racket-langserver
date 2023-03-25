@@ -526,7 +526,7 @@
        (hash-ref open-docs (string->symbol uri)))
      (define indenter (send doc-trace get-indenter))
      (define start-pos (Pos->abs-pos doc-text start))
-     (define end-pos (max 0 (sub1 (Pos->abs-pos doc-text end))))
+     (define end-pos (Pos->abs-pos doc-text end))
      (define start-line (send doc-text position-paragraph start-pos))
      (define end-line (send doc-text position-paragraph end-pos))
      (define mut-doc-text
@@ -584,7 +584,7 @@
       (hash-set params
                 'range range))]
     [_
-     (error-response id INVALID-PARAMS "textDocument/onTypeformatting failed")]))
+     (error-response id INVALID-PARAMS "textDocument/onTypeFormatting failed")]))
 
 ;; Returns a TextEdit, or #f if the line is a part of multiple-line string
 (define (remove-trailing-space! doc-text in-string? line)
@@ -619,7 +619,6 @@
   (cond
     [(not (number? desired-spaces)) #f]
     [(= current-spaces desired-spaces) #f]
-    [(= line-length 0) #f]
     [(< current-spaces desired-spaces)
      ;; Insert spaces
      (define insert-count (- desired-spaces current-spaces))
