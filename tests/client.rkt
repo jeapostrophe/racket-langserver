@@ -7,6 +7,7 @@
          client-send
          client-wait-response
          make-request
+         make-response
          make-notification)
 
 (require racket/os
@@ -78,6 +79,15 @@
             'method method))
   (cond [(not params) req]
         [else (hash-set req 'params params)]))
+
+(define/contract (make-response request result)
+  (-> jsexpr? jsexpr? jsexpr?)
+
+  (define res
+    (hasheq 'jsonrpc "2.0"
+            'id (hash-ref request 'id)))
+  (cond [(not result) res]
+        [else (hash-set res 'result result)]))
 
 (define/contract (make-notification method params)
   (-> string? jsexpr? jsexpr?)
