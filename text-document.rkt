@@ -508,7 +508,7 @@
      (define end-pos (send doc-text last-position))
      (define start (abs-pos->Pos doc-text 0))
      (define end (abs-pos->Pos doc-text end-pos))
-     (success-response id (format! uri start end))]
+     (success-response id (format! uri start end 'document))]
     [_
      (error-response id INVALID-PARAMS "textDocument/formatting failed")]))
 
@@ -518,7 +518,7 @@
     ;; XXX We're ignoring 'options' for now
     [(hash-table ['textDocument (DocIdentifier #:uri uri)]
                  ['range (Range  #:start start #:end end)])
-     (success-response id (format! uri start end))]
+     (success-response id (format! uri start end 'range))]
     [_
      (error-response id INVALID-PARAMS "textDocument/rangeFormatting failed")]))
 
@@ -543,19 +543,21 @@
            (abs-pos->Pos doc-text (or (find-containing-paren pos (send doc-text get-text))
                                       0))
            (abs-pos->Pos doc-text pos))]))
-     (success-response id (format! uri start end))]
+     (success-response id (format! uri start end 'on-type))]
     [_
      (error-response id INVALID-PARAMS "textDocument/onTypeFormatting failed")]))
 
 ;; Shared path for all formatting requests
-(define (format! uri start end)
+;; `kind` allows diverging in a few places while sharing the core operation
+(define (format! uri start end kind)
   (unless (uri-is-path? uri)
     (error 'format! "uri is not a path"))
   (match-define (doc doc-text doc-trace)
     (hash-ref open-docs (string->symbol uri)))
   (define indenter (send doc-trace get-indenter))
   (define start-pos (Pos->abs-pos doc-text start))
-  (define end-pos (Pos->abs-pos doc-text end))
+  ;; Adjust for line endings (#92)
+  (define end-pos (max start-pos (sub1 (Pos->abs-pos doc-text end))))
   (define start-line (send doc-text position-paragraph start-pos))
   (define end-line (send doc-text position-paragraph end-pos))
   (define mut-doc-text
@@ -579,7 +581,7 @@
                       identity
                       ; NOTE: The order is important somehow
                       (list (remove-trailing-space! mut-doc-text skip-this-line? line)
-                            (indent-line! mut-doc-text indenter line)))
+                            (indent-line! mut-doc-text indenter line kind)))
                     (loop (add1 line)))))))
 
 ;; Returns a TextEdit, or #f if the line is a part of multiple-line string
@@ -596,8 +598,9 @@
                               #:end   (Pos #:line line #:char to))
                #:newText "")]
     [else #f]))
+
 ;; Returns a TextEdit, or #f if the line is already correct.
-(define (indent-line! doc-text indenter line)
+(define (indent-line! doc-text indenter line kind)
   (define line-start (send doc-text paragraph-start-position line))
   (define line-end (send doc-text paragraph-end-position line))
   (define line-text (send doc-text get-text line-start line-end))
@@ -615,6 +618,7 @@
   (cond
     [(not (number? desired-spaces)) #f]
     [(= current-spaces desired-spaces) #f]
+    [(and (not (eq? kind 'on-type)) (= line-length 0)) #f]
     [(< current-spaces desired-spaces)
      ;; Insert spaces
      (define insert-count (- desired-spaces current-spaces))
