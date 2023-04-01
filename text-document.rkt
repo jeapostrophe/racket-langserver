@@ -506,11 +506,9 @@
      (match-define (doc doc-text doc-trace)
        (hash-ref open-docs (string->symbol uri)))
      (define end-pos (send doc-text last-position))
-     (range-formatting!
-      id
-      (hash-set params
-                'range (Range #:start (abs-pos->Pos doc-text 0)
-                              #:end (abs-pos->Pos doc-text end-pos))))]
+     (define start (abs-pos->Pos doc-text 0))
+     (define end (abs-pos->Pos doc-text end-pos))
+     (success-response id (format! uri start end))]
     [_
      (error-response id INVALID-PARAMS "textDocument/formatting failed")]))
 
@@ -520,40 +518,7 @@
     ;; XXX We're ignoring 'options' for now
     [(hash-table ['textDocument (DocIdentifier #:uri uri)]
                  ['range (Range  #:start start #:end end)])
-     (unless (uri-is-path? uri)
-       (error 'range-formatting! "uri is not a path"))
-     (match-define (doc doc-text doc-trace)
-       (hash-ref open-docs (string->symbol uri)))
-     (define indenter (send doc-trace get-indenter))
-     (define start-pos (Pos->abs-pos doc-text start))
-     (define end-pos (Pos->abs-pos doc-text end))
-     (define start-line (send doc-text position-paragraph start-pos))
-     (define end-line (send doc-text position-paragraph end-pos))
-     (define mut-doc-text
-       (if (is-a? doc-text racket:text%)
-           (let ([r-text (new racket:text%)])
-             (send r-text insert (send doc-text get-text))
-             r-text)
-           (send doc-text copy-self)))
-     (define skip-this-line? #f)
-     (define results
-       (if (eq? indenter 'missing) (json-null)
-           (let loop ([line start-line])
-             (define line-start (send mut-doc-text paragraph-start-position line))
-             (define line-end (send mut-doc-text paragraph-end-position line))
-             (for ([i (range line-start (add1 line-end))])
-               (when (and (char=? #\" (send mut-doc-text get-character i))
-                          (not (char=? #\\ (send mut-doc-text get-character (sub1 i)))))
-                 (set! skip-this-line? (not skip-this-line?))))
-             (if (> line end-line)
-                 null
-                 (append (filter-map
-                          identity
-                          ; NOTE: The order is important somehow
-                          (list (remove-trailing-space! mut-doc-text skip-this-line? line)
-                                (indent-line! mut-doc-text indenter line)))
-                         (loop (add1 line)))))))
-     (success-response id results)]
+     (success-response id (format! uri start end))]
     [_
      (error-response id INVALID-PARAMS "textDocument/rangeFormatting failed")]))
 
@@ -567,24 +532,55 @@
      (match-define (doc doc-text doc-trace)
        (hash-ref open-docs (string->symbol uri)))
      (define pos (- (line/char->pos doc-text line char) 1))
-     (define range
+     (define-values (start end)
        (match ch
          ["\n"
-          (Range
-           #:start (abs-pos->Pos doc-text (send doc-text paragraph-start-position line))
-           #:end (abs-pos->Pos doc-text (send doc-text paragraph-end-position line)))]
+          (values
+           (abs-pos->Pos doc-text (send doc-text paragraph-start-position line))
+           (abs-pos->Pos doc-text (send doc-text paragraph-end-position line)))]
          [_
-          (Range
-           #:start (abs-pos->Pos doc-text (or (find-containing-paren pos (send doc-text get-text))
-                                              0))
-           #:end (abs-pos->Pos doc-text pos))]))
-
-     (range-formatting!
-      id
-      (hash-set params
-                'range range))]
+          (values
+           (abs-pos->Pos doc-text (or (find-containing-paren pos (send doc-text get-text))
+                                      0))
+           (abs-pos->Pos doc-text pos))]))
+     (success-response id (format! uri start end))]
     [_
      (error-response id INVALID-PARAMS "textDocument/onTypeFormatting failed")]))
+
+;; Shared path for all formatting requests
+(define (format! uri start end)
+  (unless (uri-is-path? uri)
+    (error 'format! "uri is not a path"))
+  (match-define (doc doc-text doc-trace)
+    (hash-ref open-docs (string->symbol uri)))
+  (define indenter (send doc-trace get-indenter))
+  (define start-pos (Pos->abs-pos doc-text start))
+  (define end-pos (Pos->abs-pos doc-text end))
+  (define start-line (send doc-text position-paragraph start-pos))
+  (define end-line (send doc-text position-paragraph end-pos))
+  (define mut-doc-text
+    (if (is-a? doc-text racket:text%)
+        (let ([r-text (new racket:text%)])
+          (send r-text insert (send doc-text get-text))
+          r-text)
+        (send doc-text copy-self)))
+  (define skip-this-line? #f)
+  (if (eq? indenter 'missing) (json-null)
+      (let loop ([line start-line])
+        (define line-start (send mut-doc-text paragraph-start-position line))
+        (define line-end (send mut-doc-text paragraph-end-position line))
+        (for ([i (range line-start (add1 line-end))])
+          (when (and (char=? #\" (send mut-doc-text get-character i))
+                      (not (char=? #\\ (send mut-doc-text get-character (sub1 i)))))
+            (set! skip-this-line? (not skip-this-line?))))
+        (if (> line end-line)
+            null
+            (append (filter-map
+                      identity
+                      ; NOTE: The order is important somehow
+                      (list (remove-trailing-space! mut-doc-text skip-this-line? line)
+                            (indent-line! mut-doc-text indenter line)))
+                    (loop (add1 line)))))))
 
 ;; Returns a TextEdit, or #f if the line is a part of multiple-line string
 (define (remove-trailing-space! doc-text in-string? line)
