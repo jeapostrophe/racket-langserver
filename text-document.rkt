@@ -508,7 +508,7 @@
      (define end-pos (send doc-text last-position))
      (define start (abs-pos->Pos doc-text 0))
      (define end (abs-pos->Pos doc-text end-pos))
-     (success-response id (format! uri start end 'document))]
+     (success-response id (format! uri start end))]
     [_
      (error-response id INVALID-PARAMS "textDocument/formatting failed")]))
 
@@ -518,7 +518,7 @@
     ;; XXX We're ignoring 'options' for now
     [(hash-table ['textDocument (DocIdentifier #:uri uri)]
                  ['range (Range  #:start start #:end end)])
-     (success-response id (format! uri start end 'range))]
+     (success-response id (format! uri start end))]
     [_
      (error-response id INVALID-PARAMS "textDocument/rangeFormatting failed")]))
 
@@ -543,13 +543,12 @@
            (abs-pos->Pos doc-text (or (find-containing-paren pos (send doc-text get-text))
                                       0))
            (abs-pos->Pos doc-text pos))]))
-     (success-response id (format! uri start end 'on-type))]
+     (success-response id (format! uri start end #:on-type? #t))]
     [_
      (error-response id INVALID-PARAMS "textDocument/onTypeFormatting failed")]))
 
 ;; Shared path for all formatting requests
-;; `kind` allows diverging in a few places while sharing the core operation
-(define (format! uri start end kind)
+(define (format! uri start end #:on-type? [on-type? #f])
   (unless (uri-is-path? uri)
     (error 'format! "uri is not a path"))
   (match-define (doc doc-text doc-trace)
@@ -581,7 +580,7 @@
                       identity
                       ; NOTE: The order is important somehow
                       (list (remove-trailing-space! mut-doc-text skip-this-line? line)
-                            (indent-line! mut-doc-text indenter line kind)))
+                            (indent-line! mut-doc-text indenter line #:on-type? on-type?)))
                     (loop (add1 line)))))))
 
 ;; Returns a TextEdit, or #f if the line is a part of multiple-line string
@@ -600,7 +599,7 @@
     [else #f]))
 
 ;; Returns a TextEdit, or #f if the line is already correct.
-(define (indent-line! doc-text indenter line kind)
+(define (indent-line! doc-text indenter line #:on-type? [on-type? #f])
   (define line-start (send doc-text paragraph-start-position line))
   (define line-end (send doc-text paragraph-end-position line))
   (define line-text (send doc-text get-text line-start line-end))
@@ -618,7 +617,7 @@
   (cond
     [(not (number? desired-spaces)) #f]
     [(= current-spaces desired-spaces) #f]
-    [(and (not (eq? kind 'on-type)) (= line-length 0)) #f]
+    [(and (not on-type?) (= line-length 0)) #f]
     [(< current-spaces desired-spaces)
      ;; Insert spaces
      (define insert-count (- desired-spaces current-spaces))
