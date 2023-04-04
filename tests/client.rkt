@@ -7,7 +7,7 @@
          client-send
          client-wait-response
          make-request
-         make-response
+         make-expected-response
          make-notification)
 
 (require racket/os
@@ -80,7 +80,7 @@
   (cond [(not params) req]
         [else (hash-set req 'params params)]))
 
-(define/contract (make-response request result)
+(define/contract (make-expected-response request result)
   (-> jsexpr? jsexpr? jsexpr?)
 
   (define res

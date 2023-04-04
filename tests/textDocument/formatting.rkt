@@ -45,7 +45,7 @@ END
                                         (hasheq 'line 3
                                                 'character 0)
                                         'ch "\n"))]
-             [res (make-response req
+             [res (make-expected-response req
                                  (list
                                   (hasheq 'range
                                           (hasheq 'start

@@ -4,7 +4,7 @@
          client-send
          client-wait-response
          make-request
-         make-response
+         make-expected-response
          make-notification)
 
 (require "../client.rkt")
