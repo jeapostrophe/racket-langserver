@@ -578,7 +578,11 @@
             null
             (append (filter-map
                       identity
-                      ; NOTE: The order is important somehow
+                      ;; NOTE: The order is important here.
+                      ;; `remove-trailing-space!` deletes content relative to the initial document
+                      ;; position. If we were to instead call `indent-line!` first and then
+                      ;; `remove-trailing-space!` second, the remove step could result in
+                      ;; losing user entered code.
                       (list (remove-trailing-space! mut-doc-text skip-this-line? line)
                             (indent-line! mut-doc-text indenter line #:on-type? on-type?)))
                     (loop (add1 line)))))))
