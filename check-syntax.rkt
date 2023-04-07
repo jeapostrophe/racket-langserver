@@ -16,7 +16,7 @@
          "autocomplete.rkt"
          "doc-trace.rkt")
 
-(define ((error-diagnostics src) exn)
+(define ((error-diagnostics doc-text) exn)
   (define msg (exn-message exn))
   (cond
     ;; typed racket support: don't report error summaries
@@ -25,11 +25,20 @@
      (define srclocs ((exn:srclocs-accessor exn) exn))
      (for/list ([sl (in-list srclocs)])
        (match-define (srcloc src line col pos span) sl)
-       (Diagnostic #:range (Range #:start (Pos #:line (sub1 line) #:char col)
-                                  #:end   (Pos #:line (sub1 line) #:char (+ col span)))
-                   #:severity Diag-Error
-                   #:source "Racket"
-                   #:message msg))]
+       (if (and (number? line) (number? col) (number? span))
+           (Diagnostic #:range (Range #:start (Pos #:line (sub1 line) #:char col)
+                                      #:end   (Pos #:line (sub1 line) #:char (+ col span)))
+                       #:severity Diag-Error
+                       #:source "Racket"
+                       #:message msg)
+           ;; Some reader exceptions don't report a position
+           ;; Use end of file as a reasonable guess
+           (let ([end-of-file (abs-pos->Pos doc-text (send doc-text last-position))])
+             (Diagnostic #:range (Range #:start end-of-file
+                                        #:end   end-of-file)
+                         #:severity Diag-Error
+                         #:source "Racket"
+                         #:message msg))))]
     [(exn:missing-module? exn)
      ;; Hack:
      ;; We do not have any source location for the offending `require`, but the language
@@ -109,7 +118,7 @@
             (when (list? result) (set! diags (append diags result))))
         (lambda ()
           (with-handlers ([(or/c exn:fail:read? exn:fail:syntax? exn:fail:filesystem?)
-                           (error-diagnostics src)])
+                           (error-diagnostics doc-text)])
             (define stx (expand (with-module-reading-parameterization
                                   (λ () (read-syntax src in)))))
             ;; reading and expanding succeeded, clear out any syntax errors before the
