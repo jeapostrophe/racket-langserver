@@ -367,9 +367,9 @@
        (hash-ref open-docs (string->symbol uri)))
      (define result
        (match decl
-         [(Decl req? id left right)
+         [(Decl filename id left right)
           (define ranges
-            (if req?
+            (if filename
                 (list (start/end->Range doc-text start end)
                       (start/end->Range doc-text left right))
                 (or (append (get-bindings uri decl)
@@ -415,7 +415,7 @@
      (define-values (start end decl) (get-decl uri line char))
      (match-define (doc doc-text doc-trace)
        (hash-ref open-docs (string->symbol uri)))
-     (if (and decl (not (Decl-require? decl)))
+     (if (and decl (not (Decl-filename decl)))
          (success-response id (start/end->Range doc-text start end))
          (success-response id (json-null)))]
     [_
