@@ -24,7 +24,6 @@
       (client-send lsp didopen-req)
       ;; skip a diagnostics message
       (client-wait-response lsp)
-      (client-wait-response lsp)
 
       (proc lsp)
 

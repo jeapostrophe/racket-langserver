@@ -1,6 +1,7 @@
 #lang racket/base
 (require json
          racket/contract/base
+         racket/async-channel
          racket/match
          racket/string)
 
@@ -22,15 +23,15 @@
 
 ;; (->* (jsexpr?) (output-port?) void?)
 (define (display-message/flush msg [out (current-output-port)])
-  (channel-put out-ch (list out msg)))
+  (async-channel-put out-ch (list out msg)))
 
 (define (read-loop out-ch)
-  (match-define (list out msg) (channel-get out-ch))
+  (match-define (list out msg) (async-channel-get out-ch))
   (display-message msg out)
   (flush-output out)
   (read-loop out-ch))
 
-(define out-ch (make-channel))
+(define out-ch (make-async-channel))
 (define out-t (thread (lambda () (read-loop out-ch))))
 
 (provide

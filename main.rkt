@@ -9,6 +9,7 @@
          "error-codes.rkt"
          "methods.rkt"
          "msg-io.rkt"
+         "monitor.rkt"
          "responses.rkt")
 
 ;; https://www.cs.utah.edu/plt/publications/pldi04-ff.pdf

@@ -9,8 +9,6 @@
          racket/list
          racket/string
          syntax/modread
-         "msg-io.rkt"
-         "path-util.rkt"
          "responses.rkt"
          "interfaces.rkt"
          "autocomplete.rkt"
@@ -115,7 +113,7 @@
       (with-intercepted-logging
           (lambda (l)
             (define result (check-typed-racket-log doc-text l))
-            (when (list? result) (set! diags (append diags result))))
+            (when (list? result) (set! diags (append result diags))))
         (lambda ()
           (with-handlers ([(or/c exn:fail:read? exn:fail:syntax? exn:fail:filesystem?)
                            (error-diagnostics doc-text)])
@@ -123,7 +121,6 @@
                                   (λ () (read-syntax src in)))))
             ;; reading and expanding succeeded, clear out any syntax errors before the
             ;; heavy stuff in order to be responsive to the user
-            (display-message/flush (diagnostics-message (path->uri src) (list)))
             (define completions (append (set->list (walk stx)) (set->list (walk-module stx))))
             (send new-trace set-completions completions)
             (when trace
@@ -133,10 +130,10 @@
             (done)
             (list)))
         'info)))
-  (define all-diags (append err-diags (set->list warn-diags) lang-diag diags))
-  (display-message/flush (diagnostics-message (path->uri src) all-diags))
-  (if valid new-trace (or trace new-trace)))
+  (list (if valid new-trace (or trace new-trace))
+        (append err-diags (set->list warn-diags) lang-diag diags)))
 
 (provide
  (contract-out
-  [check-syntax (-> any/c (is-a?/c text%) (or/c #f (is-a?/c build-trace%)) (is-a?/c build-trace%))]))
+  [check-syntax (-> any/c (is-a?/c text%) (or/c #f (is-a?/c build-trace%))
+                    (list/c (is-a?/c build-trace%) any/c))]))
