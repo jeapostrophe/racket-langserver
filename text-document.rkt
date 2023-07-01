@@ -7,7 +7,6 @@
          syntax-color/racket-lexer
          drracket/check-syntax
          syntax/modread
-         "check-syntax.rkt"
          "error-codes.rkt"
          "interfaces.rkt"
          "json-util.rkt"
@@ -16,7 +15,6 @@
          "symbol-kinds.rkt"
          "docs-helpers.rkt"
          "doc-trace.rkt"
-         "queue-only-latest.rkt"
          "documentation-parser.rkt"
          "doc.rkt")
 
@@ -71,11 +69,8 @@
   (unless (uri-is-path? uri)
     ;; TODO: send user diagnostic or something
     (error 'did-open "uri is not a path."))
-  (define path (uri->path uri))
-  (define doc-text (new racket:text%))
-  (send doc-text insert text 0)
-  (define trace (check-syntax path doc-text #f))
-  (hash-set! open-docs (string->symbol uri) (Doc doc-text trace)))
+  (hash-set! open-docs (string->symbol uri)
+             (new-doc (uri->path uri) text)))
 
 (define (did-close! params)
   (match-define (hash-table ['textDocument (DocItem #:uri uri)]) params)
@@ -87,31 +82,21 @@
                             ['contentChanges content-changes]) params)
   (when (uri-is-path? uri)
     (define this-doc (hash-ref open-docs (string->symbol uri)))
-    (define doc-text (Doc-text this-doc))
-    (define doc-trace (Doc-trace this-doc))
     (define content-changes*
       (cond [(eq? (json-null) content-changes) empty]
             [(list? content-changes) content-changes]
             [else (list content-changes)]))
-    (for ([change (in-list content-changes*)])
-      (match change
-        [(ContentChangeEvent #:range (Range #:start (Pos #:line st-ln #:char st-ch)
-                                            #:end (Pos #:line ed-ln #:char ed-ch))
-                             #:text text)
-         (define st-pos (line/char->pos doc-text st-ln st-ch))
-         (define end-pos (line/char->pos doc-text ed-ln ed-ch))
-         (define old-len (- end-pos st-pos))
-         (define new-len (string-length text))
-         (cond [(> new-len old-len) (send doc-trace expand end-pos (+ st-pos new-len))]
-               [(< new-len old-len) (send doc-trace contract (+ st-pos new-len) end-pos)]
-               [else #f])
-         (send doc-text insert text st-pos end-pos)]
-        [(ContentChangeEvent #:text text)
-         (send doc-trace reset)
-         (send doc-text erase)
-         (send doc-text insert text 0)]))
-    (try-queue-check (uri->path uri) this-doc))
-  (void))
+
+    (doc-batch-change this-doc
+                      (for ([change (in-list content-changes*)])
+                        (match change
+                          [(ContentChangeEvent #:range (Range #:start (Pos #:line st-ln #:char st-ch)
+                                                              #:end (Pos #:line ed-ln #:char ed-ch))
+                                               #:text text)
+                           (doc-update! this-doc st-ln st-ch ed-ln ed-ch text)]
+                          [(ContentChangeEvent #:text text)
+                           (doc-reset! this-doc text)])))
+    (void)))
 
 ;; Hover request
 ;; Returns an object conforming to the Hover interface, to
