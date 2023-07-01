@@ -4,14 +4,15 @@
          racket/class
          "debug.rkt"
          "check-syntax.rkt"
-         "interfaces.rkt")
+         "interfaces.rkt"
+         "doc.rkt")
 
 (define (do-check-and-stuff! data)
   (match-define (list src text doc) data)
   (define new-text (new racket:text%))
   (send new-text insert text)
-  (define new-trace (check-syntax src new-text (doc-trace doc)))
-  (set-doc-trace! doc new-trace))
+  (define new-trace (check-syntax src new-text (Doc-trace doc)))
+  (set-Doc-trace! doc new-trace))
 
 (define (waiter in-ch ready-ch out-ch)
   (define (run doc ready?)
@@ -48,7 +49,7 @@
 
 (define (try-queue-check src doc)
   (when (and (thread-running? waiter-th) (thread-running? server-th))
-    (define txt (send (doc-text doc) get-text))
+    (define txt (send (Doc-text doc) get-text))
     (maybe-debug-file txt)
     (channel-put in-ch (list src txt doc))))
 
