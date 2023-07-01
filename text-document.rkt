@@ -17,7 +17,8 @@
          "docs-helpers.rkt"
          "doc-trace.rkt"
          "queue-only-latest.rkt"
-         "documentation-parser.rkt")
+         "documentation-parser.rkt"
+         "doc.rkt")
 
 ;;
 ;; Match Expanders
@@ -74,7 +75,7 @@
   (define doc-text (new racket:text%))
   (send doc-text insert text 0)
   (define trace (check-syntax path doc-text #f))
-  (hash-set! open-docs (string->symbol uri) (doc doc-text trace)))
+  (hash-set! open-docs (string->symbol uri) (Doc doc-text trace)))
 
 (define (did-close! params)
   (match-define (hash-table ['textDocument (DocItem #:uri uri)]) params)
@@ -86,7 +87,8 @@
                             ['contentChanges content-changes]) params)
   (when (uri-is-path? uri)
     (define this-doc (hash-ref open-docs (string->symbol uri)))
-    (match-define (doc doc-text doc-trace) this-doc)
+    (define doc-text (Doc-text this-doc))
+    (define doc-trace (Doc-trace this-doc))
     (define content-changes*
       (cond [(eq? (json-null) content-changes) empty]
             [(list? content-changes) content-changes]
@@ -120,8 +122,11 @@
                  ['position (Pos #:line line #:char ch)])
      (unless (uri-is-path? uri)
        (error 'hover "uri is not a path"))
-     (match-define (doc doc-text doc-trace)
-       (hash-ref open-docs (string->symbol uri)))
+
+     (define this-doc (hash-ref open-docs (string->symbol uri)))
+     (define doc-text (Doc-text this-doc))
+     (define doc-trace (Doc-trace this-doc))
+
      (define hovers (send doc-trace get-hovers))
      (define pos (line/char->pos doc-text line ch))
      (define-values (start end text)
@@ -178,8 +183,11 @@
                  ; 3. `triggerKind?: CodeActionTriggerKind` the reason why code action were requested
                  ['context _ctx])
      #:when (uri-is-path? uri)
-     (match-define (doc doc-text doc-trace)
-       (hash-ref open-docs (string->symbol uri)))
+
+     (define this-doc (hash-ref open-docs (string->symbol uri)))
+     (define doc-text (Doc-text this-doc))
+     (define doc-trace (Doc-trace this-doc))
+
      (define act (interval-map-ref (send doc-trace get-quickfixs)
                                    (Pos->abs-pos doc-text start)
                                    #f))
@@ -198,8 +206,11 @@
                  ['position (Pos #:line line #:char ch)])
      (unless (uri-is-path? uri)
        (error 'signatureHelp "uri is not a path"))
-     (match-define (doc doc-text doc-trace)
-       (hash-ref open-docs (string->symbol uri)))
+
+     (define this-doc (hash-ref open-docs (string->symbol uri)))
+     (define doc-text (Doc-text this-doc))
+     (define doc-trace (Doc-trace this-doc))
+
      (define pos (line/char->pos doc-text line ch))
      (define text (send doc-text get-text))
      (define new-pos (find-containing-paren (- pos 1) text))
@@ -277,8 +288,10 @@
                  ['position (Pos #:line line #:char ch)])
      (unless (uri-is-path? uri)
        (error 'completion "uri is not a path"))
-     (match-define (doc doc-text doc-trace)
-       (hash-ref open-docs (string->symbol uri)))
+
+     (define this-doc (hash-ref open-docs (string->symbol uri)))
+     (define doc-trace (Doc-trace this-doc))
+
      (define completions (send doc-trace get-completions))
      (define result
        (for/list ([completion (in-list completions)])
@@ -310,13 +323,16 @@
                           (λ () (read-syntax path in)))))
     (add-syntax stx))
   (send collector get id))
+
 (define (definition id params)
   (match params
     [(hash-table ['textDocument (DocIdentifier #:uri uri)]
                  ['position (Pos #:line line #:char char)])
      (define-values (start end decl) (get-decl uri line char))
-     (match-define (doc doc-text doc-trace)
-       (hash-ref open-docs (string->symbol uri)))
+
+     (define this-doc (hash-ref open-docs (string->symbol uri)))
+     (define doc-text (Doc-text this-doc))
+
      (define result
        (match decl
          [#f (json-null)]
@@ -340,8 +356,10 @@
                  ['position (Pos #:line line #:char char)]
                  ['context (hash-table ['includeDeclaration include-decl?])])
      (define-values (start end decl) (get-decl uri line char))
-     (match-define (doc doc-text doc-trace)
-       (hash-ref open-docs (string->symbol uri)))
+
+     (define this-doc (hash-ref open-docs (string->symbol uri)))
+     (define doc-text (Doc-text this-doc))
+
      (define result
        (match decl
          [(Decl req? id left right)
@@ -363,8 +381,10 @@
     [(hash-table ['textDocument (DocIdentifier #:uri uri)]
                  ['position (Pos #:line line #:char char)])
      (define-values (start end decl) (get-decl uri line char))
-     (match-define (doc doc-text doc-trace)
-       (hash-ref open-docs (string->symbol uri)))
+
+     (define this-doc (hash-ref open-docs (string->symbol uri)))
+     (define doc-text (Doc-text this-doc))
+
      (define result
        (match decl
          [(Decl filename id left right)
@@ -388,8 +408,10 @@
                  ['position (Pos #:line line #:char char)]
                  ['newName new-name])
      (define-values (start end decl) (get-decl uri line char))
-     (match-define (doc doc-text doc-trace)
-       (hash-ref open-docs (string->symbol uri)))
+
+     (define this-doc (hash-ref open-docs (string->symbol uri)))
+     (define doc-text (Doc-text this-doc))
+
      (define result
        (match decl
          [(Decl req? id left right)
@@ -413,8 +435,10 @@
     [(hash-table ['textDocument (DocIdentifier #:uri uri)]
                  ['position (Pos #:line line #:char char)])
      (define-values (start end decl) (get-decl uri line char))
-     (match-define (doc doc-text doc-trace)
-       (hash-ref open-docs (string->symbol uri)))
+
+     (define this-doc (hash-ref open-docs (string->symbol uri)))
+     (define doc-text (Doc-text this-doc))
+
      (if (and decl (not (Decl-filename decl)))
          (success-response id (start/end->Range doc-text start end))
          (success-response id (json-null)))]
@@ -428,8 +452,11 @@
 (define (get-bindings uri decl)
   (unless (uri-is-path? uri)
     (error 'get-bindings "uri is not a path"))
-  (match-define (doc doc-text doc-trace)
-    (hash-ref open-docs (string->symbol uri)))
+
+  (define this-doc (hash-ref open-docs (string->symbol uri)))
+  (define doc-text (Doc-text this-doc))
+  (define doc-trace (Doc-trace this-doc))
+
   (define doc-decls (send doc-trace get-sym-decls))
   (match-define (Decl req? id left right) decl)
   (define-values (bind-start bind-end bindings)
@@ -442,8 +469,11 @@
 (define (get-decl uri line char)
   (unless (uri-is-path? uri)
     (error 'get-decl "uri is not a path"))
-  (match-define (doc doc-text doc-trace)
-    (hash-ref open-docs (string->symbol uri)))
+
+  (define this-doc (hash-ref open-docs (string->symbol uri)))
+  (define doc-text (Doc-text this-doc))
+  (define doc-trace (Doc-trace this-doc))
+
   (define pos (line/char->pos doc-text line char))
   (define doc-decls (send doc-trace get-sym-decls))
   (define doc-bindings (send doc-trace get-sym-bindings))
@@ -465,8 +495,10 @@
     [(hash-table ['textDocument (DocIdentifier #:uri uri)])
      (unless (uri-is-path? uri)
        (error 'document-symbol "uri is not a path"))
-     (match-define (doc doc-text doc-trace)
-       (hash-ref open-docs (string->symbol uri)))
+
+     (define this-doc (hash-ref open-docs (string->symbol uri)))
+     (define doc-text (Doc-text this-doc))
+
      (define results
        (dict-map (get-symbols doc-text)
                  (λ (key value)
@@ -503,8 +535,10 @@
   (match params
     ;; We're ignoring 'options for now
     [(hash-table ['textDocument (DocIdentifier #:uri uri)])
-     (match-define (doc doc-text doc-trace)
-       (hash-ref open-docs (string->symbol uri)))
+
+     (define this-doc (hash-ref open-docs (string->symbol uri)))
+     (define doc-text (Doc-text this-doc))
+
      (define end-pos (send doc-text last-position))
      (define start (abs-pos->Pos doc-text 0))
      (define end (abs-pos->Pos doc-text end-pos))
@@ -529,8 +563,9 @@
     [(hash-table ['textDocument (DocIdentifier #:uri uri)]
                  ['position (Pos #:line line #:char char)]
                  ['ch ch])
-     (match-define (doc doc-text doc-trace)
-       (hash-ref open-docs (string->symbol uri)))
+     (define this-doc (hash-ref open-docs (string->symbol uri)))
+     (define doc-text (Doc-text this-doc))
+
      (define pos (- (line/char->pos doc-text line char) 1))
      (define-values (start end)
        (match ch
@@ -551,8 +586,11 @@
 (define (format! uri start end #:on-type? [on-type? #f])
   (unless (uri-is-path? uri)
     (error 'format! "uri is not a path"))
-  (match-define (doc doc-text doc-trace)
-    (hash-ref open-docs (string->symbol uri)))
+
+  (define this-doc (hash-ref open-docs (string->symbol uri)))
+  (define doc-text (Doc-text this-doc))
+  (define doc-trace (Doc-trace this-doc))
+
   (define indenter (send doc-trace get-indenter))
   (define start-pos (Pos->abs-pos doc-text start))
   ;; Adjust for line endings (#92)
@@ -572,19 +610,19 @@
         (define line-end (send mut-doc-text paragraph-end-position line))
         (for ([i (range line-start (add1 line-end))])
           (when (and (char=? #\" (send mut-doc-text get-character i))
-                      (not (char=? #\\ (send mut-doc-text get-character (sub1 i)))))
+                     (not (char=? #\\ (send mut-doc-text get-character (sub1 i)))))
             (set! skip-this-line? (not skip-this-line?))))
         (if (> line end-line)
             null
             (append (filter-map
-                      identity
-                      ;; NOTE: The order is important here.
-                      ;; `remove-trailing-space!` deletes content relative to the initial document
-                      ;; position. If we were to instead call `indent-line!` first and then
-                      ;; `remove-trailing-space!` second, the remove step could result in
-                      ;; losing user entered code.
-                      (list (remove-trailing-space! mut-doc-text skip-this-line? line)
-                            (indent-line! mut-doc-text indenter line #:on-type? on-type?)))
+                     identity
+                     ;; NOTE: The order is important here.
+                     ;; `remove-trailing-space!` deletes content relative to the initial document
+                     ;; position. If we were to instead call `indent-line!` first and then
+                     ;; `remove-trailing-space!` second, the remove step could result in
+                     ;; losing user entered code.
+                     (list (remove-trailing-space! mut-doc-text skip-this-line? line)
+                           (indent-line! mut-doc-text indenter line #:on-type? on-type?)))
                     (loop (add1 line)))))))
 
 ;; Returns a TextEdit, or #f if the line is a part of multiple-line string
