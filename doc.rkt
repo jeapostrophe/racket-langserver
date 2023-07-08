@@ -5,6 +5,7 @@
          "msg-io.rkt"
          "responses.rkt"
          "interfaces.rkt"
+         "scheduler.rkt"
          racket/gui
          framework
          data/interval-map
@@ -26,13 +27,16 @@
 
 ;; the only place where really run check-syntax
 (define (doc-run-check-syntax doc)
-  (set-Doc-checked?! doc #f)
-  (match-define (list new-trace diags)
-    (report-time (check-syntax (Doc-path doc) (Doc-text doc) (Doc-trace doc))))
-  (send-diagnostics doc diags)
-  (set-Doc-trace! doc new-trace)
+  (define (task)
+    (set-Doc-checked?! doc #f)
+    (match-define (list new-trace diags)
+      (report-time (check-syntax (Doc-path doc) (Doc-text doc) (Doc-trace doc))))
+    (send-diagnostics doc diags)
+    (set-Doc-trace! doc new-trace)
 
-  (set-Doc-checked?! doc #t))
+    (set-Doc-checked?! doc #t))
+
+  (scheduler-push-task! (Doc-path doc) task))
 
 (define (lazy-check-syntax doc)
   (when (not (Doc-during-batch-change? doc))
