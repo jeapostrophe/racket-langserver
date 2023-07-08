@@ -1,7 +1,6 @@
 #lang racket/base
 
 (require "check-syntax.rkt"
-         "monitor.rkt"
          "msg-io.rkt"
          "responses.rkt"
          "interfaces.rkt"
@@ -36,12 +35,12 @@
   (define (task)
     (set-Doc-checked?! doc #f)
     (match-define (list new-trace diags)
-      (report-time (check-syntax (uri->path (Doc-uri doc)) (Doc-text doc) (Doc-trace doc))))
+      (check-syntax (uri->path (Doc-uri doc)) (Doc-text doc) (Doc-trace doc)))
     (send-diagnostics doc diags)
     (set-Doc-trace! doc new-trace)
-    
+
     (set-Doc-checked?! doc #t))
-  
+
   (scheduler-push-task! (Doc-uri doc) task))
 
 (define (lazy-check-syntax doc)
@@ -63,7 +62,7 @@
 (define (doc-reset! doc new-text)
   (define doc-text (Doc-text doc))
   (define doc-trace (Doc-trace doc))
-  
+
   (send doc-text erase)
   (send doc-trace reset)
   (send doc-text insert new-text 0)
@@ -72,12 +71,12 @@
 (define (doc-update! doc st-ln st-ch ed-ln ed-ch text)
   (define doc-text (Doc-text doc))
   (define doc-trace (Doc-trace doc))
-  
+
   (define st-pos (doc-pos doc st-ln st-ch))
   (define end-pos (doc-pos doc ed-ln ed-ch))
   (define old-len (- end-pos st-pos))
   (define new-len (string-length text))
-  
+
   ;; try reuse old information as the check-syntax can fail
   ;; and return the old build-trace% object
   (cond [(> new-len old-len) (send doc-trace expand end-pos (+ st-pos new-len))]
