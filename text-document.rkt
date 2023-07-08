@@ -86,7 +86,7 @@
     ;; TODO: send user diagnostic or something
     (error 'did-open "uri is not a path."))
   (hash-set! open-docs (string->symbol uri)
-             (new-doc (uri->path uri) text)))
+             (new-doc uri text)))
 
 (define (did-close! params)
   (match-define (hash-table ['textDocument (DocItem #:uri uri)]) params)
@@ -498,11 +498,8 @@
 
      (define this-doc (hash-ref open-docs (string->symbol uri)))
 
-     (define end-pos (doc-endpos this-doc))
-     (define start (abs-pos->pos this-doc 0))
-     (define end (abs-pos->pos this-doc end-pos))
-     (match-define (Pos #:line st-ln #:char st-ch) start)
-     (match-define (Pos #:line ed-ln #:char ed-ch) end)
+     (define-values (st-ln st-ch) (doc-line/ch this-doc 0))
+     (define-values (ed-ln ed-ch) (doc-line/ch this-doc (doc-endpos this-doc)))
      (success-response id (format! this-doc st-ln st-ch ed-ln ed-ch))]
     [_
      (error-response id INVALID-PARAMS "textDocument/formatting failed")]))
