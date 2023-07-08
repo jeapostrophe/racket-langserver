@@ -146,6 +146,7 @@
 
   (define warn-diags (send new-trace get-warn-diags))
 
+  ;; reuse old trace if check-syntax failed
   (list (if valid new-trace (or trace new-trace))
         (append err-diags (set->list warn-diags) lang-diag diags)))
 

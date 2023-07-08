@@ -18,10 +18,10 @@
          "responses.rkt"
          "symbol-kinds.rkt"
          "docs-helpers.rkt"
-         "doc-trace.rkt"
          "documentation-parser.rkt"
          "doc.rkt"
-         "editor.rkt")
+         "editor.rkt"
+         "struct.rkt")
 
 ;;
 ;; Match Expanders
@@ -125,53 +125,50 @@
 
      (define this-doc (hash-ref open-docs (string->symbol uri)))
 
-     (cond [(not (doc-checked? this-doc))
-            (success-response id (json-null))]
-           [else
-            (define doc-trace (Doc-trace this-doc))
+     (define doc-trace (Doc-trace this-doc))
 
-            (define hovers (send doc-trace get-hovers))
-            (define pos (doc-pos this-doc line ch))
-            (define-values (start end text)
-              (interval-map-ref/bounds hovers pos #f))
-            (match-define (list link tag)
-              (interval-map-ref (send doc-trace get-docs) pos (list #f #f)))
-            (define result
-              (cond [text
-                     ;; We want signatures from `scribble/blueboxes` as they have better indentation,
-                     ;; but in some super rare cases blueboxes aren't accessible, thus we try to use the
-                     ;; parsed signature instead
-                     (match-define (list sigs args-descr)
-                       (if tag
-                           (get-docs-for-tag tag)
-                           (list #f #f)))
-                     (define maybe-signature
-                       (if sigs
-                           (~a "```\n"
-                               (string-join sigs "\n")
-                               (if args-descr (~a "\n" args-descr) "")
-                               "\n```\n---\n")
-                           #f))
-                     (define documentation-text
-                       (if link
-                           (~a (or maybe-signature "")
-                               (or (extract-documentation-for-selected-element
-                                    link #:include-signature? (not maybe-signature))
-                                   ""))
-                           ""))
-                     (define contents (if link
-                                          (~a text
-                                              " - [online docs]("
-                                              (make-proper-url-for-online-documentation link)
-                                              ")\n"
-                                              (if (non-empty-string? documentation-text)
-                                                  (~a "\n---\n" documentation-text)
-                                                  ""))
-                                          text))
-                     (hasheq 'contents contents
-                             'range (start/end->range this-doc start end))]
-                    [else (hasheq 'contents empty)]))
-            (success-response id result)])]
+     (define hovers (send doc-trace get-hovers))
+     (define pos (doc-pos this-doc line ch))
+     (define-values (start end text)
+       (interval-map-ref/bounds hovers pos #f))
+     (match-define (list link tag)
+       (interval-map-ref (send doc-trace get-docs) pos (list #f #f)))
+     (define result
+       (cond [text
+              ;; We want signatures from `scribble/blueboxes` as they have better indentation,
+              ;; but in some super rare cases blueboxes aren't accessible, thus we try to use the
+              ;; parsed signature instead
+              (match-define (list sigs args-descr)
+                (if tag
+                    (get-docs-for-tag tag)
+                    (list #f #f)))
+              (define maybe-signature
+                (if sigs
+                    (~a "```\n"
+                        (string-join sigs "\n")
+                        (if args-descr (~a "\n" args-descr) "")
+                        "\n```\n---\n")
+                    #f))
+              (define documentation-text
+                (if link
+                    (~a (or maybe-signature "")
+                        (or (extract-documentation-for-selected-element
+                             link #:include-signature? (not maybe-signature))
+                            ""))
+                    ""))
+              (define contents (if link
+                                   (~a text
+                                       " - [online docs]("
+                                       (make-proper-url-for-online-documentation link)
+                                       ")\n"
+                                       (if (non-empty-string? documentation-text)
+                                           (~a "\n---\n" documentation-text)
+                                           ""))
+                                   text))
+              (hasheq 'contents contents
+                      'range (start/end->range this-doc start end))]
+             [else (hasheq 'contents empty)]))
+     (success-response id result)]
     [_
      (error-response id INVALID-PARAMS "textDocument/hover failed")]))
 
@@ -188,17 +185,14 @@
      #:when (uri-is-path? uri)
 
      (define this-doc (hash-ref open-docs (string->symbol uri)))
-     (cond [(not (doc-checked? this-doc))
-            (success-response id (list))]
-           [else
-            (define doc-trace (Doc-trace this-doc))
+     (define doc-trace (Doc-trace this-doc))
 
-            (define act (interval-map-ref (send doc-trace get-quickfixs)
-                                          (pos->abs-pos this-doc start)
-                                          #f))
-            (if act
-                (success-response id (list act))
-                (success-response id (list)))])]
+     (define act (interval-map-ref (send doc-trace get-quickfixs)
+                                   (pos->abs-pos this-doc start)
+                                   #f))
+     (if act
+         (success-response id (list act))
+         (success-response id (list)))]
     [(hash-table ['textDocument (DocIdentifier #:uri uri)])
      (error-response id INVALID-PARAMS
                      (format "textDocument/codeAction failed uri is not a path ~a" uri))]
@@ -343,23 +337,20 @@
 
      (define this-doc (hash-ref open-docs (string->symbol uri)))
 
-     (cond [(not (doc-checked? this-doc))
-            (success-response id (json-null))]
-           [else
-            (define-values (start end decl) (get-decl uri line char))
-            (define result
-              (match decl
-                [(Decl filename id left right)
-                 (define ranges
-                   (if filename
-                       (list (start/end->range this-doc start end)
-                             (start/end->range this-doc left right))
-                       (or (append (get-bindings uri decl)
-                                   (list (start/end->range this-doc left right))))))
-                 (for/list ([range (in-list ranges)])
-                   (hasheq 'range range))]
-                [#f (json-null)]))
-            (success-response id result)])]
+     (define-values (start end decl) (get-decl uri line char))
+     (define result
+       (match decl
+         [(Decl filename id left right)
+          (define ranges
+            (if filename
+                (list (start/end->range this-doc start end)
+                      (start/end->range this-doc left right))
+                (or (append (get-bindings uri decl)
+                            (list (start/end->range this-doc left right))))))
+          (for/list ([range (in-list ranges)])
+            (hasheq 'range range))]
+         [#f (json-null)]))
+     (success-response id result)]
     [_
      (error-response id INVALID-PARAMS "textDocument/documentHighlight failed")]))
 
@@ -457,24 +448,21 @@
      (define this-doc (hash-ref open-docs (string->symbol uri)))
 
      (define results
-       (cond [(not (doc-checked? this-doc))
-              (json-null)]
-             [else
-              (dict-map (doc-get-symbols this-doc)
-                        (λ (key value)
-                          (match-define (cons start end) key)
-                          (match-define (list text type) value)
-                          (define kind (match type
-                                         ['constant SymbolKind-Constant]
-                                         ['string SymbolKind-String]
-                                         ['symbol SymbolKind-Variable]))
-                          (define range
-                            (Range #:start (abs-pos->pos this-doc start)
-                                   #:end   (abs-pos->pos this-doc end)))
-                          (SymbolInfo #:name text
-                                      #:kind kind
-                                      #:location (Location #:uri uri
-                                                           #:range range))))]))
+       (dict-map (doc-get-symbols this-doc)
+                 (λ (key value)
+                   (match-define (cons start end) key)
+                   (match-define (list text type) value)
+                   (define kind (match type
+                                  ['constant SymbolKind-Constant]
+                                  ['string SymbolKind-String]
+                                  ['symbol SymbolKind-Variable]))
+                   (define range
+                     (Range #:start (abs-pos->pos this-doc start)
+                            #:end   (abs-pos->pos this-doc end)))
+                   (SymbolInfo #:name text
+                               #:kind kind
+                               #:location (Location #:uri uri
+                                                    #:range range)))))
      (success-response id results)]
     [_
      (error-response id INVALID-PARAMS "textDocument/documentSymbol failed")]))
