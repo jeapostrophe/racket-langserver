@@ -18,7 +18,6 @@
          syntax-color/racket-lexer
          json)
 
-;; (struct/c Doc (is-a?/c text%) (is-a?/c build-trace%))
 (struct Doc
   (text
    trace
