@@ -8,6 +8,7 @@
          racket/list
          racket/string
          syntax/modread
+         racket/sandbox
          "editor.rkt"
          "responses.rkt"
          "interfaces.rkt"
@@ -19,6 +20,13 @@
   (cond
     ;; typed racket support: don't report error summaries
     [(string-prefix? msg "Type Checker: Summary") (list)]
+    [(exn:fail:resource? exn)
+     (list (Diagnostic #:range (Range #:start (Pos #:line 0 #:char 0)
+                                      #:end (Pos #:line 0 #:char 0))
+                       #:severity Diag-Hint
+                       #:source "Expander"
+                       #:message "the expand time has exceeded the 90s limit.\
+                        Check if your macro is infinitely recursive."))]
     [(exn:srclocs? exn)
      (define srclocs ((exn:srclocs-accessor exn) exn))
      (for/list ([sl (in-list srclocs)])
@@ -81,6 +89,9 @@
     [(eq? lang-info 'missing) lang-info]
     [else #f]))
 
+(define-syntax-rule (timeout time-sec body)
+  (with-limits time-sec #f body))
+
 (define (check-syntax src doc-text trace)
   (define indenter (get-indenter doc-text))
   (define ns (make-base-namespace))
@@ -97,7 +108,6 @@
   (when trace
     (set-clear! (send trace get-warn-diags)))
   (define valid #f)
-  (define warn-diags (send new-trace get-warn-diags))
   (define lang-diag
     (if (eq? indenter 'missing)
         (list (Diagnostic #:range (Range #:start (Pos #:line 0 #:char 0) #:end (Pos #:line 0 #:char 0))
@@ -115,12 +125,15 @@
             (define result (check-typed-racket-log doc-text l))
             (when (list? result) (set! diags (append result diags))))
         (lambda ()
-          (with-handlers ([(or/c exn:fail:read? exn:fail:syntax? exn:fail:filesystem?)
+          (with-handlers ([(or/c exn:fail:read?
+                                 exn:fail:syntax?
+                                 exn:fail:filesystem?
+                                 exn:fail:resource?)
                            (error-diagnostics doc-text)])
-            (define stx (expand (with-module-reading-parameterization
-                                  (λ () (read-syntax src in)))))
-            ;; reading and expanding succeeded, clear out any syntax errors before the
-            ;; heavy stuff in order to be responsive to the user
+            (define original-stx (with-module-reading-parameterization
+                                   (λ () (read-syntax src in))))
+            ;; 90 seconds limit for possible infinity recursive macro expand
+            (define stx (timeout 90 (expand original-stx)))
             (define completions (append (set->list (walk stx)) (set->list (walk-module stx))))
             (send new-trace set-completions completions)
             (when trace
@@ -130,6 +143,9 @@
             (done)
             (list)))
         'info)))
+
+  (define warn-diags (send new-trace get-warn-diags))
+
   (list (if valid new-trace (or trace new-trace))
         (append err-diags (set->list warn-diags) lang-diag diags)))
 
