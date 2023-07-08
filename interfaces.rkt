@@ -4,7 +4,16 @@
          racket/class
          racket/contract/base
          racket/match
-         "json-util.rkt")
+         "json-util.rkt"
+         "editor.rkt")
+
+(provide WorkspaceEdit
+         TextEdit
+         CodeAction
+         Diagnostic
+         Pos
+         Range
+         abs-pos->Pos)
 
 (define-json-expander WorkspaceEdit
   [changes any/c])
@@ -42,10 +51,7 @@
   [start any/c]
   [end any/c])
 
-(define (abs-pos->Pos t pos)
-  (define line (send t position-paragraph pos))
-  (define line-begin (send t paragraph-start-position line))
-  (define char (- pos line-begin))
+(define (abs-pos->Pos editor pos)
+  (match-define (list line char) (send editor pos->line/char pos))
   (Pos #:line line #:char char))
 
-(provide (all-defined-out))

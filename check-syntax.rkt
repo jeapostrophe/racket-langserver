@@ -2,13 +2,13 @@
 (require drracket/check-syntax
          racket/class
          racket/contract/base
-         racket/gui/base
          racket/match
          racket/set
          racket/logging
          racket/list
          racket/string
          syntax/modread
+         "editor.rkt"
          "responses.rkt"
          "interfaces.rkt"
          "autocomplete.rkt"
@@ -31,7 +31,7 @@
                        #:message msg)
            ;; Some reader exceptions don't report a position
            ;; Use end of file as a reasonable guess
-           (let ([end-of-file (abs-pos->Pos doc-text (send doc-text last-position))])
+           (let ([end-of-file (abs-pos->Pos doc-text (send doc-text end-pos))])
              (Diagnostic #:range (Range #:start end-of-file
                                         #:end   end-of-file)
                          #:severity Diag-Error
@@ -135,5 +135,5 @@
 
 (provide
  (contract-out
-  [check-syntax (-> any/c (is-a?/c text%) (or/c #f (is-a?/c build-trace%))
+  [check-syntax (-> any/c (is-a?/c lsp-editor%) (or/c #f (is-a?/c build-trace%))
                     (list/c (is-a?/c build-trace%) any/c))]))

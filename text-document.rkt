@@ -1,8 +1,14 @@
 #lang racket/base
 (require data/interval-map
          json
-         racket/gui
          racket/match
+         racket/list
+         racket/contract
+         racket/class
+         racket/format
+         racket/string
+         racket/set
+         racket/dict
          drracket/check-syntax
          syntax/modread
          "error-codes.rkt"
@@ -14,7 +20,8 @@
          "docs-helpers.rkt"
          "doc-trace.rkt"
          "documentation-parser.rkt"
-         "doc.rkt")
+         "doc.rkt"
+         "editor.rkt")
 
 ;;
 ;; Match Expanders
@@ -294,7 +301,7 @@
           (Location #:uri uri
                     #:range (start/end->range this-doc start end))]
          [(Decl path id 0 0)
-          (define doc-text (new text%))
+          (define doc-text (new lsp-editor%))
           (send doc-text load-file path)
           (match-define (cons start end) (get-def path doc-text id))
           (Location #:uri (path->uri path)

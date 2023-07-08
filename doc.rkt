@@ -6,8 +6,12 @@
          "responses.rkt"
          "interfaces.rkt"
          "scheduler.rkt"
-         racket/gui
-         framework
+         "editor.rkt"
+         racket/match
+         racket/class
+         racket/set
+         racket/list
+         racket/string
          data/interval-map
          syntax-color/module-lexer
          syntax-color/racket-lexer
@@ -33,9 +37,9 @@
       (report-time (check-syntax (Doc-path doc) (Doc-text doc) (Doc-trace doc))))
     (send-diagnostics doc diags)
     (set-Doc-trace! doc new-trace)
-
+    
     (set-Doc-checked?! doc #t))
-
+  
   (scheduler-push-task! (Doc-path doc) task))
 
 (define (lazy-check-syntax doc)
@@ -46,7 +50,7 @@
   (Doc-checked? doc))
 
 (define (new-doc path text)
-  (define doc-text (new racket:text%))
+  (define doc-text (new lsp-editor%))
   (send doc-text insert text 0)
   (define doc (Doc doc-text #f path #f #f))
   (lazy-check-syntax doc)
@@ -55,7 +59,7 @@
 (define (doc-reset! doc new-text)
   (define doc-text (Doc-text doc))
   (define doc-trace (Doc-trace doc))
-
+  
   (send doc-text erase)
   (send doc-trace reset)
   (send doc-text insert new-text 0)
@@ -64,7 +68,7 @@
 (define (doc-update! doc st-ln st-ch ed-ln ed-ch text)
   (define doc-text (Doc-text doc))
   (define doc-trace (Doc-trace doc))
-
+  
   (define st-pos (doc-pos doc st-ln st-ch))
   (define end-pos (doc-pos doc ed-ln ed-ch))
   (define old-len (- end-pos st-pos))
@@ -72,7 +76,7 @@
   (cond [(> new-len old-len) (send doc-trace expand end-pos (+ st-pos new-len))]
         [(< new-len old-len) (send doc-trace contract (+ st-pos new-len) end-pos)]
         [else #f])
-  (send doc-text insert text st-pos end-pos)
+  (send doc-text replace text st-pos end-pos)
   (lazy-check-syntax doc))
 
 (define-syntax-rule (doc-batch-change doc expr ...)
@@ -83,23 +87,20 @@
     (lazy-check-syntax doc)))
 
 (define (doc-pos doc line ch)
-  (+ ch (send (Doc-text doc) paragraph-start-position line)))
+  (send (Doc-text doc) line/char->pos line ch))
 
 (define (doc-line/ch doc pos)
-  (define t (Doc-text doc))
-  (define line (send t position-paragraph pos))
-  (define line-begin (send t paragraph-start-position line))
-  (define char (- pos line-begin))
+  (match-define (list line char) (send (Doc-text doc) pos->line/char pos))
   (values line char))
 
 (define (doc-line-start-pos doc line)
-  (send (Doc-text doc) paragraph-start-position line))
+  (send (Doc-text doc) line-start-pos line))
 
 (define (doc-line-end-pos doc line)
-  (send (Doc-text doc) paragraph-end-position line))
+  (send (Doc-text doc) line-end-pos line))
 
 (define (doc-endpos doc)
-  (send (Doc-text doc) last-position))
+  (send (Doc-text doc) end-pos))
 
 (define (doc-find-containing-paren doc pos)
   (define text (send (Doc-text doc) get-text))
@@ -171,27 +172,27 @@
   (define start-pos (doc-pos this-doc st-ln st-ch))
   ;; Adjust for line endings (#92)
   (define end-pos (max start-pos (sub1 (doc-pos this-doc ed-ln ed-ch))))
-  (define start-line (send doc-text position-paragraph start-pos))
-  (define end-line (send doc-text position-paragraph end-pos))
+  (define start-line (send doc-text at-line start-pos))
+  (define end-line (send doc-text at-line end-pos))
   (define mut-doc-text
-    (if (is-a? doc-text racket:text%)
-        (let ([r-text (new racket:text%)])
-          (send r-text insert (send doc-text get-text))
+    (if (is-a? doc-text lsp-editor%)
+        (let ([r-text (new lsp-editor%)])
+          (send r-text insert (send doc-text get-text) 0)
           r-text)
-        (send doc-text copy-self)))
+        (send doc-text copy)))
   (define skip-this-line? #f)
   (if (eq? indenter 'missing) (json-null)
       (let loop ([line start-line])
-        (define line-start (send mut-doc-text paragraph-start-position line))
-        (define line-end (send mut-doc-text paragraph-end-position line))
+        (define line-start (send mut-doc-text line-start-pos line))
+        (define line-end (send mut-doc-text line-end-pos line))
         (for ([i (range line-start (add1 line-end))])
-          (when (and (char=? #\" (send mut-doc-text get-character i))
-                     (not (char=? #\\ (send mut-doc-text get-character (sub1 i)))))
+          (when (and (char=? #\" (send mut-doc-text get-char i))
+                     (not (char=? #\\ (send mut-doc-text get-char (sub1 i)))))
             (set! skip-this-line? (not skip-this-line?))))
         (if (> line end-line)
             null
             (append (filter-map
-                     identity
+                     values
                      ;; NOTE: The order is important here.
                      ;; `remove-trailing-space!` deletes content relative to the initial document
                      ;; position. If we were to instead call `indent-line!` first and then
@@ -203,8 +204,8 @@
 
 ;; Returns a TextEdit, or #f if the line is a part of multiple-line string
 (define (remove-trailing-space! doc-text in-string? line)
-  (define line-start (send doc-text paragraph-start-position line))
-  (define line-end (send doc-text paragraph-end-position line))
+  (define line-start (send doc-text line-start-pos line))
+  (define line-end (send doc-text line-end-pos line))
   (define line-text (send doc-text get-text line-start line-end))
   (cond
     [(not in-string?)
@@ -218,8 +219,8 @@
 
 ;; Returns a TextEdit, or #f if the line is already correct.
 (define (indent-line! doc-text indenter line #:on-type? [on-type? #f])
-  (define line-start (send doc-text paragraph-start-position line))
-  (define line-end (send doc-text paragraph-end-position line))
+  (define line-start (send doc-text line-start-pos line))
+  (define line-end (send doc-text line-end-pos line))
   (define line-text (send doc-text get-text line-start line-end))
   (define line-length (string-length line-text))
   (define current-spaces
@@ -241,7 +242,7 @@
      (define insert-count (- desired-spaces current-spaces))
      (define new-text (make-string insert-count #\space))
      (define pos (Pos #:line line #:char 0))
-     (send doc-text insert new-text line-start 'same)
+     (send doc-text insert new-text line-start)
      (TextEdit #:range (Range #:start pos #:end pos)
                #:newText new-text)]
     [else
