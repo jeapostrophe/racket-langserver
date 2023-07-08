@@ -9,9 +9,8 @@
          "interfaces.rkt"
          "responses.rkt"
          "path-util.rkt"
-         "docs-helpers.rkt")
-
-(struct Decl (filename id left right) #:transparent)
+         "docs-helpers.rkt"
+         "struct.rkt")
 
 (define build-trace%
   (class (annotations-mixin object%)
@@ -175,9 +174,4 @@
 
     (super-new)))
 
-(provide build-trace%
-         (contract-out
-          [struct Decl ([filename any/c]
-                        [id any/c]
-                        [left exact-nonnegative-integer?]
-                        [right exact-nonnegative-integer?])]))
+(provide build-trace%)

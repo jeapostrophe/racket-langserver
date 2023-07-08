@@ -8,6 +8,7 @@
          "scheduler.rkt"
          "editor.rkt"
          "path-util.rkt"
+         "doc-trace.rkt"
          racket/match
          racket/class
          racket/set
@@ -38,9 +39,9 @@
       (report-time (check-syntax (uri->path (Doc-uri doc)) (Doc-text doc) (Doc-trace doc))))
     (send-diagnostics doc diags)
     (set-Doc-trace! doc new-trace)
-
+    
     (set-Doc-checked?! doc #t))
-
+  
   (scheduler-push-task! (Doc-uri doc) task))
 
 (define (lazy-check-syntax doc)
@@ -50,17 +51,19 @@
 (define (doc-checked? doc)
   (Doc-checked? doc))
 
-(define (new-doc path text)
+(define (new-doc uri text)
   (define doc-text (new lsp-editor%))
   (send doc-text insert text 0)
-  (define doc (Doc doc-text #f path #f #f))
+  ;; the init trace should not be #f
+  (define doc-trace (new build-trace% [src (uri->path uri)] [doc-text doc-text] [indenter #f]))
+  (define doc (Doc doc-text doc-trace uri #f #f))
   (lazy-check-syntax doc)
   doc)
 
 (define (doc-reset! doc new-text)
   (define doc-text (Doc-text doc))
   (define doc-trace (Doc-trace doc))
-
+  
   (send doc-text erase)
   (send doc-trace reset)
   (send doc-text insert new-text 0)
@@ -69,14 +72,16 @@
 (define (doc-update! doc st-ln st-ch ed-ln ed-ch text)
   (define doc-text (Doc-text doc))
   (define doc-trace (Doc-trace doc))
-
+  
   (define st-pos (doc-pos doc st-ln st-ch))
   (define end-pos (doc-pos doc ed-ln ed-ch))
   (define old-len (- end-pos st-pos))
   (define new-len (string-length text))
+  
+  ;; try reuse old information as the check-syntax can fail
+  ;; and return the old build-trace% object
   (cond [(> new-len old-len) (send doc-trace expand end-pos (+ st-pos new-len))]
-        [(< new-len old-len) (send doc-trace contract (+ st-pos new-len) end-pos)]
-        [else #f])
+        [(< new-len old-len) (send doc-trace contract (+ st-pos new-len) end-pos)])
   (send doc-text replace text st-pos end-pos)
   (lazy-check-syntax doc))
 
@@ -157,7 +162,8 @@
     [(procedure? lexer) lexer]
     [(cons? lexer) lexer]
     [(eq? lexer 'no-lang-line) racket-lexer]
-    [(eq? lexer 'before-lang-line) racket-lexer]))
+    [(eq? lexer 'before-lang-line) racket-lexer]
+    [else racket-lexer]))
 
 (define (doc-get-symbols doc)
   (get-symbols (Doc-text doc)))
