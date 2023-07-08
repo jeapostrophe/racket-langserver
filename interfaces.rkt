@@ -4,8 +4,7 @@
          racket/class
          racket/contract/base
          racket/match
-         "json-util.rkt"
-         "editor.rkt")
+         "json-util.rkt")
 
 (provide WorkspaceEdit
          TextEdit

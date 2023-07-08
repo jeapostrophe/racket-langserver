@@ -2,7 +2,6 @@
 (require racket/class
          racket/dict
          racket/set
-         racket/contract/base
          drracket/check-syntax
          data/interval-map
          net/url
