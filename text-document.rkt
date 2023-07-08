@@ -1,10 +1,8 @@
 #lang racket/base
 (require data/interval-map
-         framework
          json
          racket/gui
-         syntax-color/module-lexer
-         syntax-color/racket-lexer
+         racket/match
          drracket/check-syntax
          syntax/modread
          "error-codes.rkt"
@@ -58,6 +56,17 @@
   ; but let's stay in simple case for now
   [label string?])
 
+(define (pos->abs-pos doc pos)
+  (match-define (Pos #:line line #:char char) pos)
+  (doc-pos doc line char))
+
+(define (abs-pos->pos doc pos)
+  (define-values (line char) (doc-line/ch doc pos))
+  (Pos #:line line #:char char))
+
+(define (start/end->range doc start end)
+  (Range #:start (abs-pos->pos doc start) #:end (abs-pos->pos doc end)))
+
 ;;
 ;; Methods
 ;;;;;;;;;;;;
@@ -105,55 +114,57 @@
   (match params
     [(hash-table ['textDocument (DocIdentifier #:uri uri)]
                  ['position (Pos #:line line #:char ch)])
-     (unless (uri-is-path? uri)
-       (error 'hover "uri is not a path"))
+     #:when (uri-is-path? uri)
 
      (define this-doc (hash-ref open-docs (string->symbol uri)))
-     (define doc-text (Doc-text this-doc))
-     (define doc-trace (Doc-trace this-doc))
 
-     (define hovers (send doc-trace get-hovers))
-     (define pos (line/char->pos doc-text line ch))
-     (define-values (start end text)
-       (interval-map-ref/bounds hovers pos #f))
-     (match-define (list link tag)
-       (interval-map-ref (send doc-trace get-docs) pos (list #f #f)))
-     (define result
-       (cond [text
-              ;; We want signatures from `scribble/blueboxes` as they have better indentation,
-              ;; but in some super rare cases blueboxes aren't accessible, thus we try to use the
-              ;; parsed signature instead
-              (match-define (list sigs args-descr)
-                (if tag
-                    (get-docs-for-tag tag)
-                    (list #f #f)))
-              (define maybe-signature
-                (if sigs
-                    (~a "```\n"
-                        (string-join sigs "\n")
-                        (if args-descr (~a "\n" args-descr) "")
-                        "\n```\n---\n")
-                    #f))
-              (define documentation-text
-                (if link
-                    (~a (or maybe-signature "")
-                        (or (extract-documentation-for-selected-element
-                             link #:include-signature? (not maybe-signature))
-                            ""))
-                    ""))
-              (define contents (if link
-                                   (~a text
-                                       " - [online docs]("
-                                       (make-proper-url-for-online-documentation link)
-                                       ")\n"
-                                       (if (non-empty-string? documentation-text)
-                                           (~a "\n---\n" documentation-text)
-                                           ""))
-                                   text))
-              (hasheq 'contents contents
-                      'range (start/end->Range doc-text start end))]
-             [else (hasheq 'contents empty)]))
-     (success-response id result)]
+     (cond [(not (doc-checked? this-doc))
+            (success-response id (json-null))]
+           [else
+            (define doc-trace (Doc-trace this-doc))
+
+            (define hovers (send doc-trace get-hovers))
+            (define pos (doc-pos this-doc line ch))
+            (define-values (start end text)
+              (interval-map-ref/bounds hovers pos #f))
+            (match-define (list link tag)
+              (interval-map-ref (send doc-trace get-docs) pos (list #f #f)))
+            (define result
+              (cond [text
+                     ;; We want signatures from `scribble/blueboxes` as they have better indentation,
+                     ;; but in some super rare cases blueboxes aren't accessible, thus we try to use the
+                     ;; parsed signature instead
+                     (match-define (list sigs args-descr)
+                       (if tag
+                           (get-docs-for-tag tag)
+                           (list #f #f)))
+                     (define maybe-signature
+                       (if sigs
+                           (~a "```\n"
+                               (string-join sigs "\n")
+                               (if args-descr (~a "\n" args-descr) "")
+                               "\n```\n---\n")
+                           #f))
+                     (define documentation-text
+                       (if link
+                           (~a (or maybe-signature "")
+                               (or (extract-documentation-for-selected-element
+                                    link #:include-signature? (not maybe-signature))
+                                   ""))
+                           ""))
+                     (define contents (if link
+                                          (~a text
+                                              " - [online docs]("
+                                              (make-proper-url-for-online-documentation link)
+                                              ")\n"
+                                              (if (non-empty-string? documentation-text)
+                                                  (~a "\n---\n" documentation-text)
+                                                  ""))
+                                          text))
+                     (hasheq 'contents contents
+                             'range (start/end->range this-doc start end))]
+                    [else (hasheq 'contents empty)]))
+            (success-response id result)])]
     [_
      (error-response id INVALID-PARAMS "textDocument/hover failed")]))
 
@@ -170,15 +181,17 @@
      #:when (uri-is-path? uri)
 
      (define this-doc (hash-ref open-docs (string->symbol uri)))
-     (define doc-text (Doc-text this-doc))
-     (define doc-trace (Doc-trace this-doc))
+     (cond [(not (doc-checked? this-doc))
+            (success-response id (list))]
+           [else
+            (define doc-trace (Doc-trace this-doc))
 
-     (define act (interval-map-ref (send doc-trace get-quickfixs)
-                                   (Pos->abs-pos doc-text start)
-                                   #f))
-     (if act
-         (success-response id (list act))
-         (success-response id (list)))]
+            (define act (interval-map-ref (send doc-trace get-quickfixs)
+                                          (pos->abs-pos this-doc start)
+                                          #f))
+            (if act
+                (success-response id (list act))
+                (success-response id (list)))])]
     [(hash-table ['textDocument (DocIdentifier #:uri uri)])
      (error-response id INVALID-PARAMS
                      (format "textDocument/codeAction failed uri is not a path ~a" uri))]
@@ -193,19 +206,17 @@
        (error 'signatureHelp "uri is not a path"))
 
      (define this-doc (hash-ref open-docs (string->symbol uri)))
-     (define doc-text (Doc-text this-doc))
      (define doc-trace (Doc-trace this-doc))
 
-     (define pos (line/char->pos doc-text line ch))
-     (define text (send doc-text get-text))
-     (define new-pos (find-containing-paren (- pos 1) text))
+     (define pos (doc-pos this-doc line ch))
+     (define new-pos (doc-find-containing-paren this-doc (- pos 1)))
      (define result
        (cond [new-pos
               (define maybe-tag (interval-map-ref (send doc-trace get-docs) (+ new-pos 1) #f))
               (define tag
                 (cond [maybe-tag (last maybe-tag)]
                       [else
-                       (define symbols (get-symbols doc-text))
+                       (define symbols (doc-get-symbols this-doc))
                        (define-values (start end symbol)
                          (interval-map-ref/bounds symbols (+ new-pos 2) #f))
                        (cond [symbol
@@ -224,47 +235,6 @@
      (success-response id result)]
     [_
      (error-response id INVALID-PARAMS "textDocument/signatureHelp failed")]))
-
-(define (get-symbols doc-text)
-  (define text (send doc-text get-text))
-  (define in (open-input-string text))
-  (port-count-lines! in)
-  (define lexer (get-lexer in))
-  (define symbols (make-interval-map))
-  (for ([lst (in-port (lexer-wrap lexer) in)]
-        #:when (set-member? '(constant string symbol) (first (rest lst))))
-    (match-define (list text type paren? start end) lst)
-    (interval-map-set! symbols start end (list text type)))
-  symbols)
-
-;; Wrapper for in-port, returns a list or EOF.
-(define ((lexer-wrap lexer) in)
-  (define (eof-or-list txt type paren? start end)
-    (if (eof-object? txt)
-        eof
-        (list txt type paren? start end)))
-  (cond
-    [(procedure? lexer)
-     (define-values (txt type paren? start end)
-       (lexer in))
-     (eof-or-list txt type paren? start end)]
-    [(cons? lexer)
-     (define-values (txt type paren? start end backup mode)
-       ((car lexer) in 0 (cdr lexer)))
-     (set! lexer (cons (car lexer) mode))
-     (eof-or-list txt type paren? start end)]))
-
-;; Call module-lexer on an input port, then discard all
-;; values except the lexer.
-(define (get-lexer in)
-  (match-define-values
-    (_ _ _ _ _ _ lexer)
-    (module-lexer in 0 #f))
-  (cond
-    [(procedure? lexer) lexer]
-    [(cons? lexer) lexer]
-    [(eq? lexer 'no-lang-line) racket-lexer]
-    [(eq? lexer 'before-lang-line) racket-lexer]))
 
 ;; Completion Request
 (define (completion id params)
@@ -316,20 +286,19 @@
      (define-values (start end decl) (get-decl uri line char))
 
      (define this-doc (hash-ref open-docs (string->symbol uri)))
-     (define doc-text (Doc-text this-doc))
 
      (define result
        (match decl
          [#f (json-null)]
          [(Decl #f id start end)
           (Location #:uri uri
-                    #:range (start/end->Range doc-text start end))]
+                    #:range (start/end->range this-doc start end))]
          [(Decl path id 0 0)
           (define doc-text (new text%))
           (send doc-text load-file path)
           (match-define (cons start end) (get-def path doc-text id))
           (Location #:uri (path->uri path)
-                    #:range (start/end->Range doc-text start end))]))
+                    #:range (start/end->range this-doc start end))]))
      (success-response id result)]
     [_
      (error-response id INVALID-PARAMS "textDocument/definition failed")]))
@@ -343,15 +312,14 @@
      (define-values (start end decl) (get-decl uri line char))
 
      (define this-doc (hash-ref open-docs (string->symbol uri)))
-     (define doc-text (Doc-text this-doc))
 
      (define result
        (match decl
          [(Decl req? id left right)
           (define ranges
             (if req?
-                (list (start/end->Range doc-text start end)
-                      (start/end->Range doc-text left right))
+                (list (start/end->range this-doc start end)
+                      (start/end->range this-doc left right))
                 (or (get-bindings uri decl))))
           (for/list ([range (in-list ranges)])
             (hasheq 'uri uri 'range range))]
@@ -365,24 +333,26 @@
   (match params
     [(hash-table ['textDocument (DocIdentifier #:uri uri)]
                  ['position (Pos #:line line #:char char)])
-     (define-values (start end decl) (get-decl uri line char))
 
      (define this-doc (hash-ref open-docs (string->symbol uri)))
-     (define doc-text (Doc-text this-doc))
 
-     (define result
-       (match decl
-         [(Decl filename id left right)
-          (define ranges
-            (if filename
-                (list (start/end->Range doc-text start end)
-                      (start/end->Range doc-text left right))
-                (or (append (get-bindings uri decl)
-                            (list (start/end->Range doc-text left right))))))
-          (for/list ([range (in-list ranges)])
-            (hasheq 'range range))]
-         [#f (json-null)]))
-     (success-response id result)]
+     (cond [(not (doc-checked? this-doc))
+            (success-response id (json-null))]
+           [else
+            (define-values (start end decl) (get-decl uri line char))
+            (define result
+              (match decl
+                [(Decl filename id left right)
+                 (define ranges
+                   (if filename
+                       (list (start/end->range this-doc start end)
+                             (start/end->range this-doc left right))
+                       (or (append (get-bindings uri decl)
+                                   (list (start/end->range this-doc left right))))))
+                 (for/list ([range (in-list ranges)])
+                   (hasheq 'range range))]
+                [#f (json-null)]))
+            (success-response id result)])]
     [_
      (error-response id INVALID-PARAMS "textDocument/documentHighlight failed")]))
 
@@ -395,14 +365,13 @@
      (define-values (start end decl) (get-decl uri line char))
 
      (define this-doc (hash-ref open-docs (string->symbol uri)))
-     (define doc-text (Doc-text this-doc))
 
      (define result
        (match decl
          [(Decl req? id left right)
           (cond [req? (json-null)]
                 [else
-                 (define ranges (cons (start/end->Range doc-text left right)
+                 (define ranges (cons (start/end->range this-doc left right)
                                       (get-bindings uri decl)))
                  (WorkspaceEdit
                   #:changes
@@ -422,10 +391,9 @@
      (define-values (start end decl) (get-decl uri line char))
 
      (define this-doc (hash-ref open-docs (string->symbol uri)))
-     (define doc-text (Doc-text this-doc))
 
      (if (and decl (not (Decl-filename decl)))
-         (success-response id (start/end->Range doc-text start end))
+         (success-response id (start/end->range this-doc start end))
          (success-response id (json-null)))]
     [_
      (error-response id INVALID-PARAMS "textDocument/documentHighlight failed")]))
@@ -439,7 +407,6 @@
     (error 'get-bindings "uri is not a path"))
 
   (define this-doc (hash-ref open-docs (string->symbol uri)))
-  (define doc-text (Doc-text this-doc))
   (define doc-trace (Doc-trace this-doc))
 
   (define doc-decls (send doc-trace get-sym-decls))
@@ -448,7 +415,7 @@
     (interval-map-ref/bounds doc-decls left #f))
   (if bindings
       (for/list ([range (in-set bindings)])
-        (start/end->Range doc-text (car range) (cdr range)))
+        (start/end->range this-doc (car range) (cdr range)))
       empty))
 
 (define (get-decl uri line char)
@@ -456,10 +423,9 @@
     (error 'get-decl "uri is not a path"))
 
   (define this-doc (hash-ref open-docs (string->symbol uri)))
-  (define doc-text (Doc-text this-doc))
   (define doc-trace (Doc-trace this-doc))
 
-  (define pos (line/char->pos doc-text line char))
+  (define pos (doc-pos this-doc line char))
   (define doc-decls (send doc-trace get-sym-decls))
   (define doc-bindings (send doc-trace get-sym-bindings))
   (define-values (start end maybe-decl)
@@ -482,24 +448,26 @@
        (error 'document-symbol "uri is not a path"))
 
      (define this-doc (hash-ref open-docs (string->symbol uri)))
-     (define doc-text (Doc-text this-doc))
 
      (define results
-       (dict-map (get-symbols doc-text)
-                 (λ (key value)
-                   (match-define (cons start end) key)
-                   (match-define (list text type) value)
-                   (define kind (match type
-                                  ['constant SymbolKind-Constant]
-                                  ['string SymbolKind-String]
-                                  ['symbol SymbolKind-Variable]))
-                   (define range
-                     (Range #:start (abs-pos->Pos doc-text start)
-                            #:end   (abs-pos->Pos doc-text end)))
-                   (SymbolInfo #:name text
-                               #:kind kind
-                               #:location (Location #:uri uri
-                                                    #:range range)))))
+       (cond [(not (doc-checked? this-doc))
+              (json-null)]
+             [else
+              (dict-map (doc-get-symbols this-doc)
+                        (λ (key value)
+                          (match-define (cons start end) key)
+                          (match-define (list text type) value)
+                          (define kind (match type
+                                         ['constant SymbolKind-Constant]
+                                         ['string SymbolKind-String]
+                                         ['symbol SymbolKind-Variable]))
+                          (define range
+                            (Range #:start (abs-pos->pos this-doc start)
+                                   #:end   (abs-pos->pos this-doc end)))
+                          (SymbolInfo #:name text
+                                      #:kind kind
+                                      #:location (Location #:uri uri
+                                                           #:range range))))]))
      (success-response id results)]
     [_
      (error-response id INVALID-PARAMS "textDocument/documentSymbol failed")]))
@@ -522,12 +490,13 @@
     [(hash-table ['textDocument (DocIdentifier #:uri uri)])
 
      (define this-doc (hash-ref open-docs (string->symbol uri)))
-     (define doc-text (Doc-text this-doc))
 
-     (define end-pos (send doc-text last-position))
-     (define start (abs-pos->Pos doc-text 0))
-     (define end (abs-pos->Pos doc-text end-pos))
-     (success-response id (format! uri start end))]
+     (define end-pos (doc-endpos this-doc))
+     (define start (abs-pos->pos this-doc 0))
+     (define end (abs-pos->pos this-doc end-pos))
+     (match-define (Pos #:line st-ln #:char st-ch) start)
+     (match-define (Pos #:line ed-ln #:char ed-ch) end)
+     (success-response id (format! this-doc st-ln st-ch ed-ln ed-ch))]
     [_
      (error-response id INVALID-PARAMS "textDocument/formatting failed")]))
 
@@ -536,8 +505,10 @@
   (match params
     ;; XXX We're ignoring 'options' for now
     [(hash-table ['textDocument (DocIdentifier #:uri uri)]
-                 ['range (Range  #:start start #:end end)])
-     (success-response id (format! uri start end))]
+                 ['range (Range  #:start (Pos #:line st-ln #:char st-ch)
+                                 #:end (Pos #:line ed-ln #:char ed-ch))])
+     (define this-doc (hash-ref open-docs (string->symbol uri)))
+     (success-response id (format! this-doc st-ln st-ch ed-ln ed-ch))]
     [_
      (error-response id INVALID-PARAMS "textDocument/rangeFormatting failed")]))
 
@@ -549,117 +520,22 @@
                  ['position (Pos #:line line #:char char)]
                  ['ch ch])
      (define this-doc (hash-ref open-docs (string->symbol uri)))
-     (define doc-text (Doc-text this-doc))
 
-     (define pos (- (line/char->pos doc-text line char) 1))
-     (define-values (start end)
+     (define pos (- (doc-pos this-doc line char) 1))
+     (define-values (st-ln st-ch ed-ln ed-ch)
        (match ch
          ["\n"
-          (values
-           (abs-pos->Pos doc-text (send doc-text paragraph-start-position line))
-           (abs-pos->Pos doc-text (send doc-text paragraph-end-position line)))]
+          (define-values (st-ln st-ch) (doc-line/ch this-doc (doc-line-start-pos this-doc line)))
+          (define-values (ed-ln ed-ch) (doc-line/ch this-doc (doc-line-end-pos this-doc line)))
+          (values st-ln st-ch ed-ln ed-ch)]
          [_
-          (values
-           (abs-pos->Pos doc-text (or (find-containing-paren pos (send doc-text get-text))
-                                      0))
-           (abs-pos->Pos doc-text pos))]))
-     (success-response id (format! uri start end #:on-type? #t))]
+          (define-values (st-ln st-ch)
+            (doc-line/ch this-doc (or (doc-find-containing-paren this-doc pos) 0)))
+          (define-values (ed-ln ed-ch) (doc-line/ch this-doc pos))
+          (values st-ln st-ch ed-ln ed-ch)]))
+     (success-response id (format! this-doc st-ln st-ch ed-ln ed-ch #:on-type? #t))]
     [_
      (error-response id INVALID-PARAMS "textDocument/onTypeFormatting failed")]))
-
-;; Shared path for all formatting requests
-(define (format! uri start end #:on-type? [on-type? #f])
-  (unless (uri-is-path? uri)
-    (error 'format! "uri is not a path"))
-
-  (define this-doc (hash-ref open-docs (string->symbol uri)))
-  (define doc-text (Doc-text this-doc))
-  (define doc-trace (Doc-trace this-doc))
-
-  (define indenter (send doc-trace get-indenter))
-  (define start-pos (Pos->abs-pos doc-text start))
-  ;; Adjust for line endings (#92)
-  (define end-pos (max start-pos (sub1 (Pos->abs-pos doc-text end))))
-  (define start-line (send doc-text position-paragraph start-pos))
-  (define end-line (send doc-text position-paragraph end-pos))
-  (define mut-doc-text
-    (if (is-a? doc-text racket:text%)
-        (let ([r-text (new racket:text%)])
-          (send r-text insert (send doc-text get-text))
-          r-text)
-        (send doc-text copy-self)))
-  (define skip-this-line? #f)
-  (if (eq? indenter 'missing) (json-null)
-      (let loop ([line start-line])
-        (define line-start (send mut-doc-text paragraph-start-position line))
-        (define line-end (send mut-doc-text paragraph-end-position line))
-        (for ([i (range line-start (add1 line-end))])
-          (when (and (char=? #\" (send mut-doc-text get-character i))
-                     (not (char=? #\\ (send mut-doc-text get-character (sub1 i)))))
-            (set! skip-this-line? (not skip-this-line?))))
-        (if (> line end-line)
-            null
-            (append (filter-map
-                     identity
-                     ;; NOTE: The order is important here.
-                     ;; `remove-trailing-space!` deletes content relative to the initial document
-                     ;; position. If we were to instead call `indent-line!` first and then
-                     ;; `remove-trailing-space!` second, the remove step could result in
-                     ;; losing user entered code.
-                     (list (remove-trailing-space! mut-doc-text skip-this-line? line)
-                           (indent-line! mut-doc-text indenter line #:on-type? on-type?)))
-                    (loop (add1 line)))))))
-
-;; Returns a TextEdit, or #f if the line is a part of multiple-line string
-(define (remove-trailing-space! doc-text in-string? line)
-  (define line-start (send doc-text paragraph-start-position line))
-  (define line-end (send doc-text paragraph-end-position line))
-  (define line-text (send doc-text get-text line-start line-end))
-  (cond
-    [(not in-string?)
-     (define from (string-length (string-trim line-text #px"\\s+" #:left? #f)))
-     (define to (string-length line-text))
-     (send doc-text delete (+ line-start from) (+ line-start to))
-     (TextEdit #:range (Range #:start (Pos #:line line #:char from)
-                              #:end   (Pos #:line line #:char to))
-               #:newText "")]
-    [else #f]))
-
-;; Returns a TextEdit, or #f if the line is already correct.
-(define (indent-line! doc-text indenter line #:on-type? [on-type? #f])
-  (define line-start (send doc-text paragraph-start-position line))
-  (define line-end (send doc-text paragraph-end-position line))
-  (define line-text (send doc-text get-text line-start line-end))
-  (define line-length (string-length line-text))
-  (define current-spaces
-    (let loop ([i 0])
-      (cond [(= i line-length) i]
-            [(char=? (string-ref line-text i) #\space) (loop (add1 i))]
-            [else i])))
-  (define desired-spaces
-    (if indenter
-        (or (indenter doc-text line-start)
-            (send doc-text compute-racket-amount-to-indent line-start))
-        (send doc-text compute-racket-amount-to-indent line-start)))
-  (cond
-    [(not (number? desired-spaces)) #f]
-    [(= current-spaces desired-spaces) #f]
-    [(and (not on-type?) (= line-length 0)) #f]
-    [(< current-spaces desired-spaces)
-     ;; Insert spaces
-     (define insert-count (- desired-spaces current-spaces))
-     (define new-text (make-string insert-count #\space))
-     (define pos (Pos #:line line #:char 0))
-     (send doc-text insert new-text line-start 'same)
-     (TextEdit #:range (Range #:start pos #:end pos)
-               #:newText new-text)]
-    [else
-     ;; Delete spaces
-     (define span (- current-spaces desired-spaces))
-     (send doc-text delete line-start (+ line-start span))
-     (TextEdit #:range (Range #:start (Pos #:line line #:char 0)
-                              #:end   (Pos #:line line #:char span))
-               #:newText "")]))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
