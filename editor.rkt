@@ -9,16 +9,32 @@
   (class object%
     (define core (new racket:text%))
 
+    ;; workaround for sequence-contract-violation problem
+    (define/private (reload!)
+      (define new-core (new racket:text%))
+      (send new-core insert (send core get-text) 0)
+      (set! core new-core))
+
     (define/private (set-core! new-core)
       (set! core new-core))
 
     ;; insert str at start
     (define/public (insert str start)
-      (send core insert str start))
+      (with-handlers ([exn?
+                       (λ _
+                         (reload!)
+                         ;; only retry once
+                         (send core insert str start))])
+        (send core insert str start)))
 
     ;; replace text at (range start end) with str
     (define/public (replace str start end)
-      (send core insert str start end))
+      (with-handlers ([exn?
+                       (λ _
+                         (reload!)
+                         ;; only retry once
+                         (send core insert str start end))])
+        (send core insert str start end)))
 
     (define/public (delete start end)
       (send core delete start end))
