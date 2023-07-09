@@ -124,7 +124,6 @@
      #:when (uri-is-path? uri)
 
      (define this-doc (hash-ref open-docs (string->symbol uri)))
-
      (define doc-trace (Doc-trace this-doc))
 
      (define hovers (send doc-trace get-hovers))
