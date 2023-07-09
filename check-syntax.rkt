@@ -26,7 +26,7 @@
                        #:severity Diag-Hint
                        #:source "Expander"
                        #:message "the expand time has exceeded the 90s limit.\
-                        Check if your macro is infinitely recursive."))]
+                        Check if your macro is infinitely expanding"))]
     [(exn:srclocs? exn)
      (define srclocs ((exn:srclocs-accessor exn) exn))
      (for/list ([sl (in-list srclocs)])

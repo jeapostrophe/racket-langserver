@@ -15,7 +15,7 @@
                         (match-define (cons path task) data)
                         (when (hash-has-key? open-doc path)
                           (define th (hash-ref open-doc path))
-                          (when (not (thread-dead? th))
+                          (unless (thread-dead? th)
                             (kill-thread th)))
                         (hash-set! open-doc path
                                    (thread task)))))
