@@ -9,8 +9,6 @@
          racket/string
          racket/set
          racket/dict
-         drracket/check-syntax
-         syntax/modread
          "error-codes.rkt"
          "interfaces.rkt"
          "json-util.rkt"
@@ -20,7 +18,6 @@
          "docs-helpers.rkt"
          "documentation-parser.rkt"
          "doc.rkt"
-         "editor.rkt"
          "struct.rkt")
 
 ;;
@@ -256,28 +253,6 @@
      (error-response id INVALID-PARAMS "textDocument/completion failed")]))
 
 ;; Definition request
-(define (get-def path doc-text id)
-  (define collector
-    (new (class (annotations-mixin object%)
-           (define defs (make-hash))
-           (define/public (get id) (hash-ref defs id #f))
-           (define/override (syncheck:add-definition-target source-obj start end id mods)
-             (hash-set! defs id (cons start end)))
-           (super-new))))
-  (define-values (src-dir _file _dir?)
-    (split-path path))
-  (define in (open-input-string (send doc-text get-text)))
-
-  (define ns (make-base-namespace))
-  (define-values (add-syntax done)
-    (make-traversal ns src-dir))
-  (parameterize ([current-annotations collector]
-                 [current-namespace ns]
-                 [current-load-relative-directory src-dir])
-    (define stx (expand (with-module-reading-parameterization
-                          (λ () (read-syntax path in)))))
-    (add-syntax stx))
-  (send collector get id))
 
 (define (definition id params)
   (match params
@@ -294,11 +269,8 @@
           (Location #:uri uri
                     #:range (start/end->range this-doc start end))]
          [(Decl path id 0 0)
-          (define doc-text (new lsp-editor%))
-          (send doc-text load-file path)
-          (match-define (cons start end) (get-def path doc-text id))
           (Location #:uri (path->uri path)
-                    #:range (start/end->range this-doc start end))]))
+                    #:range (Range->hash (get-definition-by-id path id)))]))
      (success-response id result)]
     [_
      (error-response id INVALID-PARAMS "textDocument/definition failed")]))

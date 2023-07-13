@@ -8,6 +8,7 @@
          "editor.rkt"
          "path-util.rkt"
          "doc-trace.rkt"
+         "struct.rkt"
          racket/match
          racket/class
          racket/set
@@ -16,7 +17,9 @@
          data/interval-map
          syntax-color/module-lexer
          syntax-color/racket-lexer
-         json)
+         json
+         drracket/check-syntax
+         syntax/modread)
 
 (struct Doc
   (text
@@ -166,6 +169,42 @@
 (define (doc-get-symbols doc)
   (get-symbols (Doc-text doc)))
 
+;; definition BEG ;;
+
+(define (get-def path doc-text id)
+  (define collector
+    (new (class (annotations-mixin object%)
+           (define defs (make-hash))
+           (define/public (get id) (hash-ref defs id #f))
+           (define/override (syncheck:add-definition-target source-obj start end id mods)
+             (hash-set! defs id (cons start end)))
+           (super-new))))
+  (define-values (src-dir _file _dir?)
+    (split-path path))
+  (define in (open-input-string (send doc-text get-text)))
+
+  (define ns (make-base-namespace))
+  (define-values (add-syntax done)
+    (make-traversal ns src-dir))
+  (parameterize ([current-annotations collector]
+                 [current-namespace ns]
+                 [current-load-relative-directory src-dir])
+    (define stx (expand (with-module-reading-parameterization
+                          (λ () (read-syntax path in)))))
+    (add-syntax stx))
+  (send collector get id))
+
+(define (get-definition-by-id path id)
+  (define doc-text (new lsp-editor%))
+  (send doc-text load-file path)
+  (match-define (cons start end) (get-def path doc-text id))
+  (match-define (list st-ln st-ch) (send doc-text pos->line/char start))
+  (match-define (list ed-ln ed-ch) (send doc-text pos->line/char end))
+  (make-Range #:start (make-Position #:line st-ln #:character st-ch)
+              #:end (make-Position #:line ed-ln #:character ed-ch)))
+
+;; definition END ;;
+
 ;; formatting ;;
 
 ;; Shared path for all formatting requests
@@ -271,4 +310,5 @@
          doc-line-end-pos
          doc-find-containing-paren
          doc-get-symbols
+         get-definition-by-id
          format!)
