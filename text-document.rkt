@@ -480,11 +480,14 @@
   (match params
     ;; We're ignoring 'options for now
     [(hash-table ['textDocument (DocIdentifier #:uri uri)]
+                 ;; `position` is assumed to be the cursor position that after the edit.
+                 ;; Therefore, `position - 1` is the position of `ch`.
+                 ;; Also see issue https://github.com/jeapostrophe/racket-langserver/issues/111
                  ['position (Pos #:line line #:char char)]
                  ['ch ch])
      (define this-doc (hash-ref open-docs (string->symbol uri)))
 
-     (define pos (- (doc-pos this-doc line char) 1))
+     (define ch-pos (- (doc-pos this-doc line char) 1))
      (define-values (st-ln st-ch ed-ln ed-ch)
        (match ch
          ["\n"
@@ -493,8 +496,8 @@
           (values st-ln st-ch ed-ln ed-ch)]
          [_
           (define-values (st-ln st-ch)
-            (doc-line/ch this-doc (or (doc-find-containing-paren this-doc pos) 0)))
-          (define-values (ed-ln ed-ch) (doc-line/ch this-doc pos))
+            (doc-line/ch this-doc (or (doc-find-containing-paren this-doc (max 0 (sub1 ch-pos))) 0)))
+          (define-values (ed-ln ed-ch) (doc-line/ch this-doc ch-pos))
           (values st-ln st-ch ed-ln ed-ch)]))
      (success-response id (format! this-doc st-ln st-ch ed-ln ed-ch #:on-type? #t))]
     [_
