@@ -9,6 +9,7 @@
          racket/string
          syntax/modread
          racket/sandbox
+         setup/path-to-relative
          "editor.rkt"
          "responses.rkt"
          "interfaces.rkt"
@@ -27,6 +28,43 @@
                        #:source "Expander"
                        #:message "the expand time has exceeded the 90s limit.\
                         Check if your macro is infinitely expanding"))]
+    [(and (exn:fail:read? exn)
+          ;; Looking for the pattern '... version mismatch ... .zo ... raco setup ...'
+          (regexp-match? #rx"version mismatch.*\\.zo.*raco setup" msg))
+     (define maybe-error-source-mtchs/f
+       (regexp-match #rx"in: (.*\\.zo)" msg))
+     (define maybe-lib-error-source/f
+       (and maybe-error-source-mtchs/f
+            (path->relative-string/library (list-ref maybe-error-source-mtchs/f 1))))
+     (define expanded-msg
+       (cond
+         [maybe-lib-error-source/f
+          (format (string-append
+                   "Failed to load file because it is compiled by a different version of Racket.\n"
+                   "  file: ~a\n"
+                   "  suggestion: ~a\n"
+                   "  complete message:\n\n  ~a")
+                  maybe-lib-error-source/f
+                  (cond
+                    [(regexp-match? #rx"<[a-z-]+>/" maybe-lib-error-source/f)
+                     "run `raco setup` to recompile the libraries."]
+                    [(regexp-match #rx"^(.*)compiled/([^/]+)_([^_]+)\\.zo$" maybe-lib-error-source/f)
+                     => (match-lambda
+                          [(list whole-str base-path filename file-extension)
+                           (format "run `raco make '~a~a.~a'` to recompile it."
+                                   base-path
+                                   filename
+                                   file-extension)])]
+                    [else
+                     (format "try running `raco setup` or `raco make <file>`.")])
+                  msg)]
+         [else msg]))
+     ;; stub range -- see the comments in exn:missing-module?
+     (list (Diagnostic #:range (Range #:start (Pos #:line 0 #:char 0)
+                                      #:end (Pos #:line 0 #:char 0))
+                       #:severity Diag-Error
+                       #:source "Racket"
+                       #:message expanded-msg))]
     [(exn:srclocs? exn)
      (define srclocs ((exn:srclocs-accessor exn) exn))
      (for/list ([sl (in-list srclocs)])
