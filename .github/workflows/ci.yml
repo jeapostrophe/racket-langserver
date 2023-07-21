@@ -1,0 +1,36 @@
+on: [push, pull_request]
+name: CI
+jobs:
+  build:
+    name: "Build on Racket '${{ matrix.racket-version }}' (${{ matrix.racket-variant }})"
+    runs-on: ubuntu-latest
+    continue-on-error: ${{ matrix.experimental || false }}
+    strategy:
+      fail-fast: false
+      matrix:
+        racket-version: ["7.6", "8.5", "stable", "current"]
+        racket-variant: ["CS"]
+        exclude:
+          - racket-version: "7.6"
+            racket-variant: "CS"
+        include:
+          - racket-version: "7.6"
+            racket-variant: "BC"
+          - racket-version: "8.5"
+            racket-variant: "BC"
+          - racket-version: current
+            experimental: true
+    steps:
+      - uses: actions/checkout@v3.1.0
+      - uses: Bogdanp/setup-racket@v1.10
+        with:
+          architecture: x64
+          distribution: full
+          variant: ${{ matrix.racket-variant }}
+          version: ${{ matrix.racket-version }}
+      - name: Installing racket-langserver and its dependencies
+        run: raco pkg install --no-docs --auto --name racket-langserver
+      - name: Checking the package dependency of racket-langserver
+        run: raco setup -j 1 --no-docs --check-pkg-deps --unused-pkg-deps --pkgs racket-langserver
+      - name: Testing racket-langserver
+        run: xvfb-run -a raco test -j 1 -c racket-langserver/tests
