@@ -1,7 +1,6 @@
 #lang racket/base
 (require (for-syntax racket/base
-                     syntax/parse
-                     syntax/parse/experimental/template)
+                     syntax/parse)
          racket/match
          syntax/parse)
 
@@ -12,13 +11,13 @@
                    [(keyword ...)
                     (for/list ([k (syntax->datum #'(key ...))])
                       (string->keyword (symbol->string k)))]
-                   [??-id (quote-syntax ??)])
+                   [~?-id (quote-syntax ~?)])
        (syntax/loc stx
          (define-match-expander name
            (λ (stx)
              (syntax-parse stx
                [(_ (~optional (~seq keyword key_)) ...)
-                (quasitemplate/loc stx (hash-table (??-id ['key (? ctc key_)]) ...))]))
+                (quasisyntax/loc stx (hash-table (~?-id ['key (? ctc key_)]) ...))]))
            (λ (stx)
              (syntax-parse stx
                [(_ (~optional (~seq keyword key_)) ...)
