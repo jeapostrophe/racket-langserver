@@ -14,6 +14,7 @@
          racket/set
          racket/list
          racket/string
+         racket/bool
          data/interval-map
          syntax-color/module-lexer
          syntax-color/racket-lexer
@@ -220,13 +221,19 @@
   (define end-pos (max start-pos (sub1 (doc-pos this-doc ed-ln ed-ch))))
   (define start-line (send doc-text at-line start-pos))
   (define end-line (send doc-text at-line end-pos))
-  (define mut-doc-text
-    (if (is-a? doc-text lsp-editor%)
-        (let ([r-text (new lsp-editor%)])
-          (send r-text insert (send doc-text get-text) 0)
-          r-text)
-        (send doc-text copy)))
+
+  ;; copy a lsp-editor% with a new specified tabsize
+  ;; We can only specify the tab size for a new empty lsp-editor%.
+  ;; For an old lsp-editor% that already contains some text,
+  ;; it would not work.
+  (define mut-doc-text (send doc-text copy))
+  (replace-tab! mut-doc-text
+                (max 0 (sub1 start-line))
+                (FormattingOptions-tabSize fo))
+
+  (define indenter-wp (indenter-wrapper indenter mut-doc-text on-type?))
   (define skip-this-line? #f)
+
   (if (eq? indenter 'missing) (json-null)
       (let loop ([line start-line])
         (define line-start (send mut-doc-text line-start-pos line))
@@ -244,60 +251,68 @@
                      ;; position. If we were to instead call `indent-line!` first and then
                      ;; `remove-trailing-space!` second, the remove step could result in
                      ;; losing user entered code.
-                     (list (remove-trailing-space! mut-doc-text skip-this-line? line)
-                           (indent-line! mut-doc-text indenter line #:on-type? on-type?)))
+                     (list (if (false? (FormattingOptions-trimTrailingWhitespace fo))
+                               #f
+                               (remove-trailing-space! mut-doc-text skip-this-line? line))
+                           (indent-line! mut-doc-text indenter-wp line)))
                     (loop (add1 line)))))))
+
+(define (replace-tab! doc-text line tabsize)
+  (define old-line (send doc-text get-line line))
+  (define spaces (make-string tabsize #\space))
+  (define new-line-str (string-replace old-line "\t" spaces))
+  (send doc-text replace-in-line
+        new-line-str
+        line 0 (string-length old-line)))
+
+(define (indenter-wrapper indenter doc-text on-type?)
+  (λ (line)
+    (cond [(and (not on-type?) (= 0 (send doc-text line-end-pos line)))
+           #f]
+          [else
+           (define line-start (send doc-text line-start-pos line))
+           (if indenter
+               (or (indenter doc-text line-start)
+                   (send doc-text compute-racket-amount-to-indent line-start))
+               (send doc-text compute-racket-amount-to-indent line-start))])))
 
 ;; Returns a TextEdit, or #f if the line is a part of multiple-line string
 (define (remove-trailing-space! doc-text in-string? line)
-  (define line-start (send doc-text line-start-pos line))
-  (define line-end (send doc-text line-end-pos line))
-  (define line-text (send doc-text get-text line-start line-end))
+  (define line-text (send doc-text get-line line))
   (cond
     [(not in-string?)
      (define from (string-length (string-trim line-text #px"\\s+" #:left? #f)))
      (define to (string-length line-text))
-     (send doc-text delete (+ line-start from) (+ line-start to))
+     (send doc-text replace-in-line "" line from to)
      (TextEdit #:range (Range #:start (Pos #:line line #:char from)
                               #:end   (Pos #:line line #:char to))
                #:newText "")]
     [else #f]))
 
+(define (extract-indent-string content)
+  (define len
+    (or (for/first ([(c i) (in-indexed content)]
+                    #:when (not (char-whitespace? c)))
+          i)
+        (string-length content)))
+  (substring content 0 len))
+
 ;; Returns a TextEdit, or #f if the line is already correct.
-(define (indent-line! doc-text indenter line #:on-type? [on-type? #f])
-  (define line-start (send doc-text line-start-pos line))
-  (define line-end (send doc-text line-end-pos line))
-  (define line-text (send doc-text get-text line-start line-end))
-  (define line-length (string-length line-text))
-  (define current-spaces
-    (let loop ([i 0])
-      (cond [(= i line-length) i]
-            [(char=? (string-ref line-text i) #\space) (loop (add1 i))]
-            [else i])))
-  (define desired-spaces
-    (if indenter
-        (or (indenter doc-text line-start)
-            (send doc-text compute-racket-amount-to-indent line-start))
-        (send doc-text compute-racket-amount-to-indent line-start)))
-  (cond
-    [(not (number? desired-spaces)) #f]
-    [(= current-spaces desired-spaces) #f]
-    [(and (not on-type?) (= line-length 0)) #f]
-    [(< current-spaces desired-spaces)
-     ;; Insert spaces
-     (define insert-count (- desired-spaces current-spaces))
-     (define new-text (make-string insert-count #\space))
-     (define pos (Pos #:line line #:char 0))
-     (send doc-text insert new-text line-start)
-     (TextEdit #:range (Range #:start pos #:end pos)
-               #:newText new-text)]
-    [else
-     ;; Delete spaces
-     (define span (- current-spaces desired-spaces))
-     (send doc-text delete line-start (+ line-start span))
-     (TextEdit #:range (Range #:start (Pos #:line line #:char 0)
-                              #:end   (Pos #:line line #:char span))
-               #:newText "")]))
+(define (indent-line! doc-text indenter line)
+  (define content (send doc-text get-line line))
+  (define old-indent-string (extract-indent-string content))
+  (define expect-indent (indenter line))
+  (define really-indent (string-length old-indent-string))
+  (define has-tab? (string-contains? old-indent-string "\t"))
+
+  (cond [(false? expect-indent) #f]
+        [(and (= expect-indent really-indent) (not has-tab?)) #f]
+        [else
+         (define new-text (make-string expect-indent #\space))
+         (send doc-text replace-in-line new-text line 0 really-indent)
+         (TextEdit #:range (Range #:start (Pos #:line line #:char 0)
+                                  #:end (Pos #:line line #:char really-indent))
+                   #:newText new-text)]))
 
 (provide Doc-trace
          new-doc
