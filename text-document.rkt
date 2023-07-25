@@ -453,13 +453,14 @@
 (define (formatting! id params)
   (match params
     ;; We're ignoring 'options for now
-    [(hash-table ['textDocument (DocIdentifier #:uri uri)])
+    [(hash-table ['textDocument (DocIdentifier #:uri uri)]
+                 ['options (as-FormattingOptions fo)])
 
      (define this-doc (hash-ref open-docs (string->symbol uri)))
 
      (define-values (st-ln st-ch) (doc-line/ch this-doc 0))
      (define-values (ed-ln ed-ch) (doc-line/ch this-doc (doc-endpos this-doc)))
-     (success-response id (format! this-doc st-ln st-ch ed-ln ed-ch))]
+     (success-response id (format! this-doc st-ln st-ch ed-ln ed-ch #:formatting-options fo))]
     [_
      (error-response id INVALID-PARAMS "textDocument/formatting failed")]))
 
@@ -469,9 +470,10 @@
     ;; XXX We're ignoring 'options' for now
     [(hash-table ['textDocument (DocIdentifier #:uri uri)]
                  ['range (Range  #:start (Pos #:line st-ln #:char st-ch)
-                                 #:end (Pos #:line ed-ln #:char ed-ch))])
+                                 #:end (Pos #:line ed-ln #:char ed-ch))]
+                 ['options (as-FormattingOptions fo)])
      (define this-doc (hash-ref open-docs (string->symbol uri)))
-     (success-response id (format! this-doc st-ln st-ch ed-ln ed-ch))]
+     (success-response id (format! this-doc st-ln st-ch ed-ln ed-ch #:formatting-options fo))]
     [_
      (error-response id INVALID-PARAMS "textDocument/rangeFormatting failed")]))
 
@@ -484,7 +486,8 @@
                  ;; Therefore, `position - 1` is the position of `ch`.
                  ;; Also see issue https://github.com/jeapostrophe/racket-langserver/issues/111
                  ['position (Pos #:line line #:char char)]
-                 ['ch ch])
+                 ['ch ch]
+                 ['options (as-FormattingOptions fo)])
      (define this-doc (hash-ref open-docs (string->symbol uri)))
 
      (define ch-pos (- (doc-pos this-doc line char) 1))
@@ -499,7 +502,9 @@
             (doc-line/ch this-doc (or (doc-find-containing-paren this-doc (max 0 (sub1 ch-pos))) 0)))
           (define-values (ed-ln ed-ch) (doc-line/ch this-doc ch-pos))
           (values st-ln st-ch ed-ln ed-ch)]))
-     (success-response id (format! this-doc st-ln st-ch ed-ln ed-ch #:on-type? #t))]
+     (success-response id (format! this-doc st-ln st-ch ed-ln ed-ch
+                                   #:on-type? #t
+                                   #:formatting-options fo))]
     [_
      (error-response id INVALID-PARAMS "textDocument/onTypeFormatting failed")]))
 

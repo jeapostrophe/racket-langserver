@@ -44,7 +44,9 @@ END
                                         'position
                                         (hasheq 'line 3
                                                 'character 0)
-                                        'ch "\n"))]
+                                        'ch "\n"
+                                        'options (hasheq 'tabSize 4
+                                                         'insertSpaces #t)))]
              [res (make-expected-response req
                                  (list
                                   (hasheq 'range

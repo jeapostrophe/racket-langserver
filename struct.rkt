@@ -2,7 +2,10 @@
 
 ;; internal structs ;;
 
-(require racket/contract)
+(require racket/contract
+         racket/match
+         (for-syntax racket/base
+                     syntax/parse))
 
 (provide
  (contract-out
@@ -12,6 +15,31 @@
                 [right exact-nonnegative-integer?])]))
 
 (struct Decl (filename id left right) #:transparent)
+
+;; optional arguments
+
+(define undef-object (gensym 'undef))
+
+(define (undef? x)
+  (eq? x undef-object))
+
+(define (undef/c pred?)
+  (λ (x)
+    (or/c (undef? x) (pred? x))))
+
+(provide undef?
+         undef/c
+         undef-object)
+
+;; request error
+
+(define request-err-object (gensym 'request-error))
+
+(define (request-err? x)
+  (eq? x request-err-object))
+
+(provide request-err-object
+         request-err?)
 
 ;; uinteger ;;
 
@@ -62,3 +90,52 @@
 (provide *Range
          make-Range
          Range->hash)
+
+(struct FormattingOptions
+  (tabSize
+   insertSpaces
+   trimTrailingWhitespace
+   insertFinalNewline
+   trimFinalNewlines
+   key))
+
+(define/contract (make-FormattingOptions #:tabSize tabSize
+                                         #:insertSpaces insertSpaces
+                                         #:trimTrailingWhitespace [trimTrailingWhitespace undef-object]
+                                         #:insertFinalNewline [insertFinalNewline undef-object]
+                                         #:trimFinalNewlines [trimFinalNewlines undef-object]
+                                         #:key [key undef-object])
+  (-> #:tabSize uinteger?
+      #:insertSpaces boolean?
+      #:trimTrailingWhitespace (undef/c boolean?)
+      #:insertFinalNewline (undef/c boolean?)
+      #:trimFinalNewlines (undef/c boolean?)
+      #:key (undef/c hash?)
+      FormattingOptions?)
+
+  (FormattingOptions tabSize
+                     insertSpaces
+                     trimTrailingWhitespace
+                     insertFinalNewline
+                     trimFinalNewlines
+                     key))
+
+(define (jsexpr->FormattingOptions js)
+  (with-handlers ([exn:fail? (λ (_) request-err-object)])
+    (make-FormattingOptions #:tabSize (hash-ref js 'tabSize)
+                            #:insertSpaces (hash-ref js 'insertSpaces)
+                            #:trimTrailingWhitespace (hash-ref js 'trimTrailingWhitespace undef-object)
+                            #:insertFinalNewline (hash-ref js 'insertFinalNewline undef-object)
+                            #:trimFinalNewlines (hash-ref js 'trimFinalNewlines undef-object)
+                            #:key (hash-ref js 'key undef-object))))
+
+(define-match-expander as-FormattingOptions
+  (lambda (stx)
+    (syntax-parse stx
+      [(_ name)
+       #'(and (? hash?)
+              (app jsexpr->FormattingOptions (and name (not (? request-err?)))))])))
+
+(provide FormattingOptions
+         FormattingOptions-tabSize
+         as-FormattingOptions)
