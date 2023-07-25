@@ -15,9 +15,6 @@
       (send new-core insert (send core get-text) 0)
       (set! core new-core))
 
-    (define/private (set-core! new-core)
-      (set! core new-core))
-
     ;; insert str at start
     (define/public (insert str start)
       (with-handlers ([exn?
@@ -76,7 +73,7 @@
 
     (define/public (copy)
       (define new-editor (new lsp-editor%))
-      (send new-editor set-core! (send core copy-self))
+      (send new-editor insert (send this get-text) 0)
       new-editor)
 
     (define/public (get-char pos)
@@ -84,6 +81,9 @@
 
     (define/public (get-line line)
       (send core get-text (send this line-start-pos line) (send this line-end-pos line)))
+    
+    (define/public (set-tab-size tabsize)
+      (send core set-tab-size tabsize))
 
     (define/public (compute-racket-amount-to-indent pos)
       (send core compute-racket-amount-to-indent pos))

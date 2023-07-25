@@ -208,7 +208,9 @@
 ;; formatting ;;
 
 ;; Shared path for all formatting requests
-(define (format! this-doc st-ln st-ch ed-ln ed-ch #:on-type? [on-type? #f])
+(define (format! this-doc st-ln st-ch ed-ln ed-ch
+                 #:on-type? [on-type? #f]
+                 #:formatting-options fo)
   (define doc-text (Doc-text this-doc))
   (define doc-trace (Doc-trace this-doc))
 
