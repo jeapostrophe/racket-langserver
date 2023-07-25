@@ -138,4 +138,5 @@
 
 (provide FormattingOptions
          FormattingOptions-tabSize
+         FormattingOptions-trimTrailingWhitespace
          as-FormattingOptions)

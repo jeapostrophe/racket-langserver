@@ -33,6 +33,11 @@
                          (send core insert str start end))])
         (send core insert str start end)))
 
+    (define/public (replace-in-line str line ch-st ch-ed)
+      (send this replace str
+            (send this line/char->pos line ch-st)
+            (send this line/char->pos line ch-ed)))
+
     (define/public (delete start end)
       (send core delete start end))
 
@@ -81,9 +86,6 @@
 
     (define/public (get-line line)
       (send core get-text (send this line-start-pos line) (send this line-end-pos line)))
-    
-    (define/public (set-tab-size tabsize)
-      (send core set-tab-size tabsize))
 
     (define/public (compute-racket-amount-to-indent pos)
       (send core compute-racket-amount-to-indent pos))
