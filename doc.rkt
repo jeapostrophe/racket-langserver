@@ -227,6 +227,9 @@
   ;; For an old lsp-editor% that already contains some text,
   ;; it would not work.
   (define mut-doc-text (send doc-text copy))
+  ;; replace \t with spaces at line `(sub1 start-line)`
+  ;; as we cannot make `compute-racket-amount-to-indent`
+  ;; to respect the given tab size
   (replace-tab! mut-doc-text
                 (max 0 (sub1 start-line))
                 (FormattingOptions-tabSize fo))
