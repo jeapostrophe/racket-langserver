@@ -222,10 +222,6 @@
   (define start-line (send doc-text at-line start-pos))
   (define end-line (send doc-text at-line end-pos))
 
-  ;; copy a lsp-editor% with a new specified tabsize
-  ;; We can only specify the tab size for a new empty lsp-editor%.
-  ;; For an old lsp-editor% that already contains some text,
-  ;; it would not work.
   (define mut-doc-text (send doc-text copy))
   ;; replace \t with spaces at line `(sub1 start-line)`
   ;; as we cannot make `compute-racket-amount-to-indent`
