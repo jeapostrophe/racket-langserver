@@ -266,7 +266,9 @@
 
 (define (indenter-wrapper indenter doc-text on-type?)
   (λ (line)
-    (cond [(and (not on-type?) (= 0 (send doc-text line-end-pos line)))
+    (cond [(and (not on-type?)
+                (= 0 (- (send doc-text line-start-pos line)
+                        (send doc-text line-end-pos line))))
            #f]
           [else
            (define line-start (send doc-text line-start-pos line))
