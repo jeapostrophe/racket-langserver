@@ -77,6 +77,13 @@
       (send core position-paragraph pos))
 
     (define/public (copy)
+      ;; We only need to copy text to the new editor.
+      ;; All of the public methods of lsp-editor% except
+      ;; the indent method are simply insert/delete/change/query
+      ;; text strings.
+      ;; It does not require additional states.
+      ;; The private states that core contains are always the default.
+      ;; So we just ignore them.
       (define new-editor (new lsp-editor%))
       (send new-editor insert (send this get-text) 0)
       new-editor)

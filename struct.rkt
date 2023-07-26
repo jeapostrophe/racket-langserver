@@ -120,15 +120,23 @@
                      trimFinalNewlines
                      key))
 
-(define (jsexpr->FormattingOptions js)
+(define (jsexpr->FormattingOptions jsexpr)
   (with-handlers ([exn:fail? (λ (_) request-err-object)])
-    (make-FormattingOptions #:tabSize (hash-ref js 'tabSize)
-                            #:insertSpaces (hash-ref js 'insertSpaces)
-                            #:trimTrailingWhitespace (hash-ref js 'trimTrailingWhitespace undef-object)
-                            #:insertFinalNewline (hash-ref js 'insertFinalNewline undef-object)
-                            #:trimFinalNewlines (hash-ref js 'trimFinalNewlines undef-object)
-                            #:key (hash-ref js 'key undef-object))))
+    (make-FormattingOptions #:tabSize (hash-ref jsexpr 'tabSize)
+                            #:insertSpaces (hash-ref jsexpr 'insertSpaces)
+                            #:trimTrailingWhitespace (hash-ref jsexpr 'trimTrailingWhitespace undef-object)
+                            #:insertFinalNewline (hash-ref jsexpr 'insertFinalNewline undef-object)
+                            #:trimFinalNewlines (hash-ref jsexpr 'trimFinalNewlines undef-object)
+                            #:key (hash-ref jsexpr 'key undef-object))))
 
+;; usage:
+;; (jsexpr? jsexpr) ;; #t
+;; (match jsexpr
+;;   [(as-FormattingOptions opts)
+;;    (FormattingOptions? opts) ;; #t
+;;    ])
+;; It's a convenient macro to verify jsexpr and convert it
+;; to struct.
 (define-match-expander as-FormattingOptions
   (lambda (stx)
     (syntax-parse stx

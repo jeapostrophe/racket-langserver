@@ -211,7 +211,7 @@
 ;; Shared path for all formatting requests
 (define (format! this-doc st-ln st-ch ed-ln ed-ch
                  #:on-type? [on-type? #f]
-                 #:formatting-options fo)
+                 #:formatting-options opts)
   (define doc-text (Doc-text this-doc))
   (define doc-trace (Doc-trace this-doc))
 
@@ -228,7 +228,7 @@
   ;; to respect the given tab size
   (replace-tab! mut-doc-text
                 (max 0 (sub1 start-line))
-                (FormattingOptions-tabSize fo))
+                (FormattingOptions-tabSize opts))
 
   (define indenter-wp (indenter-wrapper indenter mut-doc-text on-type?))
   (define skip-this-line? #f)
@@ -250,7 +250,7 @@
                      ;; position. If we were to instead call `indent-line!` first and then
                      ;; `remove-trailing-space!` second, the remove step could result in
                      ;; losing user entered code.
-                     (list (if (false? (FormattingOptions-trimTrailingWhitespace fo))
+                     (list (if (false? (FormattingOptions-trimTrailingWhitespace opts))
                                #f
                                (remove-trailing-space! mut-doc-text skip-this-line? line))
                            (indent-line! mut-doc-text indenter-wp line)))
