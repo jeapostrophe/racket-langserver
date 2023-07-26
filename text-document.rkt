@@ -452,42 +452,39 @@
 ;; Full document formatting request
 (define (formatting! id params)
   (match params
-    ;; We're ignoring 'options for now
     [(hash-table ['textDocument (DocIdentifier #:uri uri)]
-                 ['options (as-FormattingOptions fo)])
+                 ['options (as-FormattingOptions opts)])
 
      (define this-doc (hash-ref open-docs (string->symbol uri)))
 
      (define-values (st-ln st-ch) (doc-line/ch this-doc 0))
      (define-values (ed-ln ed-ch) (doc-line/ch this-doc (doc-endpos this-doc)))
-     (success-response id (format! this-doc st-ln st-ch ed-ln ed-ch #:formatting-options fo))]
+     (success-response id (format! this-doc st-ln st-ch ed-ln ed-ch #:formatting-options opts))]
     [_
      (error-response id INVALID-PARAMS "textDocument/formatting failed")]))
 
 ;; Range Formatting request
 (define (range-formatting! id params)
   (match params
-    ;; XXX We're ignoring 'options' for now
     [(hash-table ['textDocument (DocIdentifier #:uri uri)]
                  ['range (Range  #:start (Pos #:line st-ln #:char st-ch)
                                  #:end (Pos #:line ed-ln #:char ed-ch))]
-                 ['options (as-FormattingOptions fo)])
+                 ['options (as-FormattingOptions opts)])
      (define this-doc (hash-ref open-docs (string->symbol uri)))
-     (success-response id (format! this-doc st-ln st-ch ed-ln ed-ch #:formatting-options fo))]
+     (success-response id (format! this-doc st-ln st-ch ed-ln ed-ch #:formatting-options opts))]
     [_
      (error-response id INVALID-PARAMS "textDocument/rangeFormatting failed")]))
 
 ;; On-type formatting request
 (define (on-type-formatting! id params)
   (match params
-    ;; We're ignoring 'options for now
     [(hash-table ['textDocument (DocIdentifier #:uri uri)]
                  ;; `position` is assumed to be the cursor position that after the edit.
                  ;; Therefore, `position - 1` is the position of `ch`.
                  ;; Also see issue https://github.com/jeapostrophe/racket-langserver/issues/111
                  ['position (Pos #:line line #:char char)]
                  ['ch ch]
-                 ['options (as-FormattingOptions fo)])
+                 ['options (as-FormattingOptions opts)])
      (define this-doc (hash-ref open-docs (string->symbol uri)))
 
      (define ch-pos (- (doc-pos this-doc line char) 1))
@@ -504,7 +501,7 @@
           (values st-ln st-ch ed-ln ed-ch)]))
      (success-response id (format! this-doc st-ln st-ch ed-ln ed-ch
                                    #:on-type? #t
-                                   #:formatting-options fo))]
+                                   #:formatting-options opts))]
     [_
      (error-response id INVALID-PARAMS "textDocument/onTypeFormatting failed")]))
 
