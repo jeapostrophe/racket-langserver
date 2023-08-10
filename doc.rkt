@@ -228,7 +228,7 @@
   ;; to respect the given tab size
   (replace-tab! mut-doc-text
                 (max 0 (sub1 start-line))
-                (FormattingOptions-tabSize opts))
+                (FormattingOptions-tab-size opts))
 
   (define indenter-wp (indenter-wrapper indenter mut-doc-text on-type?))
   (define skip-this-line? #f)
@@ -250,7 +250,7 @@
                      ;; position. If we were to instead call `indent-line!` first and then
                      ;; `remove-trailing-space!` second, the remove step could result in
                      ;; losing user entered code.
-                     (list (if (false? (FormattingOptions-trimTrailingWhitespace opts))
+                     (list (if (false? (FormattingOptions-trim-trailing-whitespace opts))
                                #f
                                (remove-trailing-space! mut-doc-text skip-this-line? line))
                            (indent-line! mut-doc-text indenter-wp line)))
