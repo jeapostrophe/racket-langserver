@@ -92,41 +92,41 @@
          Range->hash)
 
 (struct FormattingOptions
-  (tabSize
-   insertSpaces
-   trimTrailingWhitespace
-   insertFinalNewline
-   trimFinalNewlines
+  (tab-size
+   insert-spaces
+   trim-trailing-whitespace
+   insert-final-newline
+   trim-final-newlines
    key))
 
-(define/contract (make-FormattingOptions #:tabSize tabSize
-                                         #:insertSpaces insertSpaces
-                                         #:trimTrailingWhitespace [trimTrailingWhitespace undef-object]
-                                         #:insertFinalNewline [insertFinalNewline undef-object]
-                                         #:trimFinalNewlines [trimFinalNewlines undef-object]
+(define/contract (make-FormattingOptions #:tab-size tab-size
+                                         #:insert-spaces insert-spaces
+                                         #:trim-trailing-whitespace [trim-trailing-whitespace undef-object]
+                                         #:insert-final-newline [insert-final-newline undef-object]
+                                         #:trim-final-newlines [trim-final-newlines undef-object]
                                          #:key [key undef-object])
-  (-> #:tabSize uinteger?
-      #:insertSpaces boolean?
-      #:trimTrailingWhitespace (undef/c boolean?)
-      #:insertFinalNewline (undef/c boolean?)
-      #:trimFinalNewlines (undef/c boolean?)
+  (-> #:tab-size uinteger?
+      #:insert-spaces boolean?
+      #:trim-trailing-whitespace (undef/c boolean?)
+      #:insert-final-newline (undef/c boolean?)
+      #:trim-final-newlines (undef/c boolean?)
       #:key (undef/c hash?)
       FormattingOptions?)
 
-  (FormattingOptions tabSize
-                     insertSpaces
-                     trimTrailingWhitespace
-                     insertFinalNewline
-                     trimFinalNewlines
+  (FormattingOptions tab-size
+                     insert-spaces
+                     trim-trailing-whitespace
+                     insert-final-newline
+                     trim-final-newlines
                      key))
 
 (define (jsexpr->FormattingOptions jsexpr)
   (with-handlers ([exn:fail? (λ (_) request-err-object)])
-    (make-FormattingOptions #:tabSize (hash-ref jsexpr 'tabSize)
-                            #:insertSpaces (hash-ref jsexpr 'insertSpaces)
-                            #:trimTrailingWhitespace (hash-ref jsexpr 'trimTrailingWhitespace undef-object)
-                            #:insertFinalNewline (hash-ref jsexpr 'insertFinalNewline undef-object)
-                            #:trimFinalNewlines (hash-ref jsexpr 'trimFinalNewlines undef-object)
+    (make-FormattingOptions #:tab-size (hash-ref jsexpr 'tabSize)
+                            #:insert-spaces (hash-ref jsexpr 'insertSpaces)
+                            #:trim-trailing-whitespace (hash-ref jsexpr 'trimTrailingWhitespace undef-object)
+                            #:insert-final-newline (hash-ref jsexpr 'insertFinalNewline undef-object)
+                            #:trim-final-newlines (hash-ref jsexpr 'trimFinalNewlines undef-object)
                             #:key (hash-ref jsexpr 'key undef-object))))
 
 ;; usage:
@@ -145,6 +145,6 @@
               (app jsexpr->FormattingOptions (and name (not (? request-err?)))))])))
 
 (provide FormattingOptions
-         FormattingOptions-tabSize
-         FormattingOptions-trimTrailingWhitespace
+         FormattingOptions-tab-size
+         FormattingOptions-trim-trailing-whitespace
          as-FormattingOptions)
