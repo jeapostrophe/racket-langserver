@@ -79,37 +79,32 @@
 
 (define (did-open! params)
   (match-define (hash-table ['textDocument (DocItem #:uri uri #:text text)]) params)
-  (unless (uri-is-path? uri)
-    ;; TODO: send user diagnostic or something
-    (error 'did-open "uri is not a path."))
   (hash-set! open-docs (string->symbol uri)
              (new-doc uri text)))
 
 (define (did-close! params)
   (match-define (hash-table ['textDocument (DocItem #:uri uri)]) params)
-  (when (uri-is-path? uri)
-    (hash-remove! open-docs (string->symbol uri))))
+  (hash-remove! open-docs (string->symbol uri)))
 
 (define (did-change! params)
   (match-define (hash-table ['textDocument (DocIdentifier #:uri uri)]
                             ['contentChanges content-changes]) params)
-  (when (uri-is-path? uri)
-    (define this-doc (hash-ref open-docs (string->symbol uri)))
-    (define content-changes*
-      (cond [(eq? (json-null) content-changes) empty]
-            [(list? content-changes) content-changes]
-            [else (list content-changes)]))
+  (define this-doc (hash-ref open-docs (string->symbol uri)))
+  (define content-changes*
+    (cond [(eq? (json-null) content-changes) empty]
+          [(list? content-changes) content-changes]
+          [else (list content-changes)]))
 
-    (doc-batch-change this-doc
-                      (for ([change (in-list content-changes*)])
-                        (match change
-                          [(ContentChangeEvent #:range (Range #:start (Pos #:line st-ln #:char st-ch)
-                                                              #:end (Pos #:line ed-ln #:char ed-ch))
-                                               #:text text)
-                           (doc-update! this-doc st-ln st-ch ed-ln ed-ch text)]
-                          [(ContentChangeEvent #:text text)
-                           (doc-reset! this-doc text)])))
-    (void)))
+  (doc-batch-change this-doc
+                    (for ([change (in-list content-changes*)])
+                      (match change
+                        [(ContentChangeEvent #:range (Range #:start (Pos #:line st-ln #:char st-ch)
+                                                            #:end (Pos #:line ed-ln #:char ed-ch))
+                                             #:text text)
+                         (doc-update! this-doc st-ln st-ch ed-ln ed-ch text)]
+                        [(ContentChangeEvent #:text text)
+                         (doc-reset! this-doc text)])))
+  (void))
 
 ;; Hover request
 ;; Returns an object conforming to the Hover interface, to
@@ -118,8 +113,6 @@
   (match params
     [(hash-table ['textDocument (DocIdentifier #:uri uri)]
                  ['position (Pos #:line line #:char ch)])
-     #:when (uri-is-path? uri)
-
      (define this-doc (hash-ref open-docs (string->symbol uri)))
      (define doc-trace (Doc-trace this-doc))
 
@@ -178,8 +171,6 @@
                  ; 2. `only: CodeActionKind[]` server should use this to filter out client-unwanted code action
                  ; 3. `triggerKind?: CodeActionTriggerKind` the reason why code action were requested
                  ['context _ctx])
-     #:when (uri-is-path? uri)
-
      (define this-doc (hash-ref open-docs (string->symbol uri)))
      (define doc-trace (Doc-trace this-doc))
 
@@ -199,9 +190,6 @@
   (match params
     [(hash-table ['textDocument (DocIdentifier #:uri uri)]
                  ['position (Pos #:line line #:char ch)])
-     (unless (uri-is-path? uri)
-       (error 'signatureHelp "uri is not a path"))
-
      (define this-doc (hash-ref open-docs (string->symbol uri)))
      (define doc-trace (Doc-trace this-doc))
 
@@ -238,9 +226,6 @@
   (match params
     [(hash-table ['textDocument (DocIdentifier #:uri uri)]
                  ['position (Pos #:line line #:char ch)])
-     (unless (uri-is-path? uri)
-       (error 'completion "uri is not a path"))
-
      (define this-doc (hash-ref open-docs (string->symbol uri)))
      (define doc-trace (Doc-trace this-doc))
 
@@ -372,9 +357,6 @@
 ;; the declaration. If #:include-decl is 'all, the list includes the declaration
 ;; and all bound occurrences.
 (define (get-bindings uri decl)
-  (unless (uri-is-path? uri)
-    (error 'get-bindings "uri is not a path"))
-
   (define this-doc (hash-ref open-docs (string->symbol uri)))
   (define doc-trace (Doc-trace this-doc))
 
@@ -388,9 +370,6 @@
       empty))
 
 (define (get-decl uri line char)
-  (unless (uri-is-path? uri)
-    (error 'get-decl "uri is not a path"))
-
   (define this-doc (hash-ref open-docs (string->symbol uri)))
   (define doc-trace (Doc-trace this-doc))
 
@@ -413,9 +392,6 @@
 (define (document-symbol id params)
   (match params
     [(hash-table ['textDocument (DocIdentifier #:uri uri)])
-     (unless (uri-is-path? uri)
-       (error 'document-symbol "uri is not a path"))
-
      (define this-doc (hash-ref open-docs (string->symbol uri)))
 
      (define results
@@ -441,9 +417,6 @@
 ;; Inlay Hint
 (define (inlay-hint id params)
   (match params
-    [(hash-table ['textDocument (DocIdentifier #:uri uri)])
-     #:when (not (uri-is-path? uri))
-     (error-response id INVALID-PARAMS "document-symbol: uri is not a path")]
     [(hash-table ['textDocument (DocIdentifier #:uri uri)]
                  ['range (Range  #:start start #:end end)])
      (success-response id '())]
