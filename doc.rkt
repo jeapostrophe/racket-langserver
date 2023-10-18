@@ -273,7 +273,7 @@
           [else
            (define line-start (send doc-text line-start-pos line))
            (if indenter
-               (or (indenter doc-text line-start)
+               (or (send doc-text run-indenter indenter line-start)
                    (send doc-text compute-racket-amount-to-indent line-start))
                (send doc-text compute-racket-amount-to-indent line-start))])))
 

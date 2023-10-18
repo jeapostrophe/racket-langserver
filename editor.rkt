@@ -97,4 +97,7 @@
     (define/public (compute-racket-amount-to-indent pos)
       (send core compute-racket-amount-to-indent pos))
 
+    (define/public (run-indenter indenter char-pos)
+      (indenter core char-pos))
+
     (super-new)))
