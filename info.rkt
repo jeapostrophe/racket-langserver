@@ -1,5 +1,6 @@
 #lang info
 (define collection "racket-langserver")
+(define scribblings '(("scribblings/racket-langserver.scrbl")))
 (define deps '("base"
                "compatibility-lib"
                "data-lib"
