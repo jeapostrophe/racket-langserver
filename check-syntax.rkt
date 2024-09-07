@@ -117,14 +117,21 @@
                           #:message msg))))))
 
 (define (get-indenter doc-text)
+  (define text (send doc-text get-text))
   (define lang-info
     (with-handlers ([exn:fail:read? (lambda (e) 'missing)]
                     [exn:missing-module? (lambda (e) #f)])
-      (read-language (open-input-string (send doc-text get-text)) (lambda () 'missing))))
+      (read-language (open-input-string text) (lambda () 'missing))))
   (cond
     [(procedure? lang-info)
      (lang-info 'drracket:indentation #f)]
-    [(eq? lang-info 'missing) lang-info]
+    [(eq? lang-info 'missing)
+     ; check for a #reader directive at start of file, ignoring comments
+     ; the ^ anchor here matches start-of-string, not start-of-line
+     (if (regexp-match #rx"^(;[^\n]*\n)*#reader" text)
+       #f ; most likely a drracket file, use default indentation
+          ; (https://github.com/jeapostrophe/racket-langserver/issues/86)
+       'missing)]
     [else #f]))
 
 (define-syntax-rule (timeout time-sec body)
