@@ -482,7 +482,18 @@
   (match params
     [(hash* ['textDocument (DocIdentifier #:uri uri)])
      (define this-doc (hash-ref open-docs (string->symbol uri)))
-     (success-response id (hash 'data (doc-full-tokens this-doc uri)))]
+     (success-response id (hash 'data (doc-range-tokens this-doc uri 0 (doc-endpos this-doc))))]
+    [_ (error-response id INVALID-PARAMS "textDocument/semanticTokens/full failed")]))
+
+(define (range-semantic-tokens id params)
+  (match params
+    [(hash* ['textDocument (DocIdentifier #:uri uri)]
+            ['range (Range #:start (Pos #:line st-ln #:char st-ch)
+                           #:end (Pos #:line ed-ln #:char ed-ch))])
+     (define this-doc (hash-ref open-docs (string->symbol uri)))
+     (define start-pos (doc-pos this-doc st-ln st-ch))
+     (define end-pos (doc-pos this-doc ed-ln ed-ch))
+     (success-response id (hash 'data (doc-range-tokens this-doc uri start-pos end-pos)))]
     [_ (error-response id INVALID-PARAMS "textDocument/semanticTokens/full failed")]))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -506,5 +517,6 @@
   [formatting! (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]
   [range-formatting! (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]
   [on-type-formatting! (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]
-  [full-semantic-tokens (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]))
+  [full-semantic-tokens (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]
+  [range-semantic-tokens (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]))
 
