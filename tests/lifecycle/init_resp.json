@@ -25,6 +25,22 @@
             "inlayHintProvider": true,
             "referencesProvider": true,
             "renameProvider": true,
+            "semanticTokensProvider": {
+                "full": true,
+                "range": true,
+                "legend": {
+                    "tokenModifiers": [
+                        "definition"
+                    ],
+                    "tokenTypes": [
+                        "variable",
+                        "function",
+                        "string",
+                        "number",
+                        "regexp"
+                    ]
+                }
+            },
             "signatureHelpProvider": {
                 "triggerCharacters": [
                     " ",
