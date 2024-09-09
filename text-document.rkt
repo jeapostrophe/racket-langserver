@@ -480,15 +480,15 @@
 
 (define (full-semantic-tokens id params)
   (match params
-    [(hash* ['textDocument (DocIdentifier #:uri uri)])
+    [(hash-table ['textDocument (DocIdentifier #:uri uri)])
      (define this-doc (hash-ref open-docs (string->symbol uri)))
      (success-response id (hash 'data (doc-range-tokens this-doc uri 0 (doc-endpos this-doc))))]
     [_ (error-response id INVALID-PARAMS "textDocument/semanticTokens/full failed")]))
 
 (define (range-semantic-tokens id params)
   (match params
-    [(hash* ['textDocument (DocIdentifier #:uri uri)]
-            ['range (Range #:start (Pos #:line st-ln #:char st-ch)
+    [(hash-table ['textDocument (DocIdentifier #:uri uri)]
+                 ['range (Range #:start (Pos #:line st-ln #:char st-ch)
                            #:end (Pos #:line ed-ln #:char ed-ch))])
      (define this-doc (hash-ref open-docs (string->symbol uri)))
      (define start-pos (doc-pos this-doc st-ln st-ch))
