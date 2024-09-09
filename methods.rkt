@@ -6,6 +6,7 @@
          "error-codes.rkt"
          "msg-io.rkt"
          "responses.rkt"
+         "struct.rkt"
          (prefix-in text-document/ "text-document.rkt"))
 
 ;; TextDocumentSynKind enumeration
@@ -88,6 +89,8 @@
        (text-document/range-formatting! id params)]
       ["textDocument/onTypeFormatting"
        (text-document/on-type-formatting! id params)]
+      ["textDocument/semanticTokens/full"
+       (text-document/full-semantic-tokens id params)]
       [_
        (eprintf "invalid request for method ~v\n" method)
        (define err (format "The method ~v was not found" method))
@@ -127,6 +130,10 @@
                                     (hash-table ['prepareSupport #t])])])
           (hasheq 'prepareProvider #t)]
          [_ #t]))
+     (define semantic-provider
+       (hasheq 'legend (hasheq 'tokenTypes (map symbol->string *semantic-token-types*)
+                               'tokenModifiers (map symbol->string *semantic-token-modifiers*))
+               'full #t))
      (define server-capabilities
        (hasheq 'textDocumentSync sync-options
                'hoverProvider #t
@@ -137,6 +144,7 @@
                'signatureHelpProvider (hasheq 'triggerCharacters (list " " ")" "]"))
                'inlayHintProvider #t
                'renameProvider renameProvider
+               'semanticTokensProvider semantic-provider
                'documentHighlightProvider #t
                'documentSymbolProvider #t
                'documentFormattingProvider #t

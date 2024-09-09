@@ -129,6 +129,20 @@
                             #:trim-final-newlines (hash-ref jsexpr 'trimFinalNewlines undef-object)
                             #:key (hash-ref jsexpr 'key undef-object))))
 
+(struct SemanticToken
+  (start end type modifiers)
+  #:transparent)
+
+(define *semantic-token-types*
+  '(variable
+     function
+     string
+     number
+     regexp))
+
+(define *semantic-token-modifiers*
+  '(definition))
+
 ;; usage:
 ;; (jsexpr? jsexpr) ;; #t
 ;; (match jsexpr
@@ -147,4 +161,7 @@
 (provide FormattingOptions
          FormattingOptions-tab-size
          FormattingOptions-trim-trailing-whitespace
-         as-FormattingOptions)
+         as-FormattingOptions
+         (struct-out SemanticToken)
+         *semantic-token-types*
+         *semantic-token-modifiers*)
