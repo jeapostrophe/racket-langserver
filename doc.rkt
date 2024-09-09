@@ -338,13 +338,17 @@
   (define modifier (token-modifier-encoding token))
   (values delta-line delta-start len type modifier))
 
-(define (doc-full-tokens doc path)
+(define (doc-range-tokens doc path pos-start pos-end)
   (define tokens (collect-semantic-tokens (Doc-text doc) (uri->path path)))
+  (define tokens-in-range
+    (filter-not (λ (tok) (or (<= (SemanticToken-end tok) pos-start)
+                             (>= (SemanticToken-start tok) pos-end)))
+                tokens))
   (for/fold ([result '()]
              [prev-pos 0]
              #:result (let ()
                         (flatten (reverse result))))
-            ([token tokens])
+            ([token tokens-in-range])
     (define-values (delta-line delta-start len type modifier)
       (token-encoding doc token prev-pos))
     (values (cons (list delta-line delta-start len type modifier) result)
@@ -365,5 +369,5 @@
          doc-get-symbols
          get-definition-by-id
          format!
-         doc-full-tokens)
+         doc-range-tokens)
 

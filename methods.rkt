@@ -91,6 +91,8 @@
        (text-document/on-type-formatting! id params)]
       ["textDocument/semanticTokens/full"
        (text-document/full-semantic-tokens id params)]
+      ["textDocument/semanticTokens/range"
+       (text-document/range-semantic-tokens id params)]
       [_
        (eprintf "invalid request for method ~v\n" method)
        (define err (format "The method ~v was not found" method))
@@ -133,7 +135,8 @@
      (define semantic-provider
        (hasheq 'legend (hasheq 'tokenTypes (map symbol->string *semantic-token-types*)
                                'tokenModifiers (map symbol->string *semantic-token-modifiers*))
-               'full #t))
+               'full #t
+               'range #t))
      (define server-capabilities
        (hasheq 'textDocumentSync sync-options
                'hoverProvider #t
