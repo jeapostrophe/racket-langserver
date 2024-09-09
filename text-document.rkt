@@ -478,6 +478,13 @@
     [_
      (error-response id INVALID-PARAMS "textDocument/onTypeFormatting failed")]))
 
+(define (full-semantic-tokens id params)
+  (match params
+    [(hash* ['textDocument (DocIdentifier #:uri uri)])
+     (define this-doc (hash-ref open-docs (string->symbol uri)))
+     (success-response id (hash 'data (doc-full-tokens this-doc uri)))]
+    [_ (error-response id INVALID-PARAMS "textDocument/semanticTokens/full failed")]))
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (provide
@@ -498,4 +505,6 @@
   [prepareRename (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]
   [formatting! (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]
   [range-formatting! (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]
-  [on-type-formatting! (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]))
+  [on-type-formatting! (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]
+  [full-semantic-tokens (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]))
+

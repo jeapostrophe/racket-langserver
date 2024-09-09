@@ -9,6 +9,7 @@
          "path-util.rkt"
          "doc-trace.rkt"
          "struct.rkt"
+         "highlight.rkt"
          racket/match
          racket/class
          racket/set
@@ -315,6 +316,40 @@
                                   #:end (Pos #:line line #:char really-indent))
                    #:newText new-text)]))
 
+(define (token-type-encoding token)
+  (index-of *semantic-token-types* (SemanticToken-type token)))
+
+(define (token-modifier-encoding token)
+  (define indexes (indexes-where *semantic-token-modifiers*
+                                 (λ (m) (memq m (SemanticToken-modifiers token)))))
+  (for/sum ([index indexes])
+    (expt 2 index)))
+
+(define (token-encoding doc token prev-pos)
+  (define-values (line ch) (doc-line/ch doc (SemanticToken-start token)))
+  (define-values (prev-line prev-ch) (doc-line/ch doc prev-pos))
+  (define delta-line (- line prev-line))
+  (define delta-start
+    (if (= line prev-line)
+        (- ch prev-ch)
+        ch))
+  (define len (- (SemanticToken-end token) (SemanticToken-start token)))
+  (define type (token-type-encoding token))
+  (define modifier (token-modifier-encoding token))
+  (values delta-line delta-start len type modifier))
+
+(define (doc-full-tokens doc path)
+  (define tokens (collect-semantic-tokens (Doc-text doc) (uri->path path)))
+  (for/fold ([result '()]
+             [prev-pos 0]
+             #:result (let ()
+                        (flatten (reverse result))))
+            ([token tokens])
+    (define-values (delta-line delta-start len type modifier)
+      (token-encoding doc token prev-pos))
+    (values (cons (list delta-line delta-start len type modifier) result)
+            (SemanticToken-start token))))
+
 (provide Doc-trace
          new-doc
          doc-checked?
@@ -329,4 +364,6 @@
          doc-find-containing-paren
          doc-get-symbols
          get-definition-by-id
-         format!)
+         format!
+         doc-full-tokens)
+
