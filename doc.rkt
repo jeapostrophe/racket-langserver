@@ -322,9 +322,33 @@
 (define (token-modifier-encoding token)
   (define indexes (indexes-where *semantic-token-modifiers*
                                  (λ (m) (memq m (SemanticToken-modifiers token)))))
+  ;; build a bit flag of the modifiers of `token`.
+  ;;
+  ;; equivalent to C family pseudocode
+  ;;
+  ;; uint32_t flag = 0
+  ;; for index in indexes:
+  ;;   flag = flag | (1 << index)
+  ;; return flag
+  ;;
+  ;; But the integer bit width is ignored here, because
+  ;; the *semantic-token-modifiers* is very small.
   (for/sum ([index indexes])
     (expt 2 index)))
 
+;; encode `token` using relative encoding
+;;
+;; each token is encoded as five integers (copied from lsp specificatioin 3.17):
+;; * deltaLine: token line number, relative to the start of the previous token
+;; * deltaStart: token start character, relative to the start of the previous token 
+;;               (relative to 0 or the previous token’s start if they are on the same line)
+;; * length: the length of the token.
+;; * tokenType: will be looked up in SemanticTokensLegend.tokenTypes.
+;;              We currently ask that tokenType < 65536.
+;; * tokenModifiers: each set bit will be looked up in SemanticTokensLegend.tokenModifiers
+;;
+;; for the first token, its previous token is defined as a zero length fake token which
+;; has line number 0 and character position 0.
 (define (token-encoding doc token prev-pos)
   (define-values (line ch) (doc-line/ch doc (SemanticToken-start token)))
   (define-values (prev-line prev-ch) (doc-line/ch doc prev-pos))
@@ -338,6 +362,10 @@
   (define modifier (token-modifier-encoding token))
   (values delta-line delta-start len type modifier))
 
+;; get the tokens whose range are contained in interval [pos-start, pos-end)
+;; the tokens whose range intersects the given range is included.
+;; the previous token of the first token in the result is defined as a zero length fake token which
+;; has line number 0 and character position 0.
 (define (doc-range-tokens doc path pos-start pos-end)
   (define tokens (collect-semantic-tokens (Doc-text doc) (uri->path path)))
   (define tokens-in-range
@@ -346,8 +374,7 @@
                 tokens))
   (for/fold ([result '()]
              [prev-pos 0]
-             #:result (let ()
-                        (flatten (reverse result))))
+             #:result (flatten (reverse result)))
             ([token tokens-in-range])
     (define-values (delta-line delta-start len type modifier)
       (token-encoding doc token prev-pos))

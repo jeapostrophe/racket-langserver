@@ -133,6 +133,12 @@
   (start end type modifiers)
   #:transparent)
 
+;; The order of this list is irrelevant.
+;; The client receives this list from server ability declaration during
+;; initialize handshake then use it to decode server semantic tokens messages.
+;; Different order produces different encoding results of semantic tokens,
+;; but does not affect client and server behavior.
+;; To change the order, simply change it here, don't need to change other code.
 (define *semantic-token-types*
   '(variable
      function
@@ -140,6 +146,7 @@
      number
      regexp))
 
+;; The order of this list is irrelevant, similar to *semantic-token-types*.
 (define *semantic-token-modifiers*
   '(definition))
 

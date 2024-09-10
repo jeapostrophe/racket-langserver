@@ -2,7 +2,9 @@
 (require chk
          json
          racket/os
-         "../../msg-io.rkt")
+         "../../msg-io.rkt"
+         "../../json-util.rkt"
+         "../../struct.rkt")
 
 (define init-req
   (hasheq 'jsonrpc "2.0"
@@ -35,7 +37,11 @@
   ;; Initialize request
   (display-message/flush init-req stdin)
   (let ([resp (read-message stdout)])
-    (chk #:= resp (read-json (open-input-file "init_resp.json"))))
+    (define expected-json (read-json (open-input-file "init_resp.json")))
+    (define json (jsexpr-set expected-json '(result capabilities semanticTokensProvider legend)
+                             (hasheq 'tokenModifiers (map symbol->string *semantic-token-modifiers*)
+                                     'tokenTypes (map symbol->string *semantic-token-types*))))
+    (chk #:= resp json))
 
   ;; Shutdown request
   (display-message/flush shutdown-req stdin)
@@ -49,3 +55,4 @@
   (subprocess-wait sp)
   (define st (subprocess-status sp))
   (chk (zero? st)))
+
