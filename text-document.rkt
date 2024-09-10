@@ -494,7 +494,7 @@
      (define start-pos (doc-pos this-doc st-ln st-ch))
      (define end-pos (doc-pos this-doc ed-ln ed-ch))
      (success-response id (hash 'data (doc-range-tokens this-doc uri start-pos end-pos)))]
-    [_ (error-response id INVALID-PARAMS "textDocument/semanticTokens/full failed")]))
+    [_ (error-response id INVALID-PARAMS "textDocument/semanticTokens/range failed")]))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 

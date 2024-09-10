@@ -27,19 +27,7 @@
             "renameProvider": true,
             "semanticTokensProvider": {
                 "full": true,
-                "range": true,
-                "legend": {
-                    "tokenModifiers": [
-                        "definition"
-                    ],
-                    "tokenTypes": [
-                        "variable",
-                        "function",
-                        "string",
-                        "number",
-                        "regexp"
-                    ]
-                }
+                "range": true
             },
             "signatureHelpProvider": {
                 "triggerCharacters": [
