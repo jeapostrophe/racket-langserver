@@ -31,7 +31,15 @@
                  ['method (? string? method)])
      (define params (hash-ref msg 'params hasheq))
      (define response (process-request id method params))
-     (display-message/flush response)]
+     ;; the result can be a response or a procedure which returns
+     ;; a response. If it's a procedure, then it's expected to run
+     ;; concurrently.
+     (thread (λ ()
+               (display-message/flush
+                 (if (procedure? response)
+                     (response)
+                     response))))
+     (void)]
     ;; Notification
     [(hash-table ['method (? string? method)])
      (define params (hash-ref msg 'params hasheq))
