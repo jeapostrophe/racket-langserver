@@ -349,9 +349,9 @@
 ;;
 ;; for the first token, its previous token is defined as a zero length fake token which
 ;; has line number 0 and character position 0.
-(define (token-encoding doc token prev-pos)
-  (define-values (line ch) (doc-line/ch doc (SemanticToken-start token)))
-  (define-values (prev-line prev-ch) (doc-line/ch doc prev-pos))
+(define (token-encoding editor token prev-pos)
+  (match-define (list line ch) (send editor pos->line/char (SemanticToken-start token)))
+  (match-define (list prev-line prev-ch) (send editor pos->line/char prev-pos))
   (define delta-line (- line prev-line))
   (define delta-start
     (if (= line prev-line)
@@ -366,8 +366,8 @@
 ;; the tokens whose range intersects the given range is included.
 ;; the previous token of the first token in the result is defined as a zero length fake token which
 ;; has line number 0 and character position 0.
-(define (doc-range-tokens doc path pos-start pos-end)
-  (define tokens (collect-semantic-tokens (Doc-text doc) (uri->path path)))
+(define (doc-range-tokens editor uri pos-start pos-end)
+  (define tokens (collect-semantic-tokens editor (uri->path uri)))
   (define tokens-in-range
     (filter-not (λ (tok) (or (<= (SemanticToken-end tok) pos-start)
                              (>= (SemanticToken-start tok) pos-end)))
@@ -377,11 +377,12 @@
              #:result (flatten (reverse result)))
             ([token tokens-in-range])
     (define-values (delta-line delta-start len type modifier)
-      (token-encoding doc token prev-pos))
+      (token-encoding editor token prev-pos))
     (values (cons (list delta-line delta-start len type modifier) result)
             (SemanticToken-start token))))
 
-(provide Doc-trace
+(provide Doc-text
+         Doc-trace
          new-doc
          doc-checked?
          doc-update!
