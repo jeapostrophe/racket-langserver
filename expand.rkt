@@ -1,12 +1,19 @@
 #lang racket/base
 
-(provide read-and-expand)
-
 (require racket/match
          racket/async-channel
          syntax/modread
          syntax/parse
-         drracket/check-syntax)
+         drracket/check-syntax
+         racket/contract
+         racket/class)
+
+(provide
+  (contract-out
+    [read-and-expand (-> input-port?
+                         complete-path?
+                         (is-a?/c syncheck-annotations<%>)
+                         async-channel?)]))
 
 (define *expander-ch* (make-async-channel))
 
