@@ -1,14 +1,14 @@
 #lang racket/base
 
-(require syntax/modread
-         drracket/check-syntax
+(require drracket/check-syntax
          syntax/parse
          "struct.rkt"
          racket/class
          racket/set
          racket/list
          racket/bool
-         racket/match)
+         racket/match
+         "expand.rkt")
 
 (provide collect-semantic-tokens)
 
@@ -44,31 +44,15 @@
   (define code-str (send doc-text get-text))
   (define in (open-input-string code-str))
   (port-count-lines! in)
-  (define-values (path-dir _1 _2) (split-path path))
-
-  (define base-ns (make-base-namespace))
-
-  (define-values (add-syntax done)
-    (make-traversal base-ns #f))
-
-  (define token-list '())
 
   (define collector (new collector%))
-  (with-handlers ([(λ (_) #t) (λ (_) #f)])
-    (parameterize ([current-load-relative-directory path-dir]
-                   [current-namespace base-ns]
-                   [current-annotations collector])
-      (define stx (with-module-reading-parameterization
-                    (lambda () (read-syntax path in))))
-      (set! token-list (append (walk-stx stx) token-list))
+  (match-define (list stx expanded) (sync (read-and-expand in path collector)))
+  (define drracket-styles (convert-drracket-color-styles (send collector get-styles)))
 
-      (define expanded (expand stx))
-      (set! token-list (append (walk-expanded-stx path expanded) token-list))
-      (add-syntax expanded)
-      (done))
-
-    (define drracket-styles (convert-drracket-color-styles (send collector get-styles)))
-    (set! token-list (append drracket-styles token-list)))
+  (define token-list
+    (append drracket-styles
+            (if (syntax? stx) (walk-stx stx) '())
+            (if (syntax? expanded) (walk-expanded-stx path expanded) '())))
 
   (let* ([tokens-no-false (filter-not false? token-list)]
          [tokens-no-out-bounds (filter (λ (t) (< -1 (Token-start t) (string-length code-str)))
@@ -91,6 +75,8 @@
   (for/list ([s styles])
     (match s
       [(Token start end 'drracket:check-syntax:lexically-bound)
+       (Token start end 'variable)]
+      [(Token start end 'drracket:check-syntax:set!d)
        (Token start end 'variable)]
       [_ #f])))
 
@@ -125,12 +111,17 @@
 
 (define (walk-expanded-stx src stx)
   (syntax-parse stx
-    #:datum-literals (lambda define-values)
+    #:datum-literals (lambda define-values #%app)
     [(lambda (args ...) expr ...)
      (walk-expanded-stx src #'(expr ...))]
     [(define-values (fs) (lambda _ ...))
      (append (tags-of-stx-lst src #'(fs) 'function)
              (walk-expanded-stx src (drop (syntax-e stx) 2)))]
+    [(define-values (names ...) expr)
+     (walk-expanded-stx src #'expr)]
+    [(#%app proc args ...)
+     (append (tags-of-stx-lst src #'(proc) 'function)
+             (walk-expanded-stx src #'(args ...)))]
     [(any1 any* ...)
      (append (walk-expanded-stx src #'any1)
              (walk-expanded-stx src #'(any* ...)))]
