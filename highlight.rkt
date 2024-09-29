@@ -115,26 +115,26 @@
     [(lambda (args ...) expr ...)
      (walk-expanded-stx src #'(expr ...))]
     [(define-values (fs) (lambda _ ...))
-     (append (tags-of-stx-lst src #'(fs) 'function)
+     (append (list (tag-of-expanded-symbol-stx src #'fs 'function))
              (walk-expanded-stx src (drop (syntax-e stx) 2)))]
     [(define-values (names ...) expr)
      (walk-expanded-stx src #'expr)]
     [(#%app proc args ...)
-     (append (tags-of-stx-lst src #'(proc) 'function)
+     (append (list (tag-of-expanded-symbol-stx src #'proc 'function))
              (walk-expanded-stx src #'(args ...)))]
     [(any1 any* ...)
      (append (walk-expanded-stx src #'any1)
              (walk-expanded-stx src #'(any* ...)))]
     [_ (list)]))
 
-(define (tags-of-stx-lst src stx-lst tag)
+(define (tag-of-expanded-symbol-stx src stx tag)
   (define (in-current-file? stx)
     (equal? src (syntax-source stx)))
 
-  (let* ([stx-lst (syntax-e stx-lst)]
-         [stx-lst-in-current-file (filter in-current-file? stx-lst)]
-         [tag-lst (map (λ (stx) (tag-of-atom-stx stx tag)) stx-lst-in-current-file)])
-    tag-lst))
+  (if (and (in-current-file? stx)
+           (symbol? (syntax->datum stx)))
+      (tag-of-atom-stx stx tag)
+      #f))
 
 (define (tag-of-atom-stx atom-stx [expect-tag #f])
   (define pos+1 (syntax-position atom-stx))
