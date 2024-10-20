@@ -179,10 +179,9 @@
                                    (λ () (read-syntax src in))))
             ;; 90 seconds limit for possible infinity recursive macro expand
             (define stx (timeout 90 (expand original-stx)))
-            (define completions (append (set->list (walk stx)) (set->list (walk-module stx))))
-            (send new-trace set-completions completions)
+            (send new-trace walk-stx original-stx stx)
             (when trace
-              (send trace set-completions completions))
+              (send trace walk-stx original-stx stx))
             (add-syntax stx)
             (set! valid #t)
             (done)
