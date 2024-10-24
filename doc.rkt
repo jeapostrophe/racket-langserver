@@ -9,7 +9,6 @@
          "path-util.rkt"
          "doc-trace.rkt"
          "struct.rkt"
-         "highlight.rkt"
          racket/match
          racket/class
          racket/set
@@ -21,47 +20,69 @@
          syntax-color/racket-lexer
          json
          drracket/check-syntax
-         syntax/modread)
+         syntax/modread
+         "lock.rkt")
+
+;; SafeDoc has two eliminator:
+;; with-read-doc: access Doc within a reader lock.
+;; with-write-doc: access Doc within a writer lock.
+;; Access its fields without protection should not be allowed.
+(struct SafeDoc
+  (doc rwlock)
+  #:transparent)
 
 (struct Doc
-  (text
-   trace
-   uri
-   during-batch-change?
-   checked?)
-  #:transparent #:mutable)
+  (uri text trace version trace-version)
+  #:mutable)
 
-(define (send-diagnostics doc diag-lst)
-  (display-message/flush (diagnostics-message (Doc-uri doc) diag-lst)))
+(define (send-diagnostics uri diag-lst)
+  (display-message/flush (diagnostics-message uri diag-lst)))
 
 ;; the only place where really run check-syntax
-(define (doc-run-check-syntax doc)
+(define (doc-run-check-syntax! safe-doc)
+  (match-define (list uri old-version text)
+                (with-read-doc safe-doc
+                  (λ (doc)
+                    (list (Doc-uri doc) (Doc-version doc) (send (Doc-text doc) copy)))))
+
   (define (task)
-    (set-Doc-checked?! doc #f)
-    (match-define (list new-trace diags)
-      (check-syntax (uri->path (Doc-uri doc)) (Doc-text doc) (Doc-trace doc)))
-    (send-diagnostics doc diags)
-    (set-Doc-trace! doc new-trace)
+    (match-define (list new-trace diags) (check-syntax (uri->path uri) text))
+    ;; make a new thread to write doc because this task will be executed by
+    ;; the scheduler and can be killed at any time.
+    (thread
+      (λ ()
+        (send-diagnostics uri diags)
+        (with-write-doc safe-doc
+          (λ (doc)
+            (when (and (equal? old-version (Doc-version doc))
+                       new-trace)
+              (set-Doc-trace-version! doc old-version)
+              (set-Doc-trace! doc new-trace))))
+        (clear-old-queries/new-trace uri))))
 
-    (set-Doc-checked?! doc #t))
+  (scheduler-push-task! (with-read-doc safe-doc (λ (doc) (Doc-uri doc))) task))
 
-  (scheduler-push-task! (Doc-uri doc) task))
-
-(define (lazy-check-syntax doc)
-  (when (not (Doc-during-batch-change? doc))
-    (doc-run-check-syntax doc)))
-
-(define (doc-checked? doc)
-  (Doc-checked? doc))
-
-(define (new-doc uri text)
+(define (new-doc uri text version)
   (define doc-text (new lsp-editor%))
   (send doc-text insert text 0)
   ;; the init trace should not be #f
   (define doc-trace (new build-trace% [src (uri->path uri)] [doc-text doc-text] [indenter #f]))
-  (define doc (Doc doc-text doc-trace uri #f #f))
-  (lazy-check-syntax doc)
-  doc)
+  (define doc (Doc uri doc-text doc-trace version #f))
+  (define safe-doc (SafeDoc doc (make-rwlock)))
+  safe-doc)
+
+(define (doc-update-version! doc new-ver)
+  (set-Doc-version! doc new-ver))
+
+(define (with-read-doc safe-doc proc)
+  (call-with-read-lock
+    (SafeDoc-rwlock safe-doc)
+    (λ () (proc (SafeDoc-doc safe-doc)))))
+
+(define (with-write-doc safe-doc proc)
+  (call-with-write-lock
+    (SafeDoc-rwlock safe-doc)
+    (λ () (proc (SafeDoc-doc safe-doc)))))
 
 (define (doc-reset! doc new-text)
   (define doc-text (Doc-text doc))
@@ -69,8 +90,7 @@
 
   (send doc-text erase)
   (send doc-trace reset)
-  (send doc-text insert new-text 0)
-  (lazy-check-syntax doc))
+  (send doc-text insert new-text 0))
 
 (define (doc-update! doc st-ln st-ch ed-ln ed-ch text)
   (define doc-text (Doc-text doc))
@@ -85,15 +105,7 @@
   ;; and return the old build-trace% object
   (cond [(> new-len old-len) (send doc-trace expand end-pos (+ st-pos new-len))]
         [(< new-len old-len) (send doc-trace contract (+ st-pos new-len) end-pos)])
-  (send doc-text replace text st-pos end-pos)
-  (lazy-check-syntax doc))
-
-(define-syntax-rule (doc-batch-change doc expr ...)
-  (let ()
-    (set-Doc-during-batch-change?! doc #t)
-    expr ...
-    (set-Doc-during-batch-change?! doc #f)
-    (lazy-check-syntax doc)))
+  (send doc-text replace text st-pos end-pos))
 
 (define (doc-pos doc line ch)
   (send (Doc-text doc) line/char->pos line ch))
@@ -210,16 +222,16 @@
 ;; formatting ;;
 
 ;; Shared path for all formatting requests
-(define (format! this-doc st-ln st-ch ed-ln ed-ch
+(define (format! doc st-ln st-ch ed-ln ed-ch
                  #:on-type? [on-type? #f]
                  #:formatting-options opts)
-  (define doc-text (Doc-text this-doc))
-  (define doc-trace (Doc-trace this-doc))
+  (define doc-text (Doc-text doc))
+  (define doc-trace (Doc-trace doc))
 
   (define indenter (send doc-trace get-indenter))
-  (define start-pos (doc-pos this-doc st-ln st-ch))
+  (define start-pos (doc-pos doc st-ln st-ch))
   ;; Adjust for line endings (#92)
-  (define end-pos (max start-pos (sub1 (doc-pos this-doc ed-ln ed-ch))))
+  (define end-pos (max start-pos (sub1 (doc-pos doc ed-ln ed-ch))))
   (define start-line (send doc-text at-line start-pos))
   (define end-line (send doc-text at-line end-pos))
 
@@ -245,16 +257,16 @@
         (if (> line end-line)
             null
             (append (filter-map
-                     values
-                     ;; NOTE: The order is important here.
-                     ;; `remove-trailing-space!` deletes content relative to the initial document
-                     ;; position. If we were to instead call `indent-line!` first and then
-                     ;; `remove-trailing-space!` second, the remove step could result in
-                     ;; losing user entered code.
-                     (list (if (false? (FormattingOptions-trim-trailing-whitespace opts))
-                               #f
-                               (remove-trailing-space! mut-doc-text skip-this-line? line))
-                           (indent-line! mut-doc-text indenter-wp line)))
+                      values
+                      ;; NOTE: The order is important here.
+                      ;; `remove-trailing-space!` deletes content relative to the initial document
+                      ;; position. If we were to instead call `indent-line!` first and then
+                      ;; `remove-trailing-space!` second, the remove step could result in
+                      ;; losing user entered code.
+                      (list (if (false? (FormattingOptions-trim-trailing-whitespace opts))
+                                #f
+                                (remove-trailing-space! mut-doc-text skip-this-line? line))
+                            (indent-line! mut-doc-text indenter-wp line)))
                     (loop (add1 line)))))))
 
 (define (replace-tab! doc-text line tabsize)
@@ -287,7 +299,7 @@
      (define to (string-length line-text))
      (send doc-text replace-in-line "" line from to)
      (TextEdit #:range (Range #:start (Pos #:line line #:char from)
-                              #:end   (Pos #:line line #:char to))
+                              #:end (Pos #:line line #:char to))
                #:newText "")]
     [else #f]))
 
@@ -340,7 +352,7 @@
 ;;
 ;; each token is encoded as five integers (copied from lsp specificatioin 3.17):
 ;; * deltaLine: token line number, relative to the start of the previous token
-;; * deltaStart: token start character, relative to the start of the previous token 
+;; * deltaStart: token start character, relative to the start of the previous token
 ;;               (relative to 0 or the previous token’s start if they are on the same line)
 ;; * length: the length of the token.
 ;; * tokenType: will be looked up in SemanticTokensLegend.tokenTypes.
@@ -349,9 +361,9 @@
 ;;
 ;; for the first token, its previous token is defined as a zero length fake token which
 ;; has line number 0 and character position 0.
-(define (token-encoding editor token prev-pos)
-  (match-define (list line ch) (send editor pos->line/char (SemanticToken-start token)))
-  (match-define (list prev-line prev-ch) (send editor pos->line/char prev-pos))
+(define (token-encoding doc token prev-pos)
+  (match-define (list line ch) (send (Doc-text doc) pos->line/char (SemanticToken-start token)))
+  (match-define (list prev-line prev-ch) (send (Doc-text doc) pos->line/char prev-pos))
   (define delta-line (- line prev-line))
   (define delta-start
     (if (= line prev-line)
@@ -366,8 +378,8 @@
 ;; the tokens whose range intersects the given range is included.
 ;; the previous token of the first token in the result is defined as a zero length fake token which
 ;; has line number 0 and character position 0.
-(define (doc-range-tokens editor uri pos-start pos-end)
-  (define tokens (collect-semantic-tokens editor (uri->path uri)))
+(define (doc-range-tokens doc pos-start pos-end)
+  (define tokens (send (Doc-trace doc) get-semantic-tokens))
   (define tokens-in-range
     (filter-not (λ (tok) (or (<= (SemanticToken-end tok) pos-start)
                              (>= (SemanticToken-start tok) pos-end)))
@@ -377,17 +389,18 @@
              #:result (flatten (reverse result)))
             ([token tokens-in-range])
     (define-values (delta-line delta-start len type modifier)
-      (token-encoding editor token prev-pos))
+      (token-encoding doc token prev-pos))
     (values (cons (list delta-line delta-start len type modifier) result)
             (SemanticToken-start token))))
 
-(provide Doc-text
-         Doc-trace
+(provide with-read-doc
+         with-write-doc
+         (struct-out Doc)
          new-doc
-         doc-checked?
          doc-update!
          doc-reset!
-         doc-batch-change
+         doc-update-version!
+         doc-run-check-syntax!
          doc-pos
          doc-endpos
          doc-line/ch
