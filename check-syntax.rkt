@@ -13,7 +13,6 @@
          "editor.rkt"
          "responses.rkt"
          "interfaces.rkt"
-         "autocomplete.rkt"
          "doc-trace.rkt")
 
 (define ((error-diagnostics doc-text) exn)
@@ -137,12 +136,11 @@
 (define-syntax-rule (timeout time-sec body)
   (with-limits time-sec #f body))
 
-(define (check-syntax src doc-text trace)
+(define (check-syntax src doc-text)
   (define indenter (get-indenter doc-text))
   (define ns (make-base-namespace))
   (define new-trace (new build-trace% [src src] [doc-text doc-text] [indenter indenter]))
-  (match-define-values (src-dir _ #f)
-    (split-path src))
+  (match-define-values (src-dir _ #f) (split-path src))
   (define-values (add-syntax done)
     (make-traversal ns src-dir))
 
@@ -150,8 +148,6 @@
   (define text (send doc-text get-text))
   (define in (open-input-string text))
   (port-count-lines! in)
-  (when trace
-    (set-clear! (send trace get-warn-diags)))
   (define valid #f)
   (define lang-diag
     (if (eq? indenter 'missing)
@@ -166,9 +162,9 @@
                    [current-namespace ns]
                    [current-load-relative-directory src-dir])
       (with-intercepted-logging
-          (lambda (l)
-            (define result (check-typed-racket-log doc-text l))
-            (when (list? result) (set! diags (append result diags))))
+        (lambda (l)
+          (define result (check-typed-racket-log doc-text l))
+          (when (list? result) (set! diags (append result diags))))
         (lambda ()
           (with-handlers ([(or/c exn:fail:read?
                                  exn:fail:syntax?
@@ -179,22 +175,21 @@
                                    (λ () (read-syntax src in))))
             ;; 90 seconds limit for possible infinity recursive macro expand
             (define stx (timeout 90 (expand original-stx)))
-            (send new-trace walk-stx original-stx stx)
-            (when trace
-              (send trace walk-stx original-stx stx))
             (add-syntax stx)
             (set! valid #t)
             (done)
+            (send new-trace walk-stx original-stx stx)
             (list)))
         'info)))
 
   (define warn-diags (send new-trace get-warn-diags))
 
   ;; reuse old trace if check-syntax failed
-  (list (if valid new-trace (or trace new-trace))
+  (list (if valid new-trace #f)
         (append err-diags (set->list warn-diags) lang-diag diags)))
 
 (provide
- (contract-out
-  [check-syntax (-> any/c (is-a?/c lsp-editor%) (or/c #f (is-a?/c build-trace%))
-                    (list/c (is-a?/c build-trace%) any/c))]))
+  (contract-out
+    [check-syntax (-> any/c (is-a?/c lsp-editor%)
+                      (list/c (or/c #f (is-a?/c build-trace%)) any/c))]))
+

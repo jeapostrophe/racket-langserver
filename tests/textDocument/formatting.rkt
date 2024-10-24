@@ -21,7 +21,8 @@ END
       (let ([notif (make-notification
                     "textDocument/didChange"
                     (hasheq 'textDocument
-                            (hasheq 'uri uri)
+                            (hasheq 'uri uri
+                                    'version 0)
                             'contentChanges
                             (list
                              (hasheq 'range

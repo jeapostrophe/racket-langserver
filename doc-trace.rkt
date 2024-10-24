@@ -8,7 +8,8 @@
          "service/require.rkt"
          "service/definition.rkt"
          "service/diagnostic.rkt"
-         "service/declaration.rkt")
+         "service/declaration.rkt"
+         "service/highlight.rkt")
 
 (define build-trace%
   (class (annotations-mixin object%)
@@ -20,6 +21,7 @@
     (define definitions (new definition% [src src]))
     (define diag (new diag% [doc-text doc-text]))
     (define decls (new declaration%))
+    (define semantic-tokens (new highlight% [src src] [doc-text doc-text]))
 
     (define services
       (list hovers
@@ -28,7 +30,8 @@
             requires
             definitions
             diag
-            decls))
+            decls
+            semantic-tokens))
 
     (define/public (reset)
       (for ([s services])
@@ -57,6 +60,7 @@
     (define/public (get-sym-bindings) (cadr (send decls get)))
     (define/public (get-definitions) (send definitions get))
     (define/public (get-quickfixs) (cadr (send diag get)))
+    (define/public (get-semantic-tokens) (send semantic-tokens get))
 
     ;; Overrides
     (define/override (syncheck:find-source-object stx)
@@ -102,6 +106,10 @@
     (define/override (syncheck:add-unused-require src left right)
       (for ([s services])
         (send s syncheck:add-unused-require src left right)))
+
+    (define/override (syncheck:color-range src start end style)
+      (for ([s services])
+        (send s syncheck:color-range src start end style)))
 
     (super-new)))
 

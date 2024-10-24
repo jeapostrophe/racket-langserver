@@ -9,6 +9,36 @@
          "struct.rkt"
          (prefix-in text-document/ "text-document.rkt"))
 
+;; Process a request or an notification.
+;;
+;; A request asks for a result. A notification can optionally
+;; send some information to the client.
+;;
+;; A process can return result then send to client, or return
+;; a procedure that is a async task and is expected to run in
+;; a new thread.
+;;
+;; Most requests and notifications can be simplified into two types:
+;;
+;; Text change: for example, document change notification
+;; Queries: Read only requests
+;;
+;; For a text change, we do a fast and simple adjustment synchronously to the data in
+;; build-trace% which is defined in `doc-trace.rkt`. This fast adjustment is useful for
+;; fast response, but can be incorrect. So we also runs an async task (check syntax)
+;; to update the build-trace%, which can be very slow and sometimes failed, but it
+;; is correct.
+;;
+;; For a query, if it's not important to use the latest data, we just run it synchronously
+;; and use the fast adjusted build-trace%. Otherwise, it would be an async task. We choose
+;; to run it right before the next text change event or after the current text corresponding
+;; check syntax task completes.
+;;
+;; One important point is that check syntax task is computationally intensive, so don't run
+;; too much. The current strategy is an newer check syntax task always replace
+;; the old running task. So for any document, at most one check syntax task is running
+;; at any time.
+
 ;; TextDocumentSynKind enumeration
 (define TextDocSync-None 0)
 (define TextDocSync-Full 1)
@@ -175,7 +205,7 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (provide
- (contract-out
-  [process-message
-   (jsexpr? . -> . void?)]))
+  (contract-out
+    [process-message
+     (jsexpr? . -> . void?)]))
 

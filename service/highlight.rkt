@@ -2,31 +2,36 @@
 
 (require drracket/check-syntax
          syntax/parse
-         "struct.rkt"
+         "../struct.rkt"
          racket/class
-         racket/set
          racket/list
          racket/bool
+         racket/dict
          racket/match
-         "expand.rkt")
+         data/interval-map
+         "interface.rkt")
 
-(provide collect-semantic-tokens)
+(provide highlight%)
 
-;; A temporary structure to hold tokens
-;; `tag` is symbol that is a tag associated with this token.
-;; An identifier may correspond multiple tokens. They will be merged, then converted into
-;; lsp semantic token types and modifiers.
-(struct Token
-  (start end tag))
-
-(define collector%
-  (class (annotations-mixin object%)
-    (define styles '())
-
+(define highlight%
+  (class base-service%
     (super-new)
+    (init-field src doc-text)
+    (define styles '())
+    (define token-map (make-interval-map))
 
-    (define/override (syncheck:find-source-object stx)
-      #f)
+    (define/override (get)
+      (interval-map->token-lst token-map))
+
+    (define/override (reset)
+      (set! styles '())
+      (set! token-map (make-interval-map)))
+
+    (define/override (expand start end)
+      (interval-map-expand! token-map start end))
+
+    (define/override (contract start end)
+      (interval-map-contract! token-map start end))
 
     (define/override (syncheck:color-range src start end style)
       (when (< start end)
@@ -36,23 +41,35 @@
       (when (< start finish)
         (set! styles (cons (Token start finish 'definition) styles))))
 
-    (define/public (get-styles)
-      (set->list (list->set styles)))))
+    (define/override (walk-stx stx expanded)
+      (set! token-map (token-list->interval-map (collect-tokens stx expanded styles src doc-text))))
 
-; (-> lsp-editor% Path (Listof SemanticToken))
-(define (collect-semantic-tokens doc-text path)
+    (define (token-list->interval-map lst)
+      (define interval-map (make-interval-map))
+      (for ([tok lst])
+        (interval-map-set! interval-map (SemanticToken-start tok) (SemanticToken-end tok) tok))
+      interval-map)
+
+    (define (interval-map->token-lst token-map)
+      (for/list ([(k v) (in-dict token-map)])
+        (SemanticToken (car k) (cdr k) (SemanticToken-type v) (SemanticToken-modifiers v))))
+    ))
+
+;; A temporary structure to hold tokens
+;; `tag` is symbol that is a tag associated with this token.
+;; An identifier may correspond multiple tokens. They will be merged, then converted into
+;; lsp semantic token types and modifiers.
+(struct Token
+  (start end tag))
+
+(define (collect-tokens stx expanded styles src doc-text)
+  (define drracket-styles (convert-drracket-color-styles styles))
   (define code-str (send doc-text get-text))
-  (define in (open-input-string code-str))
-  (port-count-lines! in)
-
-  (define collector (new collector%))
-  (match-define (list stx expanded) (sync (read-and-expand in path collector)))
-  (define drracket-styles (convert-drracket-color-styles (send collector get-styles)))
 
   (define token-list
     (append drracket-styles
-            (if (syntax? stx) (walk-stx stx) '())
-            (if (syntax? expanded) (walk-expanded-stx path expanded) '())))
+            (if (syntax? stx) (walk-orig-stx stx) '())
+            (if (syntax? expanded) (walk-expanded-stx src expanded) '())))
 
   (let* ([tokens-no-false (filter-not false? token-list)]
          [tokens-no-out-bounds (filter (λ (t) (< -1 (Token-start t) (string-length code-str)))
@@ -95,16 +112,16 @@
 (define (get-valid-modifiers tags)
   (filter (λ (t) (memq t *semantic-token-modifiers*)) tags))
 
-(define (walk-stx stx)
+(define (walk-orig-stx stx)
   (syntax-parse stx
     #:datum-literals (#%module-begin)
     [() (list)]
     [(any1 any* ...)
-     (append (walk-stx #'any1)
-             (walk-stx #'(any* ...)))]
+     (append (walk-orig-stx #'any1)
+             (walk-orig-stx #'(any* ...)))]
     [#(any1 any* ...)
-     (append (walk-stx #'any1)
-             (walk-stx #'(any* ...)))]
+     (append (walk-orig-stx #'any1)
+             (walk-orig-stx #'(any* ...)))]
     [#%module-begin
      (list)]
     [atom (list (tag-of-atom-stx #'atom))]))
