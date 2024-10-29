@@ -21,7 +21,7 @@
          json
          drracket/check-syntax
          syntax/modread
-         "lock.rkt")
+         "base/rwlock.rkt")
 
 ;; SafeDoc has two eliminator:
 ;; with-read-doc: access Doc within a reader lock.
