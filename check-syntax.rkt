@@ -174,7 +174,10 @@
             (define original-stx (with-module-reading-parameterization
                                    (λ () (read-syntax src in))))
             ;; 90 seconds limit for possible infinity recursive macro expand
-            (define stx (timeout 90 (expand original-stx)))
+            (define stx 
+              ;; parameterize current output port to fix side effects of `expand`.
+              (parameterize ([current-output-port (open-output-string)])
+                (timeout 90 (expand original-stx))))
             (add-syntax stx)
             (set! valid #t)
             (done)
