@@ -7,6 +7,7 @@
          "msg-io.rkt"
          "responses.rkt"
          "struct.rkt"
+         (prefix-in workspace/ "workspace.rkt")
          (prefix-in text-document/ "text-document.rkt"))
 
 ;; Process a request or an notification.
@@ -142,6 +143,8 @@
   (match method
     ["exit"
      (exit (if already-shutdown? 0 1))]
+    ["workspace/didChangeWorkspaceFolders"
+     (workspace/didChangeWorkspaceFolders params)]
     ["textDocument/didOpen"
      (text-document/did-open! params)]
     ["textDocument/didClose"
@@ -190,7 +193,8 @@
                'documentSymbolProvider #t
                'documentFormattingProvider #t
                'documentRangeFormattingProvider #t
-               'documentOnTypeFormattingProvider (hasheq 'firstTriggerCharacter ")" 'moreTriggerCharacter (list "\n" "]"))))
+               'documentOnTypeFormattingProvider (hasheq 'firstTriggerCharacter ")" 'moreTriggerCharacter (list "\n" "]"))
+               'workspace (hasheq 'workspaceFolders (hasheq 'changeNotifications #t))))
 
      (define resp (success-response id (hasheq 'capabilities server-capabilities)))
      (set! already-initialized? #t)
