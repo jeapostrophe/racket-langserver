@@ -41,6 +41,11 @@
                 "openClose": true,
                 "willSave": false,
                 "willSaveWaitUntil": false
+            },
+            "workspace": {
+                "workspaceFolders": {
+                    "changeNotifications": true
+                }
             }
         }
     }
