@@ -45,6 +45,18 @@
             "workspace": {
                 "workspaceFolders": {
                     "changeNotifications": true
+                },
+                "fileOperations": {
+                    "didRename": {
+                        "filters": [
+                            {
+                                "scheme": "file",
+                                "pattern": {
+                                    "glob": "**/*.rkt"
+                                }
+                            }
+                        ]
+                    }
                 }
             }
         }
