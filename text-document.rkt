@@ -20,6 +20,7 @@
          "doc.rkt"
          "struct.rkt"
          "scheduler.rkt")
+(require "open-docs.rkt")
 
 ;;
 ;; Match Expanders
@@ -75,8 +76,6 @@
 ;;
 ;; Methods
 ;;;;;;;;;;;;
-
-(define open-docs (make-hasheq))
 
 (define (did-open! params)
   (match-define (hash-table ['textDocument (DocItem #:uri uri #:version version #:text text)]) params)

@@ -1,6 +1,14 @@
 #lang racket
-(provide didChangeWorkspaceFolders)
-(require "json-util.rkt")
+(provide didRenameFiles didChangeWorkspaceFolders)
+(require "json-util.rkt"
+         "doc.rkt")
+(require "open-docs.rkt")
+
+(define-json-expander FileRename
+  [oldUri string?]
+  [newUri string?])
+(define-json-expander  RenameFilesParams
+  [files (listof hash?)])
 
 (define-json-expander WorkspaceFolder
   [uri string?]
@@ -10,6 +18,16 @@
   [removed (listof hash?)])
 
 (define workspace-folders (mutable-set))
+
+(define (didRenameFiles params)
+  (match-define (RenameFilesParams #:files files) params)
+  (for ([f files])
+    (match-define (FileRename #:oldUri old-uri #:newUri new-uri) f)
+    (define safe-doc (hash-ref open-docs (string->symbol old-uri) #f))
+    ; `safe-doc = #f` should be rarely happened.
+    ; we simply give up to handle it, let's trust LSP client will send others request about analysis this file.
+    (when safe-doc
+      (hash-set! open-docs (string->symbol new-uri) safe-doc))))
 
 (define (didChangeWorkspaceFolders params)
   (match-define (hash-table ['event (WorkspaceFoldersChangeEvent #:added added #:removed removed)]) params)

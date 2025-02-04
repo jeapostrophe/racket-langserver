@@ -143,6 +143,8 @@
   (match method
     ["exit"
      (exit (if already-shutdown? 0 1))]
+    ["workspace/didRenameFiles"
+     (workspace/didRenameFiles params)]
     ["workspace/didChangeWorkspaceFolders"
      (workspace/didChangeWorkspaceFolders params)]
     ["textDocument/didOpen"
@@ -194,7 +196,12 @@
                'documentFormattingProvider #t
                'documentRangeFormattingProvider #t
                'documentOnTypeFormattingProvider (hasheq 'firstTriggerCharacter ")" 'moreTriggerCharacter (list "\n" "]"))
-               'workspace (hasheq 'workspaceFolders (hasheq 'changeNotifications #t))))
+               'workspace
+               (hasheq 'fileOperations
+                       (hasheq 'didRename ; workspace.fileOperations.didRename
+                                (hasheq 'filters
+                                        (list (hasheq 'scheme "file" 'pattern (hasheq 'glob "**/*.rkt")))))
+                       'workspaceFolders (hasheq 'changeNotifications #t))))
 
      (define resp (success-response id (hasheq 'capabilities server-capabilities)))
      (set! already-initialized? #t)
