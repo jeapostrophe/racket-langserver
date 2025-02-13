@@ -23,12 +23,15 @@
   (match-define (RenameFilesParams #:files files) params)
   (for ([f files])
     (match-define (FileRename #:oldUri old-uri #:newUri new-uri) f)
-    (define safe-doc (hash-ref open-docs (string->symbol old-uri) #f))
-    ; `safe-doc = #f` should be rarely happened.
-    ; we simply give up to handle it, let's trust LSP client will send others request about analysis this file.
-    (when safe-doc
-      (doc-update-uri! safe-doc new-uri)
-      (hash-set! open-docs (string->symbol new-uri) safe-doc))))
+
+    (if (string-suffix? new-uri ".rkt")
+      (let ([safe-doc (hash-ref open-docs (string->symbol old-uri) #f)])
+        ; `safe-doc = #f` should be rarely happened.
+        ; we simply give up to handle it, let's trust LSP client will send others request about analysis this file.
+        (when safe-doc
+          (doc-update-uri! safe-doc new-uri)
+          (hash-set! open-docs (string->symbol new-uri) safe-doc)))
+      (hash-remove! open-docs (string->symbol old-uri)))))
 
 (define (didChangeWorkspaceFolders params)
   (match-define (hash-table ['event (WorkspaceFoldersChangeEvent #:added added #:removed removed)]) params)
