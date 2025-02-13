@@ -1,7 +1,8 @@
 #lang racket
 (provide didRenameFiles didChangeWorkspaceFolders)
 (require "json-util.rkt"
-         "doc.rkt")
+         "doc.rkt"
+         "scheduler.rkt")
 (require "open-docs.rkt")
 
 (define-json-expander FileRename
@@ -23,6 +24,9 @@
   (match-define (RenameFilesParams #:files files) params)
   (for ([f files])
     (match-define (FileRename #:oldUri old-uri #:newUri new-uri) f)
+
+    ; remove all awaiting internal queries about `old-uri`
+    (clear-old-queries/doc-close old-uri)
 
     (if (string-suffix? new-uri ".rkt")
       (let ([safe-doc (hash-ref open-docs (string->symbol old-uri) #f)])
