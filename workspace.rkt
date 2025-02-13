@@ -27,6 +27,7 @@
     ; `safe-doc = #f` should be rarely happened.
     ; we simply give up to handle it, let's trust LSP client will send others request about analysis this file.
     (when safe-doc
+      (doc-update-uri! safe-doc new-uri)
       (hash-set! open-docs (string->symbol new-uri) safe-doc))))
 
 (define (didChangeWorkspaceFolders params)

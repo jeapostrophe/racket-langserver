@@ -74,6 +74,9 @@
 (define (doc-update-version! doc new-ver)
   (set-Doc-version! doc new-ver))
 
+(define (doc-update-uri! doc new-uri)
+  (set-Doc-uri! doc new-uri))
+
 (define (with-read-doc safe-doc proc)
   (call-with-read-lock
     (SafeDoc-rwlock safe-doc)
@@ -400,6 +403,7 @@
          doc-update!
          doc-reset!
          doc-update-version!
+         doc-update-uri!
          doc-run-check-syntax!
          doc-pos
          doc-endpos
