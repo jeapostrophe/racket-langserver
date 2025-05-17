@@ -55,6 +55,8 @@
     (define/public (get-hovers) (send hovers get))
     (define/public (get-docs) (send docs get))
     (define/public (get-completions) (send completions get))
+    (define/public (get-online-completions str-before-cursor)
+      (send completions get-online-completions str-before-cursor))
     (define/public (get-requires) (send requires get))
     (define/public (get-sym-decls) (car (send decls get)))
     (define/public (get-sym-bindings) (cadr (send decls get)))
