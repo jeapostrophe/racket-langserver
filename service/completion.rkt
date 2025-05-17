@@ -18,8 +18,7 @@
       (set! completions (list)))
 
     (define/override (walk-stx stx expanded-stx)
-      (define c (walk expanded-stx))
-      (set! completions c))
+      (set! completions (walk expanded-stx)))
 
     (define/public (get-online-completions str-before-cursor)
       (walk-online str-before-cursor))
