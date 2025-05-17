@@ -13,9 +13,14 @@
 ; for more information.
 #lang racket/base
 (require racket/bool racket/set racket/sequence
-         (for-syntax racket/base) syntax/kerncase
-         "utils.rkt")
+         (for-syntax racket/base) syntax/kerncase)
 (provide walk-module)
+
+(define (visible? id)
+  (for/and ([scope (in-list
+                    (hash-ref (syntax-debug-info id)
+                              'context (λ () '())))])
+    (not (eq? 'macro (vector-ref scope 1)))))
 
 (define-syntax (for/union stx)
   (syntax-case stx ()
