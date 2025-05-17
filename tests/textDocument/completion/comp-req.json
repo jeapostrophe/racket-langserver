@@ -9,7 +9,7 @@
         },
         "position": {
             "character": 1,
-            "line": 2
+            "line": 1
         },
         "textDocument": {
             "uri": "file:///test.rkt"

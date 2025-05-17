@@ -6,16 +6,16 @@
             {
                 "range": {
                     "end": {
-                        "character": 0,
-                        "line": 2
+                        "character": 17,
+                        "line": 0
                     },
                     "start": {
-                        "character": 0,
-                        "line": 2
+                        "character": 17,
+                        "line": 0
                     }
                 },
                 "rangeLength": 0,
-                "text": "()"
+                "text": "\n()"
             }
         ],
         "textDocument": {
