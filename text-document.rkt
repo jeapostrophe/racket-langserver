@@ -244,11 +244,16 @@
      (with-read-doc safe-doc
        (λ (doc)
          (define doc-trace (Doc-trace doc))
-         (define completions (send doc-trace get-completions))
+         (define pos (sub1 (doc-pos doc line ch)))
+         (define completions 
+           (append (send doc-trace get-completions)
+                   (send doc-trace get-online-completions (doc-guess-token doc pos))))
          (define result
            (for/list ([completion (in-list completions)])
              (hasheq 'label (symbol->string completion))))
-         (success-response id result)))]
+         (success-response id
+           (hash 'isIncomplete #t
+                 'items result))))]
     [_
      (error-response id INVALID-PARAMS "textDocument/completion failed")]))
 

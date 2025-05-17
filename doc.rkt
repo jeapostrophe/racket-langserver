@@ -396,6 +396,15 @@
     (values (cons (list delta-line delta-start len type modifier) result)
             (SemanticToken-start token))))
 
+(define (-doc-find-token text pos)
+  (define ch (string-ref text pos))
+  (cond [(= pos 0) (list ch)]
+        [(or (char=? ch #\") (char-whitespace? ch)) '()]
+        [else (cons ch (-doc-find-token text (sub1 pos)))]))
+
+(define (doc-guess-token doc pos)
+  (list->string (reverse (-doc-find-token (send (Doc-text doc) get-text) pos))))
+
 (provide with-read-doc
          with-write-doc
          (struct-out Doc)
@@ -414,5 +423,6 @@
          doc-get-symbols
          get-definition-by-id
          format!
-         doc-range-tokens)
+         doc-range-tokens
+         doc-guess-token)
 
