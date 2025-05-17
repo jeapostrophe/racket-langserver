@@ -29,7 +29,10 @@ END
       ;; meet some conditions
       (let ([resp (client-wait-response lsp)])
         (chk (jsexpr-has-key? resp '(result)))
-        (define result (jsexpr-ref resp '(result)))
+        (define completion-list (jsexpr-ref resp '(result)))
+        (chk (jsexpr-has-key? completion-list '(isIncomplete)))
+        (chk (jsexpr-has-key? completion-list '(items)))
+        (define result (jsexpr-ref completion-list '(items)))
         (chk (list? result))
         (chk (for/and ([item result])
                (jsexpr-has-key? item '(label))))
