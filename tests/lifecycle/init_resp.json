@@ -54,6 +54,12 @@
                                 "pattern": {
                                     "glob": "**/*.rkt"
                                 }
+                            },
+                            {
+                                "scheme": "file",
+                                "pattern": {
+                                    "glob": "**/*.rhm"
+                                }
                             }
                         ]
                     }

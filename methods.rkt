@@ -200,7 +200,8 @@
                (hasheq 'fileOperations
                        (hasheq 'didRename ; workspace.fileOperations.didRename
                                 (hasheq 'filters
-                                        (list (hasheq 'scheme "file" 'pattern (hasheq 'glob "**/*.rkt")))))
+                                        (list (hasheq 'scheme "file" 'pattern (hasheq 'glob "**/*.rkt"))
+                                              (hasheq 'scheme "file" 'pattern (hasheq 'glob "**/*.rhm")))))
                        'workspaceFolders (hasheq 'changeNotifications #t))))
 
      (define resp (success-response id (hasheq 'capabilities server-capabilities)))

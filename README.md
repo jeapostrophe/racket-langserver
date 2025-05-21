@@ -24,7 +24,7 @@ Next, install the package via `raco`:
 raco pkg install racket-langserver
 ```
 
-Once it is installed, you can configure your editor to use a custom LSP client for Racket files (`.rkt`), and set the command for the custom client to
+Once it is installed, you can configure your editor to use a custom LSP client for Racket/Rhombus files (`.rkt`/`.rhm`), and set the command for the custom client to
 
 ```
 racket -l racket-langserver
