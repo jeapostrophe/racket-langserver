@@ -28,7 +28,7 @@
     ; remove all awaiting internal queries about `old-uri`
     (clear-old-queries/doc-close old-uri)
 
-    (if (string-suffix? new-uri ".rkt")
+    (if (or (string-suffix? new-uri ".rkt") (string-suffix? new-uri ".rhm"))
       (let ([safe-doc (hash-ref open-docs (string->symbol old-uri) #f)])
         ; `safe-doc = #f` should be rarely happened.
         ; we simply give up to handle it, let's trust LSP client will send others request about analysis this file.

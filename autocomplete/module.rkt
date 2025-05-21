@@ -57,7 +57,7 @@
                      [(not (string-prefix? (path->string f) p)) s]
                      [(and (file-exists? (build-path dir f))
                            (member (path-get-extension f)
-                                   '(#".rkt")))
+                                   '(#".rkt" #".rhm")))
                       (set-add
                        s
                        (join-str
