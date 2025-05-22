@@ -1,5 +1,6 @@
 #lang racket/base
 (require json
+         compiler/module-suffix
          racket/contract/base
          racket/exn
          racket/match
@@ -200,8 +201,9 @@
                (hasheq 'fileOperations
                        (hasheq 'didRename ; workspace.fileOperations.didRename
                                 (hasheq 'filters
-                                        (list (hasheq 'scheme "file" 'pattern (hasheq 'glob "**/*.rkt"))
-                                              (hasheq 'scheme "file" 'pattern (hasheq 'glob "**/*.rhm")))))
+                                        (map (lambda (ext)
+                                                (hasheq 'scheme "file" 'pattern (hasheq 'glob (format "**/*.~a" ext))))
+                                              (get-module-suffixes))))
                        'workspaceFolders (hasheq 'changeNotifications #t))))
 
      (define resp (success-response id (hasheq 'capabilities server-capabilities)))

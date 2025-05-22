@@ -48,20 +48,7 @@
                 },
                 "fileOperations": {
                     "didRename": {
-                        "filters": [
-                            {
-                                "scheme": "file",
-                                "pattern": {
-                                    "glob": "**/*.rkt"
-                                }
-                            },
-                            {
-                                "scheme": "file",
-                                "pattern": {
-                                    "glob": "**/*.rhm"
-                                }
-                            }
-                        ]
+                        "filters": []
                     }
                 }
             }

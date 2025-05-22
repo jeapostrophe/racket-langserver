@@ -1,6 +1,7 @@
 #lang racket/base
 (require chk
          json
+         compiler/module-suffix
          racket/os
          "../../msg-io.rkt"
          "../../json-util.rkt"
@@ -41,6 +42,10 @@
     (define json (jsexpr-set expected-json '(result capabilities semanticTokensProvider legend)
                              (hasheq 'tokenModifiers (map symbol->string *semantic-token-modifiers*)
                                      'tokenTypes (map symbol->string *semantic-token-types*))))
+    (set! json (jsexpr-set json '(result capabilities workspace fileOperations didRename filters)
+                           (map (lambda (ext)
+                                                (hasheq 'scheme "file" 'pattern (hasheq 'glob (format "**/*.~a" ext))))
+                                              (get-module-suffixes))))
     (chk #:= resp json))
 
   ;; Shutdown request
