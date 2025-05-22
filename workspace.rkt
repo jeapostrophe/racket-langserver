@@ -1,5 +1,6 @@
 #lang racket
 (provide didRenameFiles didChangeWorkspaceFolders)
+(require compiler/module-suffix)
 (require "json-util.rkt"
          "doc.rkt"
          "scheduler.rkt")
@@ -28,7 +29,7 @@
     ; remove all awaiting internal queries about `old-uri`
     (clear-old-queries/doc-close old-uri)
 
-    (if (or (string-suffix? new-uri ".rkt") (string-suffix? new-uri ".rhm"))
+    (if (regexp-match (get-module-suffix-regexp) new-uri)
       (let ([safe-doc (hash-ref open-docs (string->symbol old-uri) #f)])
         ; `safe-doc = #f` should be rarely happened.
         ; we simply give up to handle it, let's trust LSP client will send others request about analysis this file.
