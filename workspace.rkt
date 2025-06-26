@@ -1,5 +1,5 @@
 #lang racket
-(provide didRenameFiles didChangeWorkspaceFolders)
+(provide didRenameFiles didChangeWorkspaceFolders didChangeWatchedFiles)
 (require compiler/module-suffix)
 (require "json-util.rkt"
          "doc.rkt"
@@ -18,6 +18,12 @@
 (define-json-expander WorkspaceFoldersChangeEvent
   [added (listof hash?)]
   [removed (listof hash?)])
+
+(define-json-expander FileEvent
+  [uri string?]
+  [type exact-positive-integer?])
+(define-json-expander DidChangeWatchedFilesParams
+  [changes (listof hash?)])
 
 (define workspace-folders (mutable-set))
 
@@ -48,3 +54,26 @@
   (for ([f removed])
     (match-define (WorkspaceFolder #:uri uri #:name _) f)
     (set-remove! workspace-folders uri)))
+
+(define (didChangeWatchedFiles params)
+  (match-define (DidChangeWatchedFilesParams #:changes changes) params)
+  (for ([change changes])
+    (match-define (FileEvent #:uri uri #:type type) change)
+    (match type
+      [1 (handle-file-created uri)]
+      [2 (handle-file-changed uri)]
+      [3 (handle-file-deleted uri)]
+      [_ (eprintf "Invalid file event type: ~a~n" type)])))
+(define (handle-file-created uri)
+  (when (regexp-match (get-module-suffix-regexp) uri)
+    (define safe-doc (new-doc uri "" 0))
+    (hash-set! open-docs (string->symbol uri) safe-doc)))
+(define (handle-file-changed uri)
+  (when (regexp-match (get-module-suffix-regexp) uri)
+    (let ([safe-doc (hash-ref open-docs (string->symbol uri) #f)])
+      (when safe-doc
+        (clear-old-queries/doc-close uri)))))
+(define (handle-file-deleted uri)
+  (when (regexp-match (get-module-suffix-regexp) uri)
+    (clear-old-queries/doc-close uri)
+    (hash-remove! open-docs (string->symbol uri))))
