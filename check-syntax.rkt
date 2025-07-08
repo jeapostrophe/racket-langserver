@@ -182,6 +182,7 @@
             (set! valid #t)
             (done)
             (send new-trace walk-stx original-stx stx)
+            (send new-trace walk-text text)
             (list)))
         'info)))
 

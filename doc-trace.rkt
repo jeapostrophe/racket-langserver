@@ -19,7 +19,7 @@
     (define completions (new completion%))
     (define requires (new require%))
     (define definitions (new definition% [src src]))
-    (define diag (new diag% [doc-text doc-text]))
+    (define diag (new diag% [src src] [doc-text doc-text]))
     (define decls (new declaration%))
     (define semantic-tokens (new highlight% [src src] [doc-text doc-text]))
 
@@ -48,6 +48,10 @@
     (define/public (walk-stx stx expanded-stx)
       (for ([s services])
         (send s walk-stx stx expanded-stx)))
+
+    (define/public (walk-text text)
+      (for ([s services])
+        (send s walk-text text)))
 
     ;; Getters
     (define/public (get-indenter) indenter)
