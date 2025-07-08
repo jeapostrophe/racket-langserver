@@ -14,7 +14,8 @@
                "scribble-lib" ;; for blueboxes (scribble/blueboxes)
                "racket-index" ;; for cross references (setup/xref)
                "html-parsing" ;; for parsing documentation text
-               "resyntax"
+               "resyntax" ;; for resyntax integration
+               "rebellion" ;; for resyntax integration
                ))
 (define build-deps '("chk-lib"))
 (define pkg-desc "Language Server Protocol implementation for Racket.")
