@@ -38,5 +38,8 @@
 
     ;; walk original syntax and expanded syntax
     (define/public (walk-stx stx expanded-stx)
+      (void))
+
+    (define/public (walk-text text)
       (void))))
 
