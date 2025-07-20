@@ -1,9 +1,13 @@
 #lang racket
-(provide didRenameFiles didChangeWorkspaceFolders didChangeWatchedFiles)
+(provide didRenameFiles
+         didChangeWorkspaceFolders
+         didChangeWatchedFiles
+         didChangeConfiguration)
 (require compiler/module-suffix)
 (require "json-util.rkt"
          "doc.rkt"
-         "scheduler.rkt")
+         "scheduler.rkt"
+         "settings.rkt")
 (require "open-docs.rkt")
 
 (define-json-expander FileRename
@@ -77,3 +81,8 @@
   (when (regexp-match (get-module-suffix-regexp) uri)
     (clear-old-queries/doc-close uri)
     (hash-remove! open-docs (string->symbol uri))))
+
+(define (didChangeConfiguration params)
+  (match-define (hash-table ['settings settings]) params)
+  (define client-enable-resyntax (jsexpr-ref settings '(resyntax enable) #t))
+  (enable-resyntax? client-enable-resyntax))
