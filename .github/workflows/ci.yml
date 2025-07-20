@@ -8,16 +8,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        racket-version: ["7.6", "8.5", "stable", "current"]
-        racket-variant: ["CS"]
-        exclude:
-          - racket-version: "7.6"
-            racket-variant: "CS"
+        racket-version: ["8.13", "stable", "current"]
+        racket-variant: ["BC", "CS"]
         include:
-          - racket-version: "7.6"
-            racket-variant: "BC"
-          - racket-version: "8.5"
-            racket-variant: "BC"
           - racket-version: current
             experimental: true
     steps:
