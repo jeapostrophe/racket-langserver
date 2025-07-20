@@ -150,6 +150,8 @@
      (workspace/didChangeWorkspaceFolders params)]
     ["workspace/didChangeWatchedFiles"
      (workspace/didChangeWatchedFiles params)]
+    ["workspace/didChangeConfiguration"
+     (workspace/didChangeConfiguration params)]
     ["textDocument/didOpen"
      (text-document/did-open! params)]
     ["textDocument/didClose"

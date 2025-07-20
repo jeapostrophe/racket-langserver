@@ -7,6 +7,7 @@
          "../interfaces.rkt"
          "../responses.rkt"
          "../path-util.rkt"
+         "../settings.rkt"
          drracket/check-syntax)
 
 (require resyntax
@@ -36,7 +37,8 @@
       (set! quickfixs (make-interval-map)))
 
     (define/override (walk-text text)
-      (resyntax text))
+      (when (enable-resyntax?)
+        (resyntax text)))
 
     (define/override (syncheck:add-mouse-over-status src-obj start finish text)
       (when (string=? "no bound occurrences" text)
