@@ -94,14 +94,15 @@
                              #:end (abs-pos->Pos doc-text char-end)))
         (define new-text (string-replacement-render sr (source->string text-source)))
 
+        (define rule-name (refactoring-result-rule-name result))
         (define diag
           (Diagnostic #:range range
                       #:severity Diag-Information
                       #:source "Resyntax"
-                      #:message message))
+                      #:message (format "[~a] ~a" rule-name message)))
         (define code-action
           (CodeAction
-            #:title (symbol->string (refactoring-result-rule-name result))
+            #:title (format "Apply rule [~a]" rule-name)
             #:kind "quickfix"
             #:diagnostics (list diag)
             #:isPreferred #f
