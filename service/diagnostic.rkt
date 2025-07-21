@@ -37,7 +37,7 @@
       (set! quickfixs (make-interval-map)))
 
     (define/override (walk-text text)
-      (when (enable-resyntax?)
+      (when (get-resyntax-enabled)
         (resyntax text)))
 
     (define/override (syncheck:add-mouse-over-status src-obj start finish text)

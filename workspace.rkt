@@ -11,23 +11,23 @@
 (require "open-docs.rkt")
 
 (define-json-expander FileRename
-  [oldUri string?]
-  [newUri string?])
-(define-json-expander  RenameFilesParams
-  [files (listof hash?)])
+                      [oldUri string?]
+                      [newUri string?])
+(define-json-expander RenameFilesParams
+                      [files (listof hash?)])
 
 (define-json-expander WorkspaceFolder
-  [uri string?]
-  [name string?])
+                      [uri string?]
+                      [name string?])
 (define-json-expander WorkspaceFoldersChangeEvent
-  [added (listof hash?)]
-  [removed (listof hash?)])
+                      [added (listof hash?)]
+                      [removed (listof hash?)])
 
 (define-json-expander FileEvent
-  [uri string?]
-  [type exact-positive-integer?])
+                      [uri string?]
+                      [type exact-positive-integer?])
 (define-json-expander DidChangeWatchedFilesParams
-  [changes (listof hash?)])
+                      [changes (listof hash?)])
 
 (define workspace-folders (mutable-set))
 
@@ -40,15 +40,15 @@
     (clear-old-queries/doc-close old-uri)
 
     (if (regexp-match (get-module-suffix-regexp) new-uri)
-      (let ([safe-doc (hash-ref open-docs (string->symbol old-uri) #f)])
-        ; `safe-doc = #f` should be rarely happened.
-        ; we simply give up to handle it, let's trust LSP client will send others request about analysis this file.
-        (when safe-doc
-          (with-write-doc safe-doc
-            (lambda (doc)
-              (doc-update-uri! doc new-uri)))
-          (hash-set! open-docs (string->symbol new-uri) safe-doc)))
-      (hash-remove! open-docs (string->symbol old-uri)))))
+        (let ([safe-doc (hash-ref open-docs (string->symbol old-uri) #f)])
+          ; `safe-doc = #f` should be rarely happened.
+          ; we simply give up to handle it, let's trust LSP client will send others request about analysis this file.
+          (when safe-doc
+            (with-write-doc safe-doc
+                            (lambda (doc)
+                              (doc-update-uri! doc new-uri)))
+            (hash-set! open-docs (string->symbol new-uri) safe-doc)))
+        (hash-remove! open-docs (string->symbol old-uri)))))
 
 (define (didChangeWorkspaceFolders params)
   (match-define (hash-table ['event (WorkspaceFoldersChangeEvent #:added added #:removed removed)]) params)
@@ -84,5 +84,8 @@
 
 (define (didChangeConfiguration params)
   (match-define (hash-table ['settings settings]) params)
-  (define client-enable-resyntax (jsexpr-ref settings '(resyntax enable) #t))
-  (enable-resyntax? client-enable-resyntax))
+
+  (define key '(resyntax enable))
+  (when (jsexpr-has-key? settings key)
+    (set-resyntax-enabled! (jsexpr-ref settings key #t))))
+

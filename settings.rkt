@@ -1,6 +1,13 @@
 #lang racket/base
 
-(provide enable-resyntax?)
+(provide get-resyntax-enabled
+         set-resyntax-enabled!)
 
-(define enable-resyntax? (make-parameter #t))
+(define resyntax-enabled? #t)
+
+(define (get-resyntax-enabled)
+  resyntax-enabled?)
+
+(define (set-resyntax-enabled! val)
+  (set! resyntax-enabled? val))
 
