@@ -1,0 +1,23 @@
+{
+    "id": 0,
+    "jsonrpc": "2.0",
+    "method": "textDocument/codeAction",
+    "params": {
+        "context": {
+            "diagnostics": []
+        },
+        "range": {
+            "end": {
+                "character": 9,
+                "line": 2
+            },
+            "start": {
+                "character": 8,
+                "line": 2
+            }
+        },
+        "textDocument": {
+            "uri": "file:///test.rkt"
+        }
+    }
+}
