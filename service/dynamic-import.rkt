@@ -5,7 +5,7 @@
 (define-syntax-rule (import-once mod name fail-thunk)
   (define name
     (let ([logging-fail-thunk (λ ()
-                                (eprintf "symbol '~a' from module '~a' fail to load.\n" 'name mod)
+                                (log-info "symbol '~a' from module '~a' fail to load." 'name mod)
                                 (fail-thunk))])
       (with-handlers ([exn? (λ (e)
                               (logging-fail-thunk)

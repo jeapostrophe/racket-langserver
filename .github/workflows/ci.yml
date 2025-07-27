@@ -34,3 +34,26 @@ jobs:
         run: raco setup -j 1 --no-docs --check-pkg-deps --unused-pkg-deps --pkgs racket-langserver
       - name: Testing racket-langserver
         run: xvfb-run -a raco test -j 1 -c racket-langserver/tests
+
+  resyntax:
+    name: "Resyntax integration on Racket '${{ matrix.racket-version }}' (${{ matrix.racket-variant }})"
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        racket-version: ["stable"]
+        racket-variant: ["BC", "CS"]
+    steps:
+      - uses: actions/checkout@v3.1.0
+      - uses: Bogdanp/setup-racket@v1.10
+        with:
+          architecture: x64
+          distribution: full
+          variant: ${{ matrix.racket-variant }}
+          version: ${{ matrix.racket-version }}
+      - name: Installing racket-langserver and its dependencies
+        run: raco pkg install --no-docs --auto --name racket-langserver
+      - name: Install Resyntax
+        run: raco pkg install --no-docs --auto resyntax
+      - name: Running resyntax tests
+        run: xvfb-run -a raco test -j 1 tests/textDocument/resyntax/

@@ -1,0 +1,47 @@
+{
+    "id": 0,
+    "jsonrpc": "2.0",
+    "result": [
+        {
+            "diagnostics": [
+                {
+                    "message": "[format-identity] This use of `format` does nothing.",
+                    "range": {
+                        "end": {
+                            "character": 11,
+                            "line": 2
+                        },
+                        "start": {
+                            "character": 0,
+                            "line": 2
+                        }
+                    },
+                    "severity": 3,
+                    "source": "Resyntax"
+                }
+            ],
+            "edit": {
+                "changes": {
+                    "file:///test.rkt": [
+                        {
+                            "newText": "\"\"",
+                            "range": {
+                                "end": {
+                                    "character": 11,
+                                    "line": 2
+                                },
+                                "start": {
+                                    "character": 0,
+                                    "line": 2
+                                }
+                            }
+                        }
+                    ]
+                }
+            },
+            "isPreferred": false,
+            "kind": "quickfix",
+            "title": "Apply rule [format-identity]"
+        }
+    ]
+}
