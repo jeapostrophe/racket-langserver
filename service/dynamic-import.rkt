@@ -12,7 +12,11 @@
                               (void))])
         (dynamic-require mod 'name logging-fail-thunk)))))
 
-(define-syntax-rule (dynamic-imports mod names ... fail-thunk)
+(define-syntax-rule (dynamic-import-mod mod names ... fail-thunk)
   (begin
     (import-once mod names fail-thunk) ...))
+
+(define-syntax-rule (dynamic-imports (mod names ...) ... fail-thunk)
+  (begin
+    (dynamic-import-mod mod names ... fail-thunk) ...))
 

@@ -14,43 +14,30 @@
 (define (disable-resyntax!)
   (set! has-resyntax? #f))
 
-(dynamic-imports 'resyntax/private/source
-                 string-source
-                 source->string
+(dynamic-imports ('resyntax/private/source
+                   string-source
+                   source->string)
+                 ('rebellion/base/range
+                   unbounded-range)
+                 ('rebellion/base/comparator
+                   natural<=>)
+                 ('rebellion/collection/range-set
+                   range-set)
+                 ('resyntax/private/string-replacement
+                   string-replacement-start
+                   string-replacement-original-end
+                   string-replacement-render)
+                 ('resyntax/private/refactoring-result
+                   refactoring-result-string-replacement
+                   refactoring-result-message
+                   refactoring-result-rule-name
+                   refactoring-result-set-results)
+                 ('resyntax/default-recommendations
+                   default-recommendations)
+                 ('resyntax
+                   resyntax-analyze)
                  disable-resyntax!)
 
-(dynamic-imports 'rebellion/base/range
-                 unbounded-range
-                 disable-resyntax!)
-
-(dynamic-imports 'rebellion/base/comparator
-                 natural<=>
-                 disable-resyntax!)
-
-(dynamic-imports 'rebellion/collection/range-set
-                 range-set
-                 disable-resyntax!)
-
-(dynamic-imports 'resyntax/private/string-replacement
-                 string-replacement-start
-                 string-replacement-original-end
-                 string-replacement-render
-                 disable-resyntax!)
-
-(dynamic-imports 'resyntax/private/refactoring-result
-                 refactoring-result-string-replacement
-                 refactoring-result-message
-                 refactoring-result-rule-name
-                 refactoring-result-set-results
-                 disable-resyntax!)
-
-(dynamic-imports 'resyntax/default-recommendations
-                 default-recommendations
-                 disable-resyntax!)
-
-(dynamic-imports 'resyntax
-                 resyntax-analyze
-                 disable-resyntax!)
 
 (define (resyntax text doc-text src warn-diags quickfixs)
   (when has-resyntax?
@@ -95,3 +82,4 @@
     (interval-map-set! quickfixs char-start char-end code-action))
 
   (for-each add (refactoring-result-set-results result-set)))
+
