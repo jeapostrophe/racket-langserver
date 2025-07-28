@@ -17,7 +17,9 @@ END
 
 ;; detect if resyntax is available
 (define has-resyntax? #t)
-(dynamic-imports 'resyntax resyntax-analyze (λ () (set! has-resyntax? #f)))
+(dynamic-imports ('resyntax
+                   resyntax-analyze)
+                 (λ () (set! has-resyntax? #f)))
 
 (module+ test
   (when has-resyntax?
