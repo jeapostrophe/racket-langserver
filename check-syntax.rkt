@@ -13,7 +13,11 @@
          "editor.rkt"
          "responses.rkt"
          "interfaces.rkt"
-         "doc-trace.rkt")
+         "doc-trace.rkt"
+         "msg-io.rkt"
+         "responses.rkt"
+         "scheduler.rkt"
+         "path-util.rkt")
 
 (define ((error-diagnostics doc-text) exn)
   (define msg (exn-message exn))
@@ -136,7 +140,11 @@
 (define-syntax-rule (timeout time-sec body)
   (with-limits time-sec #f body))
 
-(define (check-syntax src doc-text)
+(define (send-diagnostics uri diag-lst)
+  (display-message/flush (diagnostics-message uri diag-lst)))
+
+(define (check-syntax uri doc-text)
+  (define src (uri->path uri))
   (define indenter (get-indenter doc-text))
   (define ns (make-base-namespace))
   (define new-trace (new build-trace% [src src] [doc-text doc-text] [indenter indenter]))
@@ -174,7 +182,7 @@
             (define original-stx (with-module-reading-parameterization
                                    (λ () (read-syntax src in))))
             ;; 90 seconds limit for possible infinity recursive macro expand
-            (define stx 
+            (define stx
               ;; parameterize current output port to fix side effects of `expand`.
               (parameterize ([current-output-port (open-output-string)])
                 (timeout 90 (expand original-stx))))
@@ -182,18 +190,27 @@
             (set! valid #t)
             (done)
             (send new-trace walk-stx original-stx stx)
-            (send new-trace walk-text text)
+
             (list)))
         'info)))
 
-  (define warn-diags (send new-trace get-warn-diags))
+  (define warn-diags (set->list (send new-trace get-warn-diags)))
+  (define other-diags (append err-diags lang-diag diags))
+  (send-diagnostics uri (append warn-diags other-diags))
 
-  ;; reuse old trace if check-syntax failed
-  (list (if valid new-trace #f)
-        (append err-diags (set->list warn-diags) lang-diag diags)))
+  (define (task)
+    (send new-trace walk-text text)
+    (define new-warn-diags (set->list (send new-trace get-warn-diags)))
+    ;; send a diagnostics to force client send a new code action request
+    (when (not (equal? new-warn-diags warn-diags))
+      (send-diagnostics uri (append new-warn-diags other-diags))))
+  (when valid
+    (scheduler-push-task! uri 'walk-text task))
+
+  (if valid new-trace #f))
 
 (provide
   (contract-out
     [check-syntax (-> any/c (is-a?/c lsp-editor%)
-                      (list/c (or/c #f (is-a?/c build-trace%)) any/c))]))
+                      (or/c #f (is-a?/c build-trace%)))]))
 

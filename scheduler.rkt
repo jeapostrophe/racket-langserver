@@ -3,30 +3,34 @@
 (require racket/async-channel
          racket/match)
 
-;; schedule check syntax
+;; Scheduler manages a list of asynchronous and cancellable tasks for each document.
+;; For each document, a task is uniquely identified by its key.
+;; A new task always replaces the old one that has the same key.
 
 (define incoming-jobs-ch (make-async-channel))
 
 ;; new incoming task will replace the old task immediately
 ;; no matter if the old one is running or completed
 (define (schedule)
-  (define open-doc (make-hash))
+  (define documents (make-hash))
   (let loop ()
     (sync (handle-evt incoming-jobs-ch
-                      (λ (data)
-                        (match-define (cons path task) data)
-                        (when (hash-has-key? open-doc path)
-                          (define th (hash-ref open-doc path))
-                          (unless (thread-dead? th)
-                            (kill-thread th)))
-                        (hash-set! open-doc path
-                                   (thread task)))))
+            (λ (data)
+              (match-define (list uri type task) data)
+              (unless (hash-has-key? documents uri)
+                (hash-set! documents uri (make-hash)))
+              (define doc (hash-ref documents uri))
+              (when (hash-has-key? doc type)
+                (define th (hash-ref doc type))
+                (unless (thread-dead? th)
+                  (kill-thread th)))
+              (hash-set! doc type (thread task)))))
     (loop)))
 
 (define _scheduler (thread schedule))
 
-(define (scheduler-push-task! path task)
-  (async-channel-put incoming-jobs-ch (cons path task)))
+(define (scheduler-push-task! uri type task)
+  (async-channel-put incoming-jobs-ch (list uri type task)))
 
 (provide scheduler-push-task!)
 
@@ -34,6 +38,8 @@
 
 ;; All awaiting queries are run before next document change
 ;; or after a new check syntax is completed.
+;; A signal is sent to indicate an event, then queries are
+;; either run or cleared depending on the signal type.
 
 (define *await-queries* (make-hash))
 (define *await-queries-semaphore* (make-semaphore 1))

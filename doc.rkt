@@ -35,9 +35,6 @@
   (uri text trace version trace-version)
   #:mutable)
 
-(define (send-diagnostics uri diag-lst)
-  (display-message/flush (diagnostics-message uri diag-lst)))
-
 ;; the only place where really run check-syntax
 (define (doc-run-check-syntax! safe-doc)
   (match-define (list uri old-version text)
@@ -46,12 +43,11 @@
                     (list (Doc-uri doc) (Doc-version doc) (send (Doc-text doc) copy)))))
 
   (define (task)
-    (match-define (list new-trace diags) (check-syntax (uri->path uri) text))
+    (define new-trace (check-syntax uri text))
     ;; make a new thread to write doc because this task will be executed by
     ;; the scheduler and can be killed at any time.
     (thread
       (λ ()
-        (send-diagnostics uri diags)
         (with-write-doc safe-doc
           (λ (doc)
             (when (and (equal? old-version (Doc-version doc))
@@ -60,7 +56,7 @@
               (set-Doc-trace! doc new-trace))))
         (clear-old-queries/new-trace uri))))
 
-  (scheduler-push-task! (with-read-doc safe-doc (λ (doc) (Doc-uri doc))) task))
+  (scheduler-push-task! (with-read-doc safe-doc (λ (doc) (Doc-uri doc))) 'check-syntax task))
 
 (define (new-doc uri text version)
   (define doc-text (new lsp-editor%))

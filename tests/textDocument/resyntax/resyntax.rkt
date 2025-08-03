@@ -2,6 +2,7 @@
 
 (require "../with-document.rkt"
          "../../../service/dynamic-import.rkt"
+         "../../../json-util.rkt"
          chk
          json)
 
@@ -25,6 +26,8 @@ END
   (when has-resyntax?
     (with-document "../../../main.rkt" uri code
       (λ (lsp)
+        (define diag (client-wait-response lsp))
+        (chk #:= (jsexpr-ref diag '(method)) "textDocument/publishDiagnostics")
         (let ([req (read-json (open-input-file "req.json"))]
               [resp (read-json (open-input-file "resp.json"))])
           (client-send lsp req)
