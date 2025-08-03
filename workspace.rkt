@@ -11,23 +11,23 @@
 (require "open-docs.rkt")
 
 (define-json-expander FileRename
-                      [oldUri string?]
-                      [newUri string?])
+  [oldUri string?]
+  [newUri string?])
 (define-json-expander RenameFilesParams
-                      [files (listof hash?)])
+  [files (listof hash?)])
 
 (define-json-expander WorkspaceFolder
-                      [uri string?]
-                      [name string?])
+  [uri string?]
+  [name string?])
 (define-json-expander WorkspaceFoldersChangeEvent
-                      [added (listof hash?)]
-                      [removed (listof hash?)])
+  [added (listof hash?)]
+  [removed (listof hash?)])
 
 (define-json-expander FileEvent
-                      [uri string?]
-                      [type exact-positive-integer?])
+  [uri string?]
+  [type exact-positive-integer?])
 (define-json-expander DidChangeWatchedFilesParams
-                      [changes (listof hash?)])
+  [changes (listof hash?)])
 
 (define workspace-folders (mutable-set))
 
