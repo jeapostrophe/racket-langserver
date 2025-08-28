@@ -49,6 +49,7 @@
 ;; Mutable variables
 (define already-initialized? #f)
 (define already-shutdown? #f)
+(define response-handlers (make-hash)) ; Each request sent by server will record its response handler here
 
 ;;
 ;; Dispatch
@@ -76,6 +77,11 @@
     [(hash-table ['method (? string? method)])
      (define params (hash-ref msg 'params hasheq))
      (process-notification method params)]
+    [(hash-table ['jsonrpc "2.0"]
+                 ['id id]
+                 ['result result])
+     (define handler (hash-ref response-handlers id))
+     (handler result)]
     ;; Batch Request
     [(? (non-empty-listof (and/c hash? jsexpr?)))
      (for-each process-message msg)]
@@ -90,6 +96,14 @@
   (eprintf "Caught exn in request ~v\n~a\n" method (exn->string exn))
   (define err (format "internal error in method ~v" method))
   (error-response id INTERNAL-ERROR err))
+
+;; Send a request from server to client and register handler of response.
+(define (send-request id method params handler)
+  (hash-set! response-handlers id handler)
+  (display-message/flush
+    (hasheq 'id id
+            'method method
+            'params params)))
 
 ;; Processes a request. This procedure should always return a jsexpr
 ;; which is a suitable response object.
