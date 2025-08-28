@@ -8,6 +8,7 @@
          "msg-io.rkt"
          "responses.rkt"
          "struct.rkt"
+         "server-request.rkt"
          (prefix-in workspace/ "workspace.rkt")
          (prefix-in text-document/ "text-document.rkt"))
 
@@ -49,7 +50,6 @@
 ;; Mutable variables
 (define already-initialized? #f)
 (define already-shutdown? #f)
-(define response-handlers (make-hash)) ; Each request sent by server will record its response handler here
 
 ;;
 ;; Dispatch
@@ -96,14 +96,6 @@
   (eprintf "Caught exn in request ~v\n~a\n" method (exn->string exn))
   (define err (format "internal error in method ~v" method))
   (error-response id INTERNAL-ERROR err))
-
-;; Send a request from server to client and register handler of response.
-(define (send-request id method params handler)
-  (hash-set! response-handlers id handler)
-  (display-message/flush
-    (hasheq 'id id
-            'method method
-            'params params)))
 
 ;; Processes a request. This procedure should always return a jsexpr
 ;; which is a suitable response object.
