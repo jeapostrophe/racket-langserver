@@ -88,4 +88,3 @@
   (define key '(resyntax enable))
   (when (jsexpr-has-key? settings key)
     (set-resyntax-enabled! (jsexpr-ref settings key))))
-

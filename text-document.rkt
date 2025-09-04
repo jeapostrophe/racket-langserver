@@ -19,7 +19,9 @@
          "documentation-parser.rkt"
          "doc.rkt"
          "struct.rkt"
-         "scheduler.rkt")
+         "scheduler.rkt"
+         "server-request.rkt"
+         "settings.rkt")
 (require "open-docs.rkt")
 
 ;;
@@ -73,12 +75,24 @@
 (define (start/end->range doc start end)
   (Range #:start (abs-pos->pos doc start) #:end (abs-pos->pos doc end)))
 
+(define-json-expander ConfigurationItem
+  [scopeUri string?]
+  [section string?])
+
+(define (fetch-configuration uri)
+  (send-request 0 "workspace/configuration"
+    (hasheq 'items (list (ConfigurationItem #:scopeUri uri #:section "racket-langserver")))
+    (λ (configuration)
+      ; TODO: apply configuration
+      (void))))
+
 ;;
 ;; Methods
 ;;;;;;;;;;;;
 
 (define (did-open! params)
   (match-define (hash-table ['textDocument (DocItem #:uri uri #:version version #:text text)]) params)
+  (fetch-configuration uri)
   (define safe-doc (new-doc uri text version))
   (hash-set! open-docs (string->symbol uri) safe-doc)
   (doc-run-check-syntax! safe-doc))
