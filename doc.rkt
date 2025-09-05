@@ -144,8 +144,8 @@
   (define lexer (get-lexer in))
   (define symbols (make-interval-map))
   (for ([lst (in-port (lexer-wrap lexer) in)]
-        #:when (set-member? '(constant string symbol) (first (rest lst))))
-    (match-define (list text type paren? start end) lst)
+        #:when (set-member? '(constant string symbol) (second lst)))
+    (match-define (list text type _paren? start end) lst)
     (interval-map-set! symbols start end (list text type)))
   symbols)
 
@@ -161,7 +161,7 @@
        (lexer in))
      (eof-or-list txt type paren? start end)]
     [(cons? lexer)
-     (define-values (txt type paren? start end backup mode)
+     (define-values (txt type paren? start end _backup mode)
        ((car lexer) in 0 (cdr lexer)))
      (set! lexer (cons (car lexer) mode))
      (eof-or-list txt type paren? start end)]))
