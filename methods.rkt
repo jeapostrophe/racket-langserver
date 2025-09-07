@@ -81,7 +81,8 @@
                  ['id id]
                  ['result result])
      (define handler (hash-ref response-handlers id))
-     (handler result)]
+     (handler result)
+     (hash-remove! response-handlers id)]
     ;; Batch Request
     [(? (non-empty-listof (and/c hash? jsexpr?)))
      (for-each process-message msg)]
