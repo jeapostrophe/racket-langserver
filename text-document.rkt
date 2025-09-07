@@ -21,7 +21,7 @@
          "struct.rkt"
          "scheduler.rkt"
          "server-request.rkt"
-         "settings.rkt")
+         "workspace.rkt")
 (require "open-docs.rkt")
 
 ;;
@@ -82,9 +82,7 @@
 (define (fetch-configuration uri)
   (send-request 0 "workspace/configuration"
     (hasheq 'items (list (ConfigurationItem #:scopeUri uri #:section "racket-langserver")))
-    (λ (configuration)
-      ; TODO: apply configuration
-      (void))))
+    update-configuration))
 
 ;;
 ;; Methods

@@ -2,7 +2,8 @@
 (provide didRenameFiles
          didChangeWorkspaceFolders
          didChangeWatchedFiles
-         didChangeConfiguration)
+         didChangeConfiguration
+         update-configuration)
 (require compiler/module-suffix)
 (require "json-util.rkt"
          "doc.rkt"
@@ -82,9 +83,10 @@
     (clear-old-queries/doc-close uri)
     (hash-remove! open-docs (string->symbol uri))))
 
-(define (didChangeConfiguration params)
-  (match-define (hash-table ['settings settings]) params)
-
+(define (update-configuration settings)
   (define key '(resyntax enable))
   (when (jsexpr-has-key? settings key)
     (set-resyntax-enabled! (jsexpr-ref settings key))))
+(define (didChangeConfiguration params)
+  (match-define (hash-table ['settings settings]) params)
+  (update-configuration settings))
