@@ -1,10 +1,12 @@
 #lang racket/base
 
 (require "interface.rkt"
-         racket/class
          "../struct.rkt"
-         drracket/check-syntax
-         "../workspace.rkt")
+         racket/class
+         racket/set
+         racket/file
+         racket/path
+         drracket/check-syntax)
 
 (provide project-references%
          find-nonlocal-references)
@@ -12,10 +14,10 @@
 (define (project-files)
   (define files (mutable-set))
 
-  (for ([folder workspace-folders])
-    ;; FIXME: use loaded sufficies
-    (for ([path (find-files (lambda (path) (path-has-extension? path #".rkt")) folder)])
-      (set-add! files (path->complete-path path))))
+  ;; FIXME: use loaded sufficies
+  ;; FIXME: use workspace folders
+  (for ([path (find-files (lambda (path) (path-has-extension? path #".rkt")) (current-directory))])
+    (set-add! files (path->complete-path path)))
 
   files)
 
