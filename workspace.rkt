@@ -3,7 +3,8 @@
          didChangeWorkspaceFolders
          didChangeWatchedFiles
          didChangeConfiguration
-         update-configuration)
+         update-configuration
+         workspace-folders)
 (require compiler/module-suffix)
 (require "json-util.rkt"
          "doc.rkt"
