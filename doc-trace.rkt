@@ -22,7 +22,7 @@
     (define definitions (new definition% [src src]))
     (define diag (new diag% [src src] [doc-text doc-text]))
     (define decls (new declaration%))
-    (define project-references (new project-references%))
+    (define project-references (new project-references% [src src]))
     (define semantic-tokens (new highlight% [src src] [doc-text doc-text]))
 
     (define services
