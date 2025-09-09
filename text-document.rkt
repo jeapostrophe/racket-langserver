@@ -404,10 +404,13 @@
 
       (define doc-decls (send doc-trace get-sym-decls))
       (match-define (Decl req? id left right) decl)
+
+      (define nonlocal-refs (send doc-trace get-nonlocal-references uri id))
+
       (define-values (bind-start bind-end bindings)
         (interval-map-ref/bounds doc-decls left #f))
       (if bindings
-          (for/list ([range (in-set bindings)])
+          (for/list ([range (in-set (set-union bindings nonlocal-refs))])
             (start/end->range doc (car range) (cdr range)))
           empty))))
 

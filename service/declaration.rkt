@@ -60,7 +60,8 @@
     (define/override (syncheck:add-jump-to-definition _src-obj start end id filename _submods)
       (define decl (Decl filename id 0 0))
       ;; NOTE start <= end. In some situations, it may be that start = end.
-      (interval-map-set! sym-bindings start (if (= start end) (add1 end) end) decl))
+      (define end- (if (= start end) (add1 end) end))
+      (interval-map-set! sym-bindings start end- decl))
 
     (define/override (syncheck:add-arrow/name-dup _start-src-obj start-left start-right
                                                   _end-src-obj end-left end-right

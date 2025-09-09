@@ -9,6 +9,7 @@
          "service/definition.rkt"
          "service/diagnostic.rkt"
          "service/declaration.rkt"
+         "service/project-references.rkt"
          "service/highlight.rkt")
 
 (define build-trace%
@@ -21,6 +22,7 @@
     (define definitions (new definition% [src src]))
     (define diag (new diag% [src src] [doc-text doc-text]))
     (define decls (new declaration%))
+    (define project-references (new project-references% [src src]))
     (define semantic-tokens (new highlight% [src src] [doc-text doc-text]))
 
     (define services
@@ -67,6 +69,7 @@
     (define/public (get-definitions) (send definitions get))
     (define/public (get-quickfixs) (cadr (send diag get)))
     (define/public (get-semantic-tokens) (send semantic-tokens get))
+    (define/public (get-nonlocal-references uri symbol) (find-nonlocal-references uri symbol))
 
     ;; Overrides
     (define/override (syncheck:find-source-object stx)
