@@ -32,7 +32,7 @@
   (read-loop out-ch))
 
 (define out-ch (make-async-channel))
-(define out-t (thread (lambda () (read-loop out-ch))))
+(define out-t (thread #:pool 'own (lambda () (read-loop out-ch))))
 
 (provide
  (contract-out

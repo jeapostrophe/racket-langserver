@@ -70,7 +70,7 @@
 
     (list stx expanded)))
 
-(define _expand-th (thread expander))
+(define _expand-th (thread #:pool 'own expander))
 
 ;; simplify syntax to optimize expand
 ;; for example, use typed/racket/no-check language to avoid

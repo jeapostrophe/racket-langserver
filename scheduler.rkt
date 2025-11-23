@@ -24,10 +24,10 @@
                 (define th (hash-ref doc type))
                 (unless (thread-dead? th)
                   (kill-thread th)))
-              (hash-set! doc type (thread task)))))
+              (hash-set! doc type (thread #:pool 'own task)))))
     (loop)))
 
-(define _scheduler (thread schedule))
+(define _scheduler (thread #:pool 'own schedule))
 
 (define (scheduler-push-task! uri type task)
   (async-channel-put incoming-jobs-ch (list uri type task)))

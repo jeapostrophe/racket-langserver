@@ -67,7 +67,9 @@
      ;; the result can be a response or a procedure which returns
      ;; a response. If it's a procedure, then it's expected to run
      ;; concurrently.
-     (thread (λ ()
+     (thread
+       #:pool 'own
+       (λ ()
                (display-message/flush
                  (if (procedure? response)
                      (response)

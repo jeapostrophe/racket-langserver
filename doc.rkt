@@ -47,6 +47,7 @@
     ;; make a new thread to write doc because this task will be executed by
     ;; the scheduler and can be killed at any time.
     (thread
+      #:pool 'own
       (λ ()
         (with-write-doc safe-doc
           (λ (doc)
