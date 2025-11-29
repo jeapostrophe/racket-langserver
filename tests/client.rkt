@@ -135,10 +135,16 @@
 (define/contract (handle-server-request lsp request)
   (-> Lsp? jsexpr? void?)
   (define id (hash-ref request 'id))
+  (define method (hash-ref request 'method))
+
+  (define result
+    (match method
+      ["workspace/configuration" (list (json-null))]
+      [_ (json-null)]))
 
   (define response
     (hasheq 'jsonrpc "2.0"
             'id id
-            'result (json-null)))
+            'result result))
 
   (client-send lsp response))
