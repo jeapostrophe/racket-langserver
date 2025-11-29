@@ -4,7 +4,8 @@
          didChangeWatchedFiles
          didChangeConfiguration
          update-configuration)
-(require compiler/module-suffix)
+(require compiler/module-suffix
+         json)
 (require "json-util.rkt"
          "doc.rkt"
          "scheduler.rkt"
@@ -84,9 +85,11 @@
     (hash-remove! open-docs (string->symbol uri))))
 
 (define (update-configuration settings)
-  (define key '(resyntax enable))
-  (when (jsexpr-has-key? settings key)
-    (set-resyntax-enabled! (jsexpr-ref settings key))))
+  (for ([setting settings]
+        #:unless (equal? setting (json-null)))
+    (define key '(resyntax enable))
+    (when (jsexpr-has-key? setting key)
+      (set-resyntax-enabled! (jsexpr-ref setting key)))))
 (define (didChangeConfiguration params)
   (match-define (hash-table ['settings settings]) params)
   (update-configuration settings))
