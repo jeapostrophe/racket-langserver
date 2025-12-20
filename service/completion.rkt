@@ -15,7 +15,11 @@
       completions)
 
     (define/override (reset)
-      (set! completions (list)))
+      ;; Some LSP clients send full-text text changes (rather than incremental deltas)
+      ;; even during incremental typing.
+      ;; Theses full-text events replace the entire document, and trigger this method.
+      ;; In such cases, preserve existing completions instead of clearing them.
+      (void))
 
     (define/override (walk-stx stx expanded-stx)
       (set! completions (walk expanded-stx)))
