@@ -8,7 +8,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        racket-version: ["7.6", "8.5", "stable", "current"]
+        racket-version: ["7.6", "8.0", "8.17", "8.18", "9.0"]
         racket-variant: ["CS"]
         exclude:
           - racket-version: "7.6"
@@ -16,10 +16,10 @@ jobs:
         include:
           - racket-version: "7.6"
             racket-variant: "BC"
-          - racket-version: "8.5"
+          - racket-version: "8.0"
             racket-variant: "BC"
-          - racket-version: current
-            experimental: true
+          - racket-version: "8.17"
+            racket-variant: "BC"
     steps:
       - uses: actions/checkout@v3.1.0
       - uses: Bogdanp/setup-racket@v1.14
