@@ -1,7 +1,8 @@
 #lang racket/base
 
 (require racket/async-channel
-         racket/match)
+         racket/match
+         "version.rkt")
 
 ;; Scheduler manages a list of asynchronous and cancellable tasks for each document.
 ;; For each document, a task is uniquely identified by its key.
@@ -24,7 +25,10 @@
                 (define th (hash-ref doc type))
                 (unless (thread-dead? th)
                   (kill-thread th)))
-              (hash-set! doc type (thread task)))))
+              (hash-set! doc type
+                         (if (version>=9.0?)
+                             (thread #:pool 'own task)
+                             (thread task))))))
     (loop)))
 
 (define _scheduler (thread schedule))
