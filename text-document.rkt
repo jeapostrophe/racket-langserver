@@ -17,6 +17,7 @@
          "symbol-kinds.rkt"
          "docs-helpers.rkt"
          "documentation-parser.rkt"
+         "safedoc.rkt"
          "doc.rkt"
          "struct.rkt"
          "scheduler.rkt"
@@ -91,9 +92,9 @@
 (define (did-open! params)
   (match-define (hash-table ['textDocument (DocItem #:uri uri #:version version #:text text)]) params)
   (fetch-configuration uri)
-  (define safe-doc (new-doc uri text version))
+  (define safe-doc (new-safedoc uri text version))
   (hash-set! open-docs (string->symbol uri) safe-doc)
-  (doc-run-check-syntax! safe-doc))
+  (safedoc-run-check-syntax! safe-doc))
 
 (define (did-close! params)
   (match-define (hash-table ['textDocument (DocItem #:uri uri)]) params)
@@ -124,7 +125,7 @@
 
       (doc-update-version! doc version)))
 
-  (doc-run-check-syntax! safe-doc))
+  (safedoc-run-check-syntax! safe-doc))
 
 ;; Hover request
 ;; Returns an object conforming to the Hover interface, to
