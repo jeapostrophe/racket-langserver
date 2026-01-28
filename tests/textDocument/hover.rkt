@@ -1,8 +1,7 @@
 #lang racket
 
 (require "../../json-util.rkt"
-         "with-document.rkt"
-         chk)
+         "with-document.rkt")
 
 (define uri "file:///test.rkt")
 
@@ -30,13 +29,13 @@ END
       (client-send lsp hover-req)
 
       (let ([resp (client-wait-response lsp)])
-        (chk (jsexpr-has-key? resp '(result contents)))
-        (chk (not (string=? "" (jsexpr-ref resp '(result contents)))))
+        (check-true (jsexpr-has-key? resp '(result contents)))
+        (check-false (string=? "" (jsexpr-ref resp '(result contents))))
 
-        (chk (jsexpr-has-key? resp '(result range start line)))
-        (chk (jsexpr-has-key? resp '(result range start character)))
-        (chk (jsexpr-has-key? resp '(result range end line)))
-        (chk (jsexpr-has-key? resp '(result range end character)))
+        (check-true (jsexpr-has-key? resp '(result range start line)))
+        (check-true (jsexpr-has-key? resp '(result range start character)))
+        (check-true (jsexpr-has-key? resp '(result range end line)))
+        (check-true (jsexpr-has-key? resp '(result range end character)))
         (check-equal? (jsexpr-ref resp '(result range start line)) 2)
         (check-equal? (jsexpr-ref resp '(result range start character)) 1)
         (check-equal? (jsexpr-ref resp '(result range end line)) 2)

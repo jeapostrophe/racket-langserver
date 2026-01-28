@@ -3,6 +3,7 @@
 (provide with-document
          client-send
          client-wait-response
+         client-wait-notification
          make-request
          make-expected-response
          make-notification)
@@ -22,7 +23,7 @@
                                              'version 0
                                              'text text))))
         (client-send lsp didopen-req)
-        (client-wait-response lsp)
+        (client-wait-notification lsp)
 
         (proc lsp)
 

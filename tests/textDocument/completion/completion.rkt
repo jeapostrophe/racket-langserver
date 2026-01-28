@@ -21,7 +21,7 @@ END
       ;; only move cursor to that position is not enough.
       (define didchange-req (read-json (open-input-file "change-req.json")))
       (client-send lsp didchange-req)
-      (client-wait-response lsp)
+      (client-wait-notification lsp)
 
       (define comp-req (read-json (open-input-file "comp-req.json")))
       (client-send lsp comp-req)

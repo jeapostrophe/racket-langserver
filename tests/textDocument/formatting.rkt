@@ -37,7 +37,7 @@ END
                                      'rangeLength 0
                                      'text "\n"))))])
         (client-send lsp notif)
-        (client-wait-response lsp))
+        (client-wait-notification lsp))
 
       ;; Format on type for pre-indented new line 3
       (let* ([req (make-request lsp

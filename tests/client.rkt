@@ -5,6 +5,7 @@
 (provide with-racket-lsp
          client-send
          client-wait-response
+         client-wait-notification
          make-request
          make-expected-response
          make-notification
@@ -14,10 +15,8 @@
          racket/async-channel
          racket/match
          json
-         data/queue
          "../server.rkt"
-         "../methods.rkt"
-         "../msg-io.rkt")
+         "../methods.rkt")
 
 (define id 0)
 (define (Lsp-genid lsp)
@@ -26,6 +25,7 @@
 
 (define server-output-ch (make-parameter #f))
 (define response-channel (make-parameter #f))
+(define notification-channel (make-parameter #f))
 
 (define/contract (process-message-from-server lsp msg)
   (-> any/c jsexpr? void?)
@@ -37,18 +37,21 @@
      (handle-server-request lsp msg)]
     ;; Server notification - queue diagnostic notifications, ignore others
     [(hash-table ['method (? string? method)])
-     (when (equal? method "textDocument/publishDiagnostics")
-       (async-channel-put (response-channel) msg))]
+     (match method
+       ["textDocument/publishDiagnostics"
+        (async-channel-put (notification-channel) msg)]
+       ; ignore unknown method
+       [_ (void)])]
     ;; Response - put it to another channel for client-wait-response
-    [else
-     (async-channel-put (response-channel) msg)]))
+    [msg (async-channel-put (response-channel) msg)]))
 
 (define/contract (with-racket-lsp proc)
   (-> (-> any/c any/c) void?)
   (define ch (make-async-channel))
 
   (parameterize ([server-output-ch ch]
-                 [response-channel (make-async-channel)])
+                 [response-channel (make-async-channel)]
+                 [notification-channel (make-async-channel)])
     (set-current-server! (new server% [output-channel ch]))
     (define lsp current-server)
 
@@ -91,6 +94,9 @@
 
   (define js (async-channel-get (response-channel)))
   (make-immutable-hasheq (hash->list js)))
+
+(define (client-wait-notification lsp)
+  (async-channel-get (notification-channel)))
 
 (define/contract (client-should-no-response lsp)
   (-> any/c eof-object?)

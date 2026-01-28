@@ -28,8 +28,8 @@ END
   (when has-resyntax?
     (with-document uri code
       (λ (lsp)
-        (define diag (client-wait-response lsp))
-        (chk #:= (jsexpr-ref diag '(method)) "textDocument/publishDiagnostics")
+        (define diag (client-wait-notification lsp))
+        (check-equal? (jsexpr-ref diag '(method)) "textDocument/publishDiagnostics")
         (let ([req (read-json (open-input-file "req.json"))]
               [resp (read-json (open-input-file "resp.json"))])
           (client-send lsp req)
