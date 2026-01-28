@@ -1,10 +1,11 @@
 #lang racket/base
 
-(require "check-syntax.rkt"
-         "msg-io.rkt"
-         "responses.rkt"
-         "interfaces.rkt"
-         "scheduler.rkt"
+;; This module provides a library for representing a document. It is designed
+;; to be easy to use and single-threaded, containing only document-related logic
+;; functions. For use in a multi-threaded LSP environment, it should be wrapped
+;; by a structure that provides thread safety, such as `SafeDoc`.
+
+(require "interfaces.rkt"
          "editor.rkt"
          "path-util.rkt"
          "doc-trace.rkt"
@@ -19,69 +20,29 @@
          syntax-color/module-lexer
          syntax-color/racket-lexer
          json
+         "check-syntax.rkt"
+         "msg-io.rkt"
+         "responses.rkt"
+         "scheduler.rkt"
          drracket/check-syntax
-         syntax/modread
-         "base/rwlock.rkt")
-
-;; SafeDoc has two eliminator:
-;; with-read-doc: access Doc within a reader lock.
-;; with-write-doc: access Doc within a writer lock.
-;; Access its fields without protection should not be allowed.
-(struct SafeDoc
-  (doc rwlock)
-  #:transparent)
+         syntax/modread)
 
 (struct Doc
   (uri text trace version trace-version)
   #:mutable)
-
-;; the only place where really run check-syntax
-(define (doc-run-check-syntax! safe-doc)
-  (match-define (list uri old-version text)
-                (with-read-doc safe-doc
-                  (λ (doc)
-                    (list (Doc-uri doc) (Doc-version doc) (send (Doc-text doc) copy)))))
-
-  (define (task)
-    (define new-trace (check-syntax uri text))
-    ;; make a new thread to write doc because this task will be executed by
-    ;; the scheduler and can be killed at any time.
-    (thread
-      (λ ()
-        (with-write-doc safe-doc
-          (λ (doc)
-            (when (and (equal? old-version (Doc-version doc))
-                       new-trace)
-              (set-Doc-trace-version! doc old-version)
-              (set-Doc-trace! doc new-trace))))
-        (clear-old-queries/new-trace uri))))
-
-  (scheduler-push-task! (with-read-doc safe-doc (λ (doc) (Doc-uri doc))) 'check-syntax task))
 
 (define (new-doc uri text version)
   (define doc-text (new lsp-editor%))
   (send doc-text insert text 0)
   ;; the init trace should not be #f
   (define doc-trace (new build-trace% [src (uri->path uri)] [doc-text doc-text] [indenter #f]))
-  (define doc (Doc uri doc-text doc-trace version #f))
-  (define safe-doc (SafeDoc doc (make-rwlock)))
-  safe-doc)
+  (Doc uri doc-text doc-trace version #f))
 
 (define (doc-update-version! doc new-ver)
   (set-Doc-version! doc new-ver))
 
 (define (doc-update-uri! doc new-uri)
   (set-Doc-uri! doc new-uri))
-
-(define (with-read-doc safe-doc proc)
-  (call-with-read-lock
-    (SafeDoc-rwlock safe-doc)
-    (λ () (proc (SafeDoc-doc safe-doc)))))
-
-(define (with-write-doc safe-doc proc)
-  (call-with-write-lock
-    (SafeDoc-rwlock safe-doc)
-    (λ () (proc (SafeDoc-doc safe-doc)))))
 
 (define (doc-reset! doc new-text)
   (define doc-text (Doc-text doc))
@@ -105,6 +66,27 @@
   (cond [(> new-len old-len) (send doc-trace expand end-pos (+ st-pos new-len))]
         [(< new-len old-len) (send doc-trace contract (+ st-pos new-len) end-pos)])
   (send doc-text replace text st-pos end-pos))
+
+(define (doc-expand uri doc-text ns)
+  (check-syntax uri doc-text ns))
+
+(define (doc-update-trace! doc new-trace new-version)
+  (set-Doc-trace! doc new-trace)
+  (set-Doc-trace-version! doc new-version))
+
+(define (doc-walk-text trace text)
+  (send trace walk-text text))
+
+(define (doc-expand! doc)
+  (define ns (make-base-namespace))
+  (define result (doc-expand doc ns))
+  (define new-trace (CSResult-trace result))
+  (cond [(CSResult-succeed? result)
+         (define text (CSResult-text result))
+         (doc-update-trace! doc new-trace (Doc-version doc))
+         (doc-walk-text new-trace text)
+         #t]
+        [else #f]))
 
 (define (doc-pos doc line ch)
   (send (Doc-text doc) line/char->pos line ch))
@@ -197,14 +179,8 @@
   (define in (open-input-string (send doc-text get-text)))
 
   (define ns (make-base-namespace))
-  (define-values (add-syntax done)
-    (make-traversal ns src-dir))
-  (parameterize ([current-annotations collector]
-                 [current-namespace ns]
-                 [current-load-relative-directory src-dir])
-    (define stx (expand (with-module-reading-parameterization
-                          (λ () (read-syntax path in)))))
-    (add-syntax stx))
+  ;; expand-source handles traversal and adding syntax to collector
+  (expand-source path in ns collector)
   (send collector get id))
 
 (define (get-definition-by-id path id)
@@ -401,15 +377,12 @@
 (define (doc-guess-token doc pos)
   (list->string (reverse (-doc-find-token (send (Doc-text doc) get-text) pos))))
 
-(provide with-read-doc
-         with-write-doc
-         (struct-out Doc)
+(provide (struct-out Doc)
          new-doc
          doc-update!
          doc-reset!
          doc-update-version!
          doc-update-uri!
-         doc-run-check-syntax!
          doc-pos
          doc-endpos
          doc-line/ch
@@ -420,5 +393,10 @@
          get-definition-by-id
          format!
          doc-range-tokens
-         doc-guess-token)
+         doc-guess-token
+         doc-expand
+         doc-update-trace!
+         doc-expand!
+         doc-walk-text
+         )
 

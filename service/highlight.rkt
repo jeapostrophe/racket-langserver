@@ -42,7 +42,8 @@
         (set! styles (cons (Token start finish 'definition) styles))))
 
     (define/override (walk-stx stx expanded)
-      (set! token-map (token-list->interval-map (collect-tokens stx expanded styles src doc-text))))
+      (when (and (syntax? stx) (syntax? expanded))
+        (set! token-map (token-list->interval-map (collect-tokens stx expanded styles src doc-text)))))
 
     (define (token-list->interval-map lst)
       (define interval-map (make-interval-map))

@@ -87,7 +87,7 @@
   (hash 'start (Position->hash (*Range-start range))
         'end (Position->hash (*Range-end range))))
 
-(provide *Range
+(provide (struct-out *Range)
          make-Range
          Range->hash)
 

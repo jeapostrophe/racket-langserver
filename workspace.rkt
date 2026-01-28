@@ -7,6 +7,7 @@
 (require compiler/module-suffix
          json)
 (require "json-util.rkt"
+         "safedoc.rkt"
          "doc.rkt"
          "scheduler.rkt"
          "settings.rkt")
@@ -72,7 +73,7 @@
       [_ (eprintf "Invalid file event type: ~a~n" type)])))
 (define (handle-file-created uri)
   (when (regexp-match (get-module-suffix-regexp) uri)
-    (define safe-doc (new-doc uri "" 0))
+    (define safe-doc (new-safedoc uri "" 0))
     (hash-set! open-docs (string->symbol uri) safe-doc)))
 (define (handle-file-changed uri)
   (when (regexp-match (get-module-suffix-regexp) uri)

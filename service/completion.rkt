@@ -22,7 +22,8 @@
       (void))
 
     (define/override (walk-stx stx expanded-stx)
-      (set! completions (walk expanded-stx)))
+      (when (syntax? expanded-stx)
+        (set! completions (walk expanded-stx))))
 
     (define/public (get-online-completions str-before-cursor)
       (walk-online str-before-cursor))
