@@ -2,7 +2,14 @@
 
 (require racket/async-channel
          racket/match
+         racket/sandbox
          "version.rkt")
+
+(define (timeout-task time-sec task)
+  (λ ()
+    (with-limits time-sec #f (task))))
+
+;; Scheduler
 
 ;; Scheduler manages a list of asynchronous and cancellable tasks for each document.
 ;; For each document, a task is uniquely identified by its key.
@@ -13,6 +20,7 @@
 ;; new incoming task will replace the old task immediately
 ;; no matter if the old one is running or completed
 (define (schedule)
+  ;; TODO: allow cancelling running tasks
   (define documents (make-hash))
   (let loop ()
     (sync (handle-evt incoming-jobs-ch
@@ -21,14 +29,16 @@
               (unless (hash-has-key? documents uri)
                 (hash-set! documents uri (make-hash)))
               (define doc (hash-ref documents uri))
+
               (when (hash-has-key? doc type)
                 (define th (hash-ref doc type))
                 (unless (thread-dead? th)
                   (kill-thread th)))
+              (define timeoutTask90 (timeout-task 90 task))
               (hash-set! doc type
                          (if (version>=9.0?)
-                             (thread #:pool 'own task)
-                             (thread task))))))
+                             (thread #:pool 'own timeoutTask90)
+                             (thread timeoutTask90))))))
     (loop)))
 
 (define _scheduler (thread schedule))

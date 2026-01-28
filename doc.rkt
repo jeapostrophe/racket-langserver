@@ -20,6 +20,10 @@
          syntax-color/module-lexer
          syntax-color/racket-lexer
          json
+         "check-syntax.rkt"
+         "msg-io.rkt"
+         "responses.rkt"
+         "scheduler.rkt"
          drracket/check-syntax
          syntax/modread)
 
@@ -62,6 +66,27 @@
   (cond [(> new-len old-len) (send doc-trace expand end-pos (+ st-pos new-len))]
         [(< new-len old-len) (send doc-trace contract (+ st-pos new-len) end-pos)])
   (send doc-text replace text st-pos end-pos))
+
+(define (doc-expand uri doc-text ns)
+  (check-syntax uri doc-text ns))
+
+(define (doc-update-trace! doc new-trace new-version)
+  (set-Doc-trace! doc new-trace)
+  (set-Doc-trace-version! doc new-version))
+
+(define (doc-walk-text trace text)
+  (send trace walk-text text))
+
+(define (doc-expand! doc)
+  (define ns (make-base-namespace))
+  (define result (doc-expand doc ns))
+  (define new-trace (CSResult-trace result))
+  (cond [(CSResult-succeed? result)
+         (define text (CSResult-text result))
+         (doc-update-trace! doc new-trace (Doc-version doc))
+         (doc-walk-text new-trace text)
+         #t]
+        [else #f]))
 
 (define (doc-pos doc line ch)
   (send (Doc-text doc) line/char->pos line ch))
@@ -154,14 +179,8 @@
   (define in (open-input-string (send doc-text get-text)))
 
   (define ns (make-base-namespace))
-  (define-values (add-syntax done)
-    (make-traversal ns src-dir))
-  (parameterize ([current-annotations collector]
-                 [current-namespace ns]
-                 [current-load-relative-directory src-dir])
-    (define stx (expand (with-module-reading-parameterization
-                          (λ () (read-syntax path in)))))
-    (add-syntax stx))
+  ;; expand-source handles traversal and adding syntax to collector
+  (expand-source path in ns collector)
   (send collector get id))
 
 (define (get-definition-by-id path id)
@@ -374,5 +393,10 @@
          get-definition-by-id
          format!
          doc-range-tokens
-         doc-guess-token)
+         doc-guess-token
+         doc-expand
+         doc-update-trace!
+         doc-expand!
+         doc-walk-text
+         )
 

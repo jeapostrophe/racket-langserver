@@ -12,7 +12,9 @@
     expand
     contract
     reset
-    walk-stx))
+    walk-stx
+    walk-text
+    walk-log))
 
 (define base-service%
   (class* (annotations-mixin object%)
@@ -41,5 +43,9 @@
       (void))
 
     (define/public (walk-text text)
-      (void))))
+      (void))
+
+    (define/public (walk-log log)
+      (void))
+    ))
 
