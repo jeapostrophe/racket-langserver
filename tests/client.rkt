@@ -3,108 +3,109 @@
 ;; This module provides a simple incomplete lsp client for test.
 
 (provide with-racket-lsp
-         Lsp?
          client-send
          client-wait-response
+         client-wait-notification
          make-request
          make-expected-response
          make-notification
          handle-server-request)
 
 (require racket/os
+         racket/async-channel
+         racket/match
          json
-         data/queue
-         "../msg-io.rkt")
+         "../server.rkt"
+         "../methods.rkt")
 
-(struct Lsp
-  (stdout stdin stderr response-queue [id #:mutable #:auto])
-  #:auto-value -1)
-
+(define id 0)
 (define (Lsp-genid lsp)
-  (set-Lsp-id! lsp (add1 (Lsp-id lsp)))
-  (Lsp-id lsp))
+  (set! id (add1 id))
+  id)
 
-(define/contract (process-incoming-message lsp msg)
-  (-> Lsp? jsexpr? void?)
+(define server-output-ch (make-parameter #f))
+(define response-channel (make-parameter #f))
+(define notification-channel (make-parameter #f))
 
-  (cond
+(define/contract (process-message-from-server lsp msg)
+  (-> any/c jsexpr? void?)
+
+  (match msg
     ;; Server request - handle immediately and send response
-    [(and (hash-has-key? msg 'method) (hash-has-key? msg 'id))
+    [(hash-table ['id (? (or/c number? string?) id)]
+                 ['method (? string? method)])
      (handle-server-request lsp msg)]
     ;; Server notification - queue diagnostic notifications, ignore others
-    [(hash-has-key? msg 'method)
-     (define method (hash-ref msg 'method))
-     (when (equal? method "textDocument/publishDiagnostics")
-       (enqueue! (Lsp-response-queue lsp) msg))]
-    ;; Response - queue it for client-wait-response
-    [else
-     (enqueue! (Lsp-response-queue lsp) msg)]))
+    [(hash-table ['method (? string? method)])
+     (match method
+       ["textDocument/publishDiagnostics"
+        (async-channel-put (notification-channel) msg)]
+       ; ignore unknown method
+       [_ (void)])]
+    ;; Response - put it to another channel for client-wait-response
+    [msg (async-channel-put (response-channel) msg)]))
 
-(define ((forward-errors in))
-  (for ([str (in-port read-line in)])
-    (displayln (format "LSP ERROR: ~a" str) (current-error-port))))
+(define/contract (with-racket-lsp proc)
+  (-> (-> any/c any/c) void?)
+  (define ch (make-async-channel))
 
-(define/contract (with-racket-lsp path proc)
-  (-> string? (-> Lsp? any/c) void?)
+  (parameterize ([server-output-ch ch]
+                 [response-channel (make-async-channel)]
+                 [notification-channel (make-async-channel)])
+    (set-current-server! (new server% [output-channel ch]))
+    (define lsp current-server)
 
-  (define racket-path (find-executable-path "racket"))
-  (define-values (sp stdout stdin stderr)
-    (subprocess #f #f #f racket-path path))
-  (define _err-thd (thread (forward-errors stderr)))
-  (define lsp (Lsp stdout stdin stderr (make-queue)))
+    (define (handle-output)
+      (define msg (async-channel-get (server-output-ch)))
+      (cond
+        [(jsexpr? msg) (process-message-from-server lsp msg)]
+        [(void? msg) (void)]
+        [else (printf "handle-output ~a~n" msg)])
+      (handle-output))
+    (thread handle-output)
 
-  (define init-req
-    (make-request lsp "initialize"
-                  (hasheq 'processId (getpid)
-                          'capabilities (hasheq))))
-  (client-send lsp init-req)
-  (client-wait-response lsp)
+    (define init-req
+      (make-request lsp "initialize"
+                    (hasheq 'processId (getpid)
+                            'capabilities (hasheq))))
+    (client-send lsp init-req)
+    (client-wait-response lsp)
 
-  (proc lsp)
+    (proc lsp)
 
-  (define shutdown-req
-    (make-request lsp "shutdown" #f))
-  (client-send lsp shutdown-req)
-  (client-wait-response lsp)
+    (define shutdown-req
+      (make-request lsp "shutdown" #f))
+    (client-send lsp shutdown-req)
+    (client-wait-response lsp)
 
-  (define exit-notf (make-notification "exit" #f))
-  (client-send lsp exit-notf)
-  (client-should-no-response lsp)
+    (define exit-notf (make-notification "exit" #f))
+    (client-send lsp exit-notf)
+    (client-should-no-response lsp)
 
-  (subprocess-wait sp))
+    (void)))
 
 (define/contract (client-send lsp req)
-  (-> Lsp? jsexpr? void?)
+  (-> any/c jsexpr? void?)
 
-  (display-message/flush req (Lsp-stdin lsp)))
+  (send lsp process-message req))
 
 (define/contract (client-wait-response lsp)
-  (-> Lsp? jsexpr?)
+  (-> any/c jsexpr?)
 
-  ;; First, check if there's already a response in the queue
-  (define queued-response
-    (if (queue-empty? (Lsp-response-queue lsp))
-        #f
-        (dequeue! (Lsp-response-queue lsp))))
+  (define js (async-channel-get (response-channel)))
+  (make-immutable-hasheq (hash->list js)))
 
-  (if queued-response
-      queued-response
-      ;; No queued response, so read and process messages until we get one
-      (let loop ()
-        (define msg (read-message (Lsp-stdout lsp)))
-        (process-incoming-message lsp msg)
-        ;; Check if processing the message added a response to the queue
-        (if (queue-empty? (Lsp-response-queue lsp))
-            (loop)
-            (dequeue! (Lsp-response-queue lsp))))))
+(define (client-wait-notification lsp)
+  (async-channel-get (notification-channel)))
 
 (define/contract (client-should-no-response lsp)
-  (-> Lsp? eof-object?)
-  
-  (read-message (Lsp-stdout lsp)))
+  (-> any/c eof-object?)
+
+  (async-channel-get (response-channel))
+  )
 
 (define/contract (make-request lsp method params)
-  (-> Lsp? string? jsexpr? jsexpr?)
+  (-> any/c string? jsexpr? jsexpr?)
 
   (define req
     (hasheq 'jsonrpc "2.0"
@@ -133,7 +134,7 @@
 
 ;; Currently this is just a stub procedure that always reply null
 (define/contract (handle-server-request lsp request)
-  (-> Lsp? jsexpr? void?)
+  (-> any/c jsexpr? void?)
   (define id (hash-ref request 'id))
   (define method (hash-ref request 'method))
 
