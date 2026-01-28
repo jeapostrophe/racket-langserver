@@ -3,8 +3,7 @@
 (require "../with-document.rkt"
          "../../../service/dynamic-import.rkt"
          "../../../json-util.rkt"
-         chk
-         json)
+         chk)
 
 (define uri "file:///test.rkt")
 
@@ -23,6 +22,9 @@ END
                  (λ () (set! has-resyntax? #f)))
 
 (module+ test
+  (require rackunit
+           json)
+
   (when has-resyntax?
     (with-document uri code
       (λ (lsp)
@@ -31,5 +33,6 @@ END
         (let ([req (read-json (open-input-file "req.json"))]
               [resp (read-json (open-input-file "resp.json"))])
           (client-send lsp req)
-          (chk #:= (client-wait-response lsp) resp))))))
+          (check-equal? (jsexpr->string (client-wait-response lsp))
+                        (jsexpr->string resp)))))))
 

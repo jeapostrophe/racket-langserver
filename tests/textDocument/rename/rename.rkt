@@ -18,14 +18,19 @@ END
   )
 
 (module+ test
+  (require rackunit
+           json)
+
   (with-document uri code
     (λ (lsp)
       (let ([req (read-json (open-input-file "req1.json"))]
             [resp (read-json (open-input-file "resp1.json"))])
         (client-send lsp req)
-        (chk #:= (client-wait-response lsp) resp))
+        (check-equal? (jsexpr->string (client-wait-response lsp))
+                      (jsexpr->string resp)))
 
       (let ([req (read-json (open-input-file "req2.json"))]
             [resp (read-json (open-input-file "resp2.json"))])
         (client-send lsp req)
-        (chk #:= (client-wait-response lsp) resp)))))
+        (check-equal? (jsexpr->string (client-wait-response lsp))
+                      (jsexpr->string resp))))))

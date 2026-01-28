@@ -15,6 +15,8 @@ END
   )
 
 (module+ test
+  (require rackunit)
+
   (with-document uri code
     (λ (lsp)
 
@@ -35,7 +37,7 @@ END
         (chk (jsexpr-has-key? resp '(result range start character)))
         (chk (jsexpr-has-key? resp '(result range end line)))
         (chk (jsexpr-has-key? resp '(result range end character)))
-        (chk #:= (jsexpr-ref resp '(result range start line)) 2)
-        (chk #:= (jsexpr-ref resp '(result range start character)) 1)
-        (chk #:= (jsexpr-ref resp '(result range end line)) 2)
-        (chk #:= (jsexpr-ref resp '(result range end character)) 5)))))
+        (check-equal? (jsexpr-ref resp '(result range start line)) 2)
+        (check-equal? (jsexpr-ref resp '(result range start character)) 1)
+        (check-equal? (jsexpr-ref resp '(result range end line)) 2)
+        (check-equal? (jsexpr-ref resp '(result range end character)) 5)))))

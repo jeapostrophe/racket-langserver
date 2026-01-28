@@ -2,10 +2,13 @@
 
 (require "../client.rkt"
          "../../json-util.rkt"
-         chk
-         json)
+         chk)
 
 (module+ test
+  (require rackunit
+           json
+           racket/port)
+
   (with-racket-lsp
       (λ (lsp)
 
@@ -23,9 +26,13 @@
           (chk*
            (chk (jsexpr-has-key? resp '(params diagnostics)))
            (define diagnostics-msg (jsexpr-ref resp '(params diagnostics)))
-           (chk (not (null? diagnostics-msg)))
-           (define resp-no-message (hash-remove (car diagnostics-msg) 'message))
-           (chk #:= resp-no-message (read-json (open-input-file "diagnostics.json")))))
+           (check-false (null? diagnostics-msg))
+           (define dm (with-input-from-string
+                          (jsexpr->string (car diagnostics-msg))
+                        (lambda () (read-json))))
+           (define resp-no-message (hash-remove dm 'message))
+           (check-equal? (jsexpr->string resp-no-message)
+                         (jsexpr->string (read-json (open-input-file "diagnostics.json"))))))
 
 
         (define didchange-req

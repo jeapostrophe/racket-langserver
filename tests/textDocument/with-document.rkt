@@ -10,7 +10,7 @@
 (require "../client.rkt")
 
 (define/contract (with-document uri text proc)
-  (-> string? string? (-> Lsp? any/c) any/c)
+  (-> string? string? (-> any/c any/c) any/c)
 
   (with-racket-lsp
       (λ (lsp)

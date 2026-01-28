@@ -1,7 +1,6 @@
 #lang racket
 
-(require "with-document.rkt"
-         chk)
+(require "with-document.rkt")
 
 (define uri "file:///test.rkt")
 
@@ -15,6 +14,9 @@ END
   )
 
 (module+ test
+  (require rackunit
+           json)
+
   (with-document uri code
     (λ (lsp)
       ;; Insert a new line with indentation after line 2
@@ -67,4 +69,4 @@ END
                                                                    'character 0))
                                                    'newText "  ")))])
         (client-send lsp req)
-        (chk #:= (client-wait-response lsp) res)))))
+        (check-equal? (jsexpr->string (client-wait-response lsp)) (jsexpr->string res))))))

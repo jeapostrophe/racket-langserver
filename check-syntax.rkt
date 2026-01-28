@@ -7,14 +7,16 @@
          racket/logging
          racket/list
          racket/string
+         racket/port
          syntax/modread
          racket/sandbox
          setup/path-to-relative
+         json
          "editor.rkt"
          "responses.rkt"
+         "server.rkt"
          "interfaces.rkt"
          "doc-trace.rkt"
-         "msg-io.rkt"
          "responses.rkt"
          "scheduler.rkt"
          "path-util.rkt")
@@ -132,16 +134,17 @@
      ; check for a #reader directive at start of file, ignoring comments
      ; the ^ anchor here matches start-of-string, not start-of-line
      (if (regexp-match #rx"^(;[^\n]*\n)*#reader" text)
-       #f ; most likely a drracket file, use default indentation
-          ; (https://github.com/jeapostrophe/racket-langserver/issues/86)
-       'missing)]
+         #f ; most likely a drracket file, use default indentation
+         ; (https://github.com/jeapostrophe/racket-langserver/issues/86)
+         'missing)]
     [else #f]))
 
 (define-syntax-rule (timeout time-sec body)
   (with-limits time-sec #f body))
 
-(define (send-diagnostics uri diag-lst)
-  (display-message/flush (diagnostics-message uri diag-lst)))
+(define (send-diagnostics-notification uri diag-lst)
+  (send current-server flush-message
+        (diagnostics-message uri diag-lst)))
 
 (define (check-syntax uri doc-text)
   (define src (uri->path uri))
@@ -170,9 +173,9 @@
                    [current-namespace ns]
                    [current-load-relative-directory src-dir])
       (with-intercepted-logging
-        (lambda (l)
-          (define result (check-typed-racket-log doc-text l))
-          (when (list? result) (set! diags (append result diags))))
+          (lambda (l)
+            (define result (check-typed-racket-log doc-text l))
+            (when (list? result) (set! diags (append result diags))))
         (lambda ()
           (with-handlers ([(or/c exn:fail:read?
                                  exn:fail:syntax?
@@ -196,21 +199,21 @@
 
   (define warn-diags (set->list (send new-trace get-warn-diags)))
   (define other-diags (append err-diags lang-diag diags))
-  (send-diagnostics uri (append warn-diags other-diags))
+  (send-diagnostics-notification uri (append warn-diags other-diags))
 
   (define (task)
     (send new-trace walk-text text)
     (define new-warn-diags (set->list (send new-trace get-warn-diags)))
     ;; send a diagnostics to force client send a new code action request
-    (when (not (equal? new-warn-diags warn-diags))
-      (send-diagnostics uri (append new-warn-diags other-diags))))
+    (unless (equal? new-warn-diags warn-diags)
+      (send-diagnostics-notification uri (append new-warn-diags other-diags))))
   (when valid
     (scheduler-push-task! uri 'walk-text task))
 
   (if valid new-trace #f))
 
 (provide
-  (contract-out
-    [check-syntax (-> any/c (is-a?/c lsp-editor%)
-                      (or/c #f (is-a?/c build-trace%)))]))
+ (contract-out
+  [check-syntax (-> any/c (is-a?/c lsp-editor%)
+                    (or/c #f (is-a?/c build-trace%)))]))
 

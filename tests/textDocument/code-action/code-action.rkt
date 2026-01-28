@@ -1,8 +1,6 @@
 #lang racket
 
-(require "../with-document.rkt"
-         chk
-         json)
+(require "../with-document.rkt")
 
 (define uri "file:///test.rkt")
 
@@ -15,10 +13,14 @@ END
   )
 
 (module+ test
+  (require rackunit
+           json)
+
   (with-document uri code
     (λ (lsp)
       (let ([req (read-json (open-input-file "req1.json"))]
             [resp (read-json (open-input-file "resp1.json"))])
         (client-send lsp req)
 
-        (chk #:= (client-wait-response lsp) resp)))))
+        (check-equal? (jsexpr->string (client-wait-response lsp))
+                      (jsexpr->string resp))))))

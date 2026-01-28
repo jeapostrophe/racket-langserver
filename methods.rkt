@@ -4,11 +4,11 @@
          racket/contract/base
          racket/exn
          racket/match
+         racket/class
+         racket/async-channel
          "error-codes.rkt"
-         "msg-io.rkt"
          "responses.rkt"
          "struct.rkt"
-         "server-request.rkt"
          (prefix-in workspace/ "workspace.rkt")
          (prefix-in text-document/ "text-document.rkt"))
 
@@ -55,43 +55,71 @@
 ;; Dispatch
 ;;;;;;;;;;;;;
 
-;; Processes a message. This displays any repsonse it generates
-;; and should always return void.
-(define (process-message msg)
-  (match msg
-    ;; Request
-    [(hash-table ['id (? (or/c number? string?) id)]
-                 ['method (? string? method)])
-     (define params (hash-ref msg 'params hasheq))
-     (define response (process-request id method params))
-     ;; the result can be a response or a procedure which returns
-     ;; a response. If it's a procedure, then it's expected to run
-     ;; concurrently.
-     (thread (λ ()
-               (display-message/flush
-                 (if (procedure? response)
-                     (response)
-                     response))))
-     (void)]
-    ;; Notification
-    [(hash-table ['method (? string? method)])
-     (define params (hash-ref msg 'params hasheq))
-     (process-notification method params)]
-    [(hash-table ['jsonrpc "2.0"]
-                 ['id id]
-                 ['result result])
-     (define handler (hash-ref response-handlers id))
-     (handler result)
-     (hash-remove! response-handlers id)]
-    ;; Batch Request
-    [(? (non-empty-listof (and/c hash? jsexpr?)))
-     (for-each process-message msg)]
-    ;; Invalid Message
-    [_
-     (define id-ref (hash-ref msg 'id void))
-     (define id (if ((or/c number? string?) id-ref) id-ref (json-null)))
-     (define err "The JSON sent is not a valid request object.")
-     (display-message/flush (error-response id INVALID-REQUEST err))]))
+(define server%
+  (class object%
+    (super-new)
+
+    (init-field output-channel)
+    (field
+     ; Each request sent by server should register its response handler here
+     [response-handlers (make-hash)])
+
+    (define/public (flush-message msg)
+      (async-channel-put output-channel msg))
+
+    (define/public (send-request id method params handler)
+      ; register handler
+      (hash-set! response-handlers id handler)
+      ; send request to LSP client
+      (flush-message (hasheq 'id id
+                             'method method
+                             'params params)))
+
+    ;; Processes a message (a JSON). This displays any repsonse it generates
+    ;; and should always return void.
+    (define/public (process-message msg)
+      (match msg
+        ;; Request
+        [(hash-table ['id (? (or/c number? string?) id)]
+                     ['method (? string? method)])
+         (define params (hash-ref msg 'params hasheq))
+         (define response (handle-request id method params))
+         ;; the result can be a response or a procedure which returns
+         ;; a response. If it's a procedure, then it's expected to run
+         ;; concurrently.
+         (thread (λ ()
+                   (flush-message
+                    (if (procedure? response)
+                        (response)
+                        response))))
+         (void)]
+        ;; Notification
+        [(hash-table ['method (? string? method)])
+         (define params (hash-ref msg 'params hasheq))
+         (handle-notification method params)]
+        ;; Response
+        [(hash-table ['jsonrpc "2.0"]
+                     ['id id]
+                     ['result result])
+         (define handler (hash-ref response-handlers id))
+         (handler result)
+         (hash-remove! response-handlers id)]
+        ;; Batch Request
+        [(? (non-empty-listof (and/c hash? jsexpr?)))
+         (for-each (lambda (msg) (process-message msg)) msg)]
+        ;; Invalid Message
+        [_
+         (define id-ref (hash-ref msg 'id void))
+         (define id (if ((or/c number? string?) id-ref) id-ref (json-null)))
+         (define err "The JSON sent is not a valid request object.")
+         (flush-message (error-response id INVALID-REQUEST err))]))
+
+    (define/public (handle-request id method params)
+      (process-request id method params))
+
+    (define/public (handle-notification method params)
+      (process-notification method params))
+    ))
 
 (define ((report-request-error id method) exn)
   (eprintf "Caught exn in request ~v\n~a\n" method (exn->string exn))
@@ -211,10 +239,10 @@
                'workspace
                (hasheq 'fileOperations
                        (hasheq 'didRename ; workspace.fileOperations.didRename
-                                (hasheq 'filters
-                                        (map (lambda (ext)
-                                                (hasheq 'scheme "file" 'pattern (hasheq 'glob (format "**/*.~a" ext))))
-                                              (get-module-suffixes))))
+                               (hasheq 'filters
+                                       (map (lambda (ext)
+                                              (hasheq 'scheme "file" 'pattern (hasheq 'glob (format "**/*.~a" ext))))
+                                            (get-module-suffixes))))
                        'workspaceFolders (hasheq 'changeNotifications #t))))
 
      (define resp (success-response id (hasheq 'capabilities server-capabilities)))
@@ -229,8 +257,4 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-(provide
-  (contract-out
-    [process-message
-     (jsexpr? . -> . void?)]))
-
+(provide server%)

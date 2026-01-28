@@ -20,8 +20,8 @@
          "doc.rkt"
          "struct.rkt"
          "scheduler.rkt"
-         "server-request.rkt"
-         "workspace.rkt")
+         "workspace.rkt"
+         "server.rkt")
 (require "open-docs.rkt")
 
 ;;
@@ -80,9 +80,10 @@
   [section string?])
 
 (define (fetch-configuration uri)
-  (send-request 0 "workspace/configuration"
-    (hasheq 'items (list (ConfigurationItem #:scopeUri uri #:section "racket-langserver")))
-    update-configuration))
+  (send current-server send-request
+        0 "workspace/configuration"
+        (hasheq 'items (list (ConfigurationItem #:scopeUri uri #:section "racket-langserver")))
+        update-configuration))
 
 ;;
 ;; Methods
@@ -142,28 +143,29 @@
          (define-values (start end text)
            (interval-map-ref/bounds hovers pos #f))
          (match-define (list link tag)
-                       (interval-map-ref (send doc-trace get-docs) pos (list #f #f)))
+           (interval-map-ref (send doc-trace get-docs) pos (list #f #f)))
          (define result
            (cond [text
                   ;; We want signatures from `scribble/blueboxes` as they have better indentation,
                   ;; but in some super rare cases blueboxes aren't accessible, thus we try to use the
                   ;; parsed signature instead
                   (match-define (list sigs args-descr)
-                                (if tag
-                                    (get-docs-for-tag tag)
-                                    (list #f #f)))
+                    (if tag
+                        (get-docs-for-tag tag)
+                        (list #f #f)))
                   (define maybe-signature
-                    (if sigs
-                        (~a "```\n"
-                            (string-join sigs "\n")
-                            (if args-descr (~a "\n" args-descr) "")
-                            "\n```\n---\n")
-                        #f))
+                    (and sigs
+                         (~a "```\n"
+                             (string-join sigs "\n")
+                             (if args-descr
+                                 (~a "\n" args-descr)
+                                 "")
+                             "\n```\n---\n")))
                   (define documentation-text
                     (if link
                         (~a (or maybe-signature "")
                             (or (extract-documentation-for-selected-element
-                                  link #:include-signature? (not maybe-signature))
+                                 link #:include-signature? (not maybe-signature))
                                 ""))
                         ""))
                   (define contents (if link
@@ -177,7 +179,7 @@
                                        text))
                   (hasheq 'contents contents
                           'range (start/end->range doc start end))]
-                 [else (hasheq 'contents empty)]))
+                 [else (hasheq 'contents "")]))
          (success-response id result)))]
     [_
      (error-response id INVALID-PARAMS "textDocument/hover failed")]))
@@ -257,15 +259,15 @@
        (λ (doc)
          (define doc-trace (Doc-trace doc))
          (define pos (sub1 (doc-pos doc line ch)))
-         (define completions 
+         (define completions
            (append (send doc-trace get-completions)
                    (send doc-trace get-online-completions (doc-guess-token doc pos))))
          (define result
            (for/list ([completion (in-list completions)])
              (hasheq 'label (symbol->string completion))))
          (success-response id
-           (hash 'isIncomplete #t
-                 'items result))))]
+                           (hash 'isIncomplete #t
+                                 'items result))))]
     [_
      (error-response id INVALID-PARAMS "textDocument/completion failed")]))
 
@@ -368,10 +370,10 @@
                      (define ranges (cons (start/end->range doc left right)
                                           (get-bindings uri decl)))
                      (WorkspaceEdit
-                       #:changes
-                       (hasheq (string->symbol uri)
-                               (for/list ([range (in-list ranges)])
-                                 (TextEdit #:range range #:newText new-name))))])]
+                      #:changes
+                      (hasheq (string->symbol uri)
+                              (for/list ([range (in-list ranges)])
+                                (TextEdit #:range range #:newText new-name))))])]
              [#f (json-null)]))))
      (success-response id result)]
     [_
@@ -543,10 +545,10 @@
                                 #:end (Pos #:line ed-ln #:char ed-ch))])
      (define safe-doc (hash-ref open-docs (string->symbol uri)))
      (match-define (list start-pos end-pos)
-                   (with-read-doc safe-doc
-                     (λ (doc)
-                       (list (doc-pos doc st-ln st-ch)
-                             (doc-pos doc ed-ln ed-ch)))))
+       (with-read-doc safe-doc
+         (λ (doc)
+           (list (doc-pos doc st-ln st-ch)
+                 (doc-pos doc ed-ln ed-ch)))))
      (semantic-tokens uri id safe-doc start-pos end-pos)]
     [_ (error-response id INVALID-PARAMS "textDocument/semanticTokens/range failed")]))
 
@@ -560,32 +562,32 @@
   (if tokens
       (success-response id (hash 'data tokens))
       (async-query-wait
-        uri
-        (λ (_signal)
-          (define tokens (with-read-doc safe-doc (λ (doc) (doc-range-tokens doc start-pos end-pos))))
-          (success-response id (hash 'data tokens))))))
+       uri
+       (λ (_signal)
+         (define tokens (with-read-doc safe-doc (λ (doc) (doc-range-tokens doc start-pos end-pos))))
+         (success-response id (hash 'data tokens))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (provide
-  (contract-out
-    [did-open! (jsexpr? . -> . void?)]
-    [did-close! (jsexpr? . -> . void?)]
-    [did-change! (jsexpr? . -> . void?)]
-    [hover (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]
-    [code-action (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]
-    [completion (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]
-    [signatureHelp (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]
-    [definition (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]
-    [document-highlight (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]
-    [references (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]
-    [document-symbol (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]
-    [inlay-hint (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]
-    [rename _rename rename (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]
-    [prepareRename (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]
-    [formatting! (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]
-    [range-formatting! (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]
-    [on-type-formatting! (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]
-    [full-semantic-tokens (exact-nonnegative-integer? jsexpr? . -> . (or/c jsexpr? (-> jsexpr?)))]
-    [range-semantic-tokens (exact-nonnegative-integer? jsexpr? . -> . (or/c jsexpr? (-> jsexpr?)))]))
+ (contract-out
+  [did-open! (jsexpr? . -> . void?)]
+  [did-close! (jsexpr? . -> . void?)]
+  [did-change! (jsexpr? . -> . void?)]
+  [hover (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]
+  [code-action (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]
+  [completion (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]
+  [signatureHelp (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]
+  [definition (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]
+  [document-highlight (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]
+  [references (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]
+  [document-symbol (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]
+  [inlay-hint (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]
+  [rename _rename rename (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]
+  [prepareRename (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]
+  [formatting! (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]
+  [range-formatting! (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]
+  [on-type-formatting! (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]
+  [full-semantic-tokens (exact-nonnegative-integer? jsexpr? . -> . (or/c jsexpr? (-> jsexpr?)))]
+  [range-semantic-tokens (exact-nonnegative-integer? jsexpr? . -> . (or/c jsexpr? (-> jsexpr?)))]))
 
