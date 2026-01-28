@@ -56,8 +56,7 @@
     (define ns (make-base-namespace))
     (define result (doc-expand uri doc-text ns))
     ;; make a new thread to write doc because this task will be executed by
-    ;; the scheduler and can be executed synchronously if needed (e.g. from tests)
-    ;; but updating the doc requires a write lock which might block.
+    ;; the scheduler and may be cancelled at any time.
     (thread
       (λ ()
         (with-write-doc safe-doc

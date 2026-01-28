@@ -34,11 +34,11 @@
                 (define th (hash-ref doc type))
                 (unless (thread-dead? th)
                   (kill-thread th)))
-              (define timeoutTask90 (timeout-task 90 task))
+              (define timeout-task90 (timeout-task 90 task))
               (hash-set! doc type
                          (if (version>=9.0?)
-                             (thread #:pool 'own timeoutTask90)
-                             (thread timeoutTask90))))))
+                             (thread #:pool 'own timeout-task90)
+                             (thread timeout-task90))))))
     (loop)))
 
 (define _scheduler (thread schedule))
