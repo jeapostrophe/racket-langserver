@@ -12,6 +12,7 @@
          handle-server-request)
 
 (require racket/os
+         racket/runtime-path
          json
          data/queue
          "../msg-io.rkt")
@@ -44,12 +45,13 @@
   (for ([str (in-port read-line in)])
     (displayln (format "LSP ERROR: ~a" str) (current-error-port))))
 
-(define/contract (with-racket-lsp path proc)
-  (-> string? (-> Lsp? any/c) void?)
+(define-runtime-path lsp-main "../main.rkt")
+(define/contract (with-racket-lsp proc)
+  (-> (-> Lsp? any/c) void?)
 
   (define racket-path (find-executable-path "racket"))
   (define-values (sp stdout stdin stderr)
-    (subprocess #f #f #f racket-path path))
+    (subprocess #f #f #f racket-path lsp-main))
   (define _err-thd (thread (forward-errors stderr)))
   (define lsp (Lsp stdout stdin stderr (make-queue)))
 
@@ -100,7 +102,7 @@
 
 (define/contract (client-should-no-response lsp)
   (-> Lsp? eof-object?)
-  
+
   (read-message (Lsp-stdout lsp)))
 
 (define/contract (make-request lsp method params)
