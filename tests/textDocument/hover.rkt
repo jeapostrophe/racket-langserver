@@ -15,7 +15,7 @@ END
   )
 
 (module+ test
-  (with-document "../../main.rkt" uri code
+  (with-document uri code
     (λ (lsp)
 
       (define hover-req

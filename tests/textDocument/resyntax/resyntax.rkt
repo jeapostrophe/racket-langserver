@@ -19,12 +19,12 @@ END
 ;; detect if resyntax is available
 (define has-resyntax? #t)
 (dynamic-imports ('resyntax
-                   resyntax-analyze)
+                  resyntax-analyze)
                  (λ () (set! has-resyntax? #f)))
 
 (module+ test
   (when has-resyntax?
-    (with-document "../../../main.rkt" uri code
+    (with-document uri code
       (λ (lsp)
         (define diag (client-wait-response lsp))
         (chk #:= (jsexpr-ref diag '(method)) "textDocument/publishDiagnostics")

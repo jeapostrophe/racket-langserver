@@ -18,7 +18,7 @@ END
   )
 
 (module+ test
-  (with-document "../../../main.rkt" uri code
+  (with-document uri code
     (λ (lsp)
       (let ([req (read-json (open-input-file "req1.json"))]
             [resp (read-json (open-input-file "resp1.json"))])

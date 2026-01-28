@@ -15,7 +15,7 @@ END
   )
 
 (module+ test
-  (with-document "../../main.rkt" uri code
+  (with-document uri code
     (λ (lsp)
       ;; Insert a new line with indentation after line 2
       (let ([notif (make-notification
@@ -49,22 +49,22 @@ END
                                         'options (hasheq 'tabSize 4
                                                          'insertSpaces #t)))]
              [res (make-expected-response req
-                                 (list
-                                  (hasheq 'range
-                                          (hasheq 'start
-                                                  (hasheq 'line 3
-                                                          'character 0)
-                                                  'end
-                                                  (hasheq 'line 3
-                                                          'character 0))
-                                          'newText "")
-                                  (hasheq 'range
-                                          (hasheq 'start
-                                                  (hasheq 'line 3
-                                                          'character 0)
-                                                  'end
-                                                  (hasheq 'line 3
-                                                          'character 0))
-                                          'newText "  ")))])
+                                          (list
+                                           (hasheq 'range
+                                                   (hasheq 'start
+                                                           (hasheq 'line 3
+                                                                   'character 0)
+                                                           'end
+                                                           (hasheq 'line 3
+                                                                   'character 0))
+                                                   'newText "")
+                                           (hasheq 'range
+                                                   (hasheq 'start
+                                                           (hasheq 'line 3
+                                                                   'character 0)
+                                                           'end
+                                                           (hasheq 'line 3
+                                                                   'character 0))
+                                                   'newText "  ")))])
         (client-send lsp req)
         (chk #:= (client-wait-response lsp) res)))))
