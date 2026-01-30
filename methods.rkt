@@ -96,15 +96,13 @@
                      ['method (? string? method)])
          (define params (hash-ref msg 'params hasheq))
          (define response (handle-request id method params))
-         ;; the result can be a response or a procedure which returns
-         ;; a response. If it's a procedure, then it's expected to run
-         ;; concurrently.
-         (thread (λ ()
-                   (send-response
-                    (if (procedure? response)
-                        (response)
-                        response))))
-         (void)]
+         (cond
+           ;; result is a procedure which returns a response, hence we put it into a thread to postpone it
+           [(procedure? response)
+            (thread (λ ()
+                      (send-response (response))))]
+           ;; otherwise we just push response into the response channel
+           [else (send-response response)])]
         ;; Notification
         [(hash-table ['method (? string? method)])
          (define params (hash-ref msg 'params hasheq))
@@ -118,7 +116,7 @@
          (hash-remove! response-handlers id)]
         ;; Batch Request
         [(? (non-empty-listof (and/c hash? jsexpr?)))
-         (for-each (lambda (msg) (process-message msg)) msg)]
+         (for-each (λ (msg) (process-message msg)) msg)]
         ;; Invalid Message
         [_
          (define id-ref (hash-ref msg 'id void))
