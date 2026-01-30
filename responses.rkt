@@ -26,13 +26,6 @@
 (define Diag-Information 3)
 (define Diag-Hint 4)
 
-;; Constructor for a response object representing diagnostics.
-(define (diagnostics-message uri diags)
-  (hasheq 'jsonrpc "2.0"
-          'method "textDocument/publishDiagnostics"
-          'params (hasheq 'uri uri
-                          'diagnostics diags)))
-
 (provide
  Diag-Error
  Diag-Warning
@@ -44,6 +37,4 @@
   [error-response
    (->* ((or/c number? string? (json-null)) number? string?)
         (any/c)
-        jsexpr?)]
-  [diagnostics-message
-   (string? list? . -> . jsexpr?)]))
+        jsexpr?)]))

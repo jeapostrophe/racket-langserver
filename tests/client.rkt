@@ -8,8 +8,7 @@
          client-wait-notification
          make-request
          make-expected-response
-         make-notification
-         handle-server-request)
+         make-notification)
 
 (require racket/os
          racket/async-channel
@@ -23,46 +22,40 @@
   (set! id (add1 id))
   id)
 
-(define server-output-ch (make-parameter #f))
+(define request-channel (make-parameter #f))
 (define response-channel (make-parameter #f))
 (define notification-channel (make-parameter #f))
 
-(define/contract (process-message-from-server lsp msg)
-  (-> any/c jsexpr? void?)
-
-  (match msg
-    ;; Server request - handle immediately and send response
-    [(hash-table ['id (? (or/c number? string?) id)]
-                 ['method (? string? method)])
-     (handle-server-request lsp msg)]
-    ;; Server notification - queue diagnostic notifications, ignore others
-    [(hash-table ['method (? string? method)])
-     (match method
-       ["textDocument/publishDiagnostics"
-        (async-channel-put (notification-channel) msg)]
-       ; ignore unknown method
-       [_ (void)])]
-    ;; Response - put it to another channel for client-wait-response
-    [msg (async-channel-put (response-channel) msg)]))
-
 (define/contract (with-racket-lsp proc)
   (-> (-> any/c any/c) void?)
-  (define ch (make-async-channel))
-
-  (parameterize ([server-output-ch ch]
-                 [response-channel (make-async-channel)]
+  (parameterize ([response-channel (make-async-channel)]
+                 [request-channel (make-async-channel)]
                  [notification-channel (make-async-channel)])
-    (set-current-server! (new server% [output-channel ch]))
+    (set-current-server! (new server%
+                              [response-channel (response-channel)]
+                              [request-channel (request-channel)]
+                              [notification-channel (notification-channel)]))
     (define lsp current-server)
 
-    (define (handle-output)
-      (define msg (async-channel-get (server-output-ch)))
-      (cond
-        [(jsexpr? msg) (process-message-from-server lsp msg)]
-        [(void? msg) (void)]
-        [else (printf "handle-output ~a~n" msg)])
-      (handle-output))
-    (thread handle-output)
+    (define (handle-request)
+      ;; Server request - handle immediately and send response
+      (match (async-channel-get (request-channel))
+        [(hash-table ['id (? (or/c number? string?) id)]
+                     ['method (? string? method)])
+         (define result
+           (match method
+             ["workspace/configuration" (list (json-null))]
+             [_ (json-null)]))
+
+         (define response
+           (hasheq 'jsonrpc "2.0"
+                   'id id
+                   'result result))
+
+         (client-send lsp response)]
+        [_ (error "Not a request from server")])
+      (handle-request))
+    (thread handle-request)
 
     (define init-req
       (make-request lsp "initialize"
@@ -123,21 +116,3 @@
             'method method))
   (cond [(not params) req]
         [else (hash-set req 'params params)]))
-
-;; Currently this is just a stub procedure that always reply null
-(define/contract (handle-server-request lsp request)
-  (-> any/c jsexpr? void?)
-  (define id (hash-ref request 'id))
-  (define method (hash-ref request 'method))
-
-  (define result
-    (match method
-      ["workspace/configuration" (list (json-null))]
-      [_ (json-null)]))
-
-  (define response
-    (hasheq 'jsonrpc "2.0"
-            'id id
-            'result result))
-
-  (client-send lsp response))

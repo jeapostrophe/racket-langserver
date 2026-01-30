@@ -60,7 +60,10 @@
 ;;                    to a specified output-port or current-output-port.
 (define (main-loop)
   (define resp-ch (make-async-channel))
-  (set-current-server! (new server% [output-channel resp-ch]))
+  (set-current-server! (new server%
+                            [response-channel resp-ch]
+                            [request-channel resp-ch]
+                            [notification-channel resp-ch]))
 
   (define q (queue))
   (define (consume)

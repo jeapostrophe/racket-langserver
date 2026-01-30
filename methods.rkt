@@ -59,21 +59,31 @@
   (class object%
     (super-new)
 
-    (init-field output-channel)
+    (init-field
+     response-channel
+     request-channel
+     notification-channel)
     (field
      ; Each request sent by server should register its response handler here
      [response-handlers (make-hash)])
 
-    (define/public (flush-message msg)
-      (async-channel-put output-channel msg))
+    (define/public (send-response msg)
+      (async-channel-put response-channel msg))
 
     (define/public (send-request id method params handler)
       ; register handler
       (hash-set! response-handlers id handler)
       ; send request to LSP client
-      (flush-message (hasheq 'id id
-                             'method method
-                             'params params)))
+      (async-channel-put request-channel
+                         (hasheq 'id id
+                                 'method method
+                                 'params params)))
+
+    (define/public (send-notification method params)
+      (async-channel-put notification-channel
+                         (hasheq 'jsonrpc "2.0"
+                                 'method method
+                                 'params params)))
 
     ;; Processes a message (a JSON). This displays any repsonse it generates
     ;; and should always return void.
@@ -88,7 +98,7 @@
          ;; a response. If it's a procedure, then it's expected to run
          ;; concurrently.
          (thread (λ ()
-                   (flush-message
+                   (send-response
                     (if (procedure? response)
                         (response)
                         response))))
@@ -112,7 +122,7 @@
          (define id-ref (hash-ref msg 'id void))
          (define id (if ((or/c number? string?) id-ref) id-ref (json-null)))
          (define err "The JSON sent is not a valid request object.")
-         (flush-message (error-response id INVALID-REQUEST err))]))
+         (send-response (error-response id INVALID-REQUEST err))]))
 
     (define/public (handle-request id method params)
       (process-request id method params))

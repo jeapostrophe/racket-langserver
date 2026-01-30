@@ -142,9 +142,11 @@
 (define-syntax-rule (timeout time-sec body)
   (with-limits time-sec #f body))
 
-(define (send-diagnostics-notification uri diag-lst)
-  (send current-server flush-message
-        (diagnostics-message uri diag-lst)))
+(define (send-diagnostics-notification uri diags)
+  (send current-server send-notification
+        "textDocument/publishDiagnostics"
+        (hasheq 'uri uri
+                'diagnostics diags)))
 
 (define (check-syntax uri doc-text)
   (define src (uri->path uri))
