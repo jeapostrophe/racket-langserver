@@ -80,7 +80,6 @@
 
     (define exit-notf (make-notification "exit" #f))
     (client-send lsp exit-notf)
-    (client-should-no-response lsp)
 
     (void)))
 
@@ -92,17 +91,10 @@
 (define/contract (client-wait-response lsp)
   (-> any/c jsexpr?)
 
-  (define js (async-channel-get (response-channel)))
-  (make-immutable-hasheq (hash->list js)))
+  (async-channel-get (response-channel)))
 
 (define (client-wait-notification lsp)
   (async-channel-get (notification-channel)))
-
-(define/contract (client-should-no-response lsp)
-  (-> any/c eof-object?)
-
-  (async-channel-get (response-channel))
-  )
 
 (define/contract (make-request lsp method params)
   (-> any/c string? jsexpr? jsexpr?)
