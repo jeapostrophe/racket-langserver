@@ -22,5 +22,5 @@ END
             [resp (read-json (open-input-file "resp1.json"))])
         (client-send lsp req)
 
-        (check-equal? (jsexpr->string (client-wait-response lsp))
+        (check-equal? (jsexpr->string (client-wait-response req))
                       (jsexpr->string resp))))))

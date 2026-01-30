@@ -28,7 +28,7 @@ END
                               (hasheq 'line 2 'character 1))))
       (client-send lsp hover-req)
 
-      (let ([resp (client-wait-response lsp)])
+      (let ([resp (client-wait-response hover-req)])
         (check-true (jsexpr-has-key? resp '(result contents)))
         (check-false (string=? "" (jsexpr-ref resp '(result contents))))
 

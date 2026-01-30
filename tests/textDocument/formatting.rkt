@@ -69,4 +69,4 @@ END
                                                                    'character 0))
                                                    'newText "  ")))])
         (client-send lsp req)
-        (check-equal? (jsexpr->string (client-wait-response lsp)) (jsexpr->string res))))))
+        (check-equal? (jsexpr->string (client-wait-response req)) (jsexpr->string res))))))

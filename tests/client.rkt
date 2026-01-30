@@ -18,7 +18,7 @@
          "../methods.rkt")
 
 (define id 0)
-(define (Lsp-genid lsp)
+(define (genid)
   (set! id (add1 id))
   id)
 
@@ -62,14 +62,14 @@
                     (hasheq 'processId (getpid)
                             'capabilities (hasheq))))
     (client-send lsp init-req)
-    (client-wait-response lsp)
+    (client-wait-response init-req)
 
     (proc lsp)
 
     (define shutdown-req
       (make-request lsp "shutdown" #f))
     (client-send lsp shutdown-req)
-    (client-wait-response lsp)
+    (client-wait-response shutdown-req)
 
     (define exit-notf (make-notification "exit" #f))
     (client-send lsp exit-notf)
@@ -81,10 +81,19 @@
 
   (send lsp process-message req))
 
-(define/contract (client-wait-response lsp)
+(define/contract (client-wait-response req)
   (-> any/c jsexpr?)
 
-  (async-channel-get (response-channel)))
+  (define msg (async-channel-get (response-channel)))
+
+  (match msg
+    [(hash-table ['id (? (or/c number? string?) id)]
+                 ['result _result])
+     (cond
+       [(equal? (hash-ref req 'id) id) msg]
+       ; not the response of this request, wait next
+       [else (async-channel-put (response-channel) msg)])]
+    [_ (error "Not a response from server")]))
 
 (define (client-wait-notification lsp)
   (async-channel-get (notification-channel)))
@@ -94,7 +103,7 @@
 
   (define req
     (hasheq 'jsonrpc "2.0"
-            'id (Lsp-genid lsp)
+            'id (genid)
             'method method))
   (cond [(not params) req]
         [else (hash-set req 'params params)]))

@@ -27,7 +27,7 @@ END
       (client-send lsp comp-req)
       ;; we only verify the returned completion item list
       ;; meet some conditions
-      (let ([resp (client-wait-response lsp)])
+      (let ([resp (client-wait-response comp-req)])
         (chk (jsexpr-has-key? resp '(result)))
         (define completion-list (jsexpr-ref resp '(result)))
         (chk (jsexpr-has-key? completion-list '(isIncomplete)))

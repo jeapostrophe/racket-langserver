@@ -33,6 +33,6 @@ END
         (let ([req (read-json (open-input-file "req.json"))]
               [resp (read-json (open-input-file "resp.json"))])
           (client-send lsp req)
-          (check-equal? (jsexpr->string (client-wait-response lsp))
+          (check-equal? (jsexpr->string (client-wait-response req))
                         (jsexpr->string resp)))))))
 

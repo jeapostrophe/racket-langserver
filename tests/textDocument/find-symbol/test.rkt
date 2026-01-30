@@ -27,7 +27,7 @@ END
             [resp (read-json (open-input-file "definition-resp1.json"))])
         (client-send lsp req)
 
-        (check-equal? (jsexpr->string (client-wait-response lsp))
+        (check-equal? (jsexpr->string (client-wait-response req))
                       (jsexpr->string resp)))
 
       ;; documentHighlight
@@ -35,7 +35,7 @@ END
             [resp (read-json (open-input-file "highlight-resp1.json"))])
         (client-send lsp req)
 
-        (check-equal? (jsexpr->string (client-wait-response lsp))
+        (check-equal? (jsexpr->string (client-wait-response req))
                       (jsexpr->string resp)))
 
       ;; symbol
@@ -43,7 +43,7 @@ END
             [resp (read-json (open-input-file "symbol-resp1.json"))])
         (client-send lsp req)
 
-        (check-equal? (jsexpr->string (client-wait-response lsp))
+        (check-equal? (jsexpr->string (client-wait-response req))
                       (jsexpr->string resp)))
 
       ;; references
@@ -51,5 +51,5 @@ END
             [resp (read-json (open-input-file "ref-resp1.json"))])
         (client-send lsp req)
 
-        (check-equal? (jsexpr->string (client-wait-response lsp))
+        (check-equal? (jsexpr->string (client-wait-response req))
                       (jsexpr->string resp))))))
