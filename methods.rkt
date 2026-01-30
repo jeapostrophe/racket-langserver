@@ -65,19 +65,21 @@
      notification-channel)
     (field
      ; Each request sent by server should register its response handler here
-     [response-handlers (make-hash)])
+     [response-handlers (make-hash)]
+     [server-request-id 0])
 
     (define/public (send-response msg)
       (async-channel-put response-channel msg))
 
-    (define/public (send-request id method params handler)
+    (define/public (send-request method params handler)
       ; register handler
-      (hash-set! response-handlers id handler)
+      (hash-set! response-handlers server-request-id handler)
       ; send request to LSP client
       (async-channel-put request-channel
-                         (hasheq 'id id
+                         (hasheq 'id server-request-id
                                  'method method
-                                 'params params)))
+                                 'params params))
+      (set! server-request-id (add1 server-request-id)))
 
     (define/public (send-notification method params)
       (async-channel-put notification-channel

@@ -81,7 +81,7 @@
 
 (define (fetch-configuration uri)
   (send current-server send-request
-        0 "workspace/configuration"
+        "workspace/configuration"
         (hasheq 'items (list (ConfigurationItem #:scopeUri uri #:section "racket-langserver")))
         update-configuration))
 
