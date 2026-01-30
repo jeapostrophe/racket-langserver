@@ -7,14 +7,10 @@
          racket/logging
          racket/list
          racket/string
-         racket/port
          syntax/modread
          racket/sandbox
          setup/path-to-relative
-         json
-         "editor.rkt"
          "responses.rkt"
-         "server.rkt"
          "interfaces.rkt"
          "doc-trace.rkt"
          "responses.rkt"
@@ -142,13 +138,12 @@
 (define-syntax-rule (timeout time-sec body)
   (with-limits time-sec #f body))
 
-(define (send-diagnostics-notification uri diags)
-  (send current-server send-notification
-        "textDocument/publishDiagnostics"
-        (hasheq 'uri uri
-                'diagnostics diags)))
+(define (send-diagnostics-notification notify-client uri diags)
+  (notify-client "textDocument/publishDiagnostics"
+                 (hasheq 'uri uri
+                         'diagnostics diags)))
 
-(define (check-syntax uri doc-text)
+(define (check-syntax notify-client uri doc-text)
   (define src (uri->path uri))
   (define indenter (get-indenter doc-text))
   (define ns (make-base-namespace))
@@ -201,21 +196,17 @@
 
   (define warn-diags (set->list (send new-trace get-warn-diags)))
   (define other-diags (append err-diags lang-diag diags))
-  (send-diagnostics-notification uri (append warn-diags other-diags))
+  (send-diagnostics-notification notify-client uri (append warn-diags other-diags))
 
   (define (task)
     (send new-trace walk-text text)
     (define new-warn-diags (set->list (send new-trace get-warn-diags)))
     ;; send a diagnostics to force client send a new code action request
     (unless (equal? new-warn-diags warn-diags)
-      (send-diagnostics-notification uri (append new-warn-diags other-diags))))
+      (send-diagnostics-notification notify-client uri (append new-warn-diags other-diags))))
   (when valid
     (scheduler-push-task! uri 'walk-text task))
 
   (if valid new-trace #f))
 
-(provide
- (contract-out
-  [check-syntax (-> any/c (is-a?/c lsp-editor%)
-                    (or/c #f (is-a?/c build-trace%)))]))
-
+(provide check-syntax)

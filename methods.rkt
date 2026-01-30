@@ -124,86 +124,86 @@
          (define err "The JSON sent is not a valid request object.")
          (send-response (error-response id INVALID-REQUEST err))]))
 
+    ;; Handle a request. This procedure should always return a jsexpr
+    ;; which is a suitable response object.
+    ;; (-> (or/c integer? string?) string? jsexpr? jsexpr?)
     (define/public (handle-request id method params)
-      (process-request id method params))
+      (with-handlers ([exn:fail? (report-request-error id method)])
+        (match method
+          ["initialize"
+           (initialize id params)]
+          ["shutdown"
+           (shutdown id)]
+          ["textDocument/hover"
+           (text-document/hover id params)]
+          ["textDocument/codeAction"
+           (text-document/code-action id params)]
+          ["textDocument/completion"
+           (text-document/completion id params)]
+          ["textDocument/signatureHelp"
+           (text-document/signatureHelp id params)]
+          ["textDocument/definition"
+           (text-document/definition id params)]
+          ["textDocument/documentHighlight"
+           (text-document/document-highlight id params)]
+          ["textDocument/references"
+           (text-document/references id params)]
+          ["textDocument/documentSymbol"
+           (text-document/document-symbol id params)]
+          ["textDocument/inlayHint"
+           (text-document/inlay-hint id params)]
+          ["textDocument/rename"
+           (text-document/rename id params)]
+          ["textDocument/prepareRename"
+           (text-document/prepareRename id params)]
+          ["textDocument/formatting"
+           (text-document/formatting! id params)]
+          ["textDocument/rangeFormatting"
+           (text-document/range-formatting! id params)]
+          ["textDocument/onTypeFormatting"
+           (text-document/on-type-formatting! id params)]
+          ["textDocument/semanticTokens/full"
+           (text-document/full-semantic-tokens id params)]
+          ["textDocument/semanticTokens/range"
+           (text-document/range-semantic-tokens id params)]
+          [_
+           (eprintf "invalid request for method ~v\n" method)
+           (define err (format "The method ~v was not found" method))
+           (error-response id METHOD-NOT-FOUND err)])))
 
+    ;; Handle a notification. Because notifications do not require
+    ;; a response, this procedure always returns void.
     (define/public (handle-notification method params)
-      (process-notification method params))
+      (match method
+        ["exit"
+         (exit (if already-shutdown? 0 1))]
+        ["workspace/didRenameFiles"
+         (workspace/didRenameFiles params)]
+        ["workspace/didChangeWorkspaceFolders"
+         (workspace/didChangeWorkspaceFolders params)]
+        ["workspace/didChangeWatchedFiles"
+         (workspace/didChangeWatchedFiles params)]
+        ["workspace/didChangeConfiguration"
+         (workspace/didChangeConfiguration params)]
+        ["textDocument/didOpen"
+         (text-document/did-open! (λ (method params handler)
+                                    (send-request method params handler))
+                                  (λ (method params)
+                                    (send-notification method params))
+                                  params)]
+        ["textDocument/didClose"
+         (text-document/did-close! params)]
+        ["textDocument/didChange"
+         (text-document/did-change! (λ (method params)
+                                      (send-notification method params))
+                                    params)]
+        [_ (void)]))
     ))
 
 (define ((report-request-error id method) exn)
   (eprintf "Caught exn in request ~v\n~a\n" method (exn->string exn))
   (define err (format "internal error in method ~v" method))
   (error-response id INTERNAL-ERROR err))
-
-;; Processes a request. This procedure should always return a jsexpr
-;; which is a suitable response object.
-;; (-> (or/c integer? string?) string? jsexpr? jsexpr?)
-(define (process-request id method params)
-  (with-handlers ([exn:fail? (report-request-error id method)])
-    (match method
-      ["initialize"
-       (initialize id params)]
-      ["shutdown"
-       (shutdown id)]
-      ["textDocument/hover"
-       (text-document/hover id params)]
-      ["textDocument/codeAction"
-       (text-document/code-action id params)]
-      ["textDocument/completion"
-       (text-document/completion id params)]
-      ["textDocument/signatureHelp"
-       (text-document/signatureHelp id params)]
-      ["textDocument/definition"
-       (text-document/definition id params)]
-      ["textDocument/documentHighlight"
-       (text-document/document-highlight id params)]
-      ["textDocument/references"
-       (text-document/references id params)]
-      ["textDocument/documentSymbol"
-       (text-document/document-symbol id params)]
-      ["textDocument/inlayHint"
-       (text-document/inlay-hint id params)]
-      ["textDocument/rename"
-       (text-document/rename id params)]
-      ["textDocument/prepareRename"
-       (text-document/prepareRename id params)]
-      ["textDocument/formatting"
-       (text-document/formatting! id params)]
-      ["textDocument/rangeFormatting"
-       (text-document/range-formatting! id params)]
-      ["textDocument/onTypeFormatting"
-       (text-document/on-type-formatting! id params)]
-      ["textDocument/semanticTokens/full"
-       (text-document/full-semantic-tokens id params)]
-      ["textDocument/semanticTokens/range"
-       (text-document/range-semantic-tokens id params)]
-      [_
-       (eprintf "invalid request for method ~v\n" method)
-       (define err (format "The method ~v was not found" method))
-       (error-response id METHOD-NOT-FOUND err)])))
-
-;; Processes a notification. Because notifications do not require
-;; a response, this procedure always returns void.
-(define (process-notification method params)
-  (match method
-    ["exit"
-     (exit (if already-shutdown? 0 1))]
-    ["workspace/didRenameFiles"
-     (workspace/didRenameFiles params)]
-    ["workspace/didChangeWorkspaceFolders"
-     (workspace/didChangeWorkspaceFolders params)]
-    ["workspace/didChangeWatchedFiles"
-     (workspace/didChangeWatchedFiles params)]
-    ["workspace/didChangeConfiguration"
-     (workspace/didChangeConfiguration params)]
-    ["textDocument/didOpen"
-     (text-document/did-open! params)]
-    ["textDocument/didClose"
-     (text-document/did-close! params)]
-    ["textDocument/didChange"
-     (text-document/did-change! params)]
-    [_ (void)]))
 
 ;;
 ;; Requests

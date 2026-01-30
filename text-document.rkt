@@ -20,8 +20,7 @@
          "doc.rkt"
          "struct.rkt"
          "scheduler.rkt"
-         "workspace.rkt"
-         "server.rkt")
+         "workspace.rkt")
 (require "open-docs.rkt")
 
 ;;
@@ -79,29 +78,28 @@
   [scopeUri string?]
   [section string?])
 
-(define (fetch-configuration uri)
-  (send current-server send-request
-        "workspace/configuration"
-        (hasheq 'items (list (ConfigurationItem #:scopeUri uri #:section "racket-langserver")))
-        update-configuration))
+(define (fetch-configuration request-client uri)
+  (request-client "workspace/configuration"
+                  (hasheq 'items (list (ConfigurationItem #:scopeUri uri #:section "racket-langserver")))
+                  update-configuration))
 
 ;;
 ;; Methods
 ;;;;;;;;;;;;
 
-(define (did-open! params)
+(define (did-open! request-client notify-client params)
   (match-define (hash-table ['textDocument (DocItem #:uri uri #:version version #:text text)]) params)
-  (fetch-configuration uri)
+  (fetch-configuration request-client uri)
   (define safe-doc (new-doc uri text version))
   (hash-set! open-docs (string->symbol uri) safe-doc)
-  (doc-run-check-syntax! safe-doc))
+  (doc-run-check-syntax! notify-client safe-doc))
 
 (define (did-close! params)
   (match-define (hash-table ['textDocument (DocItem #:uri uri)]) params)
   (hash-remove! open-docs (string->symbol uri))
   (clear-old-queries/doc-close uri))
 
-(define (did-change! params)
+(define (did-change! notify-client params)
   (match-define (hash-table ['textDocument (DocIdentifier #:version version #:uri uri)]
                             ['contentChanges content-changes]) params)
   (define safe-doc (hash-ref open-docs (string->symbol uri)))
@@ -125,7 +123,7 @@
 
       (doc-update-version! doc version)))
 
-  (doc-run-check-syntax! safe-doc))
+  (doc-run-check-syntax! notify-client safe-doc))
 
 ;; Hover request
 ;; Returns an object conforming to the Hover interface, to
@@ -570,10 +568,10 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (provide
+ did-open!
+ did-change!
  (contract-out
-  [did-open! (jsexpr? . -> . void?)]
   [did-close! (jsexpr? . -> . void?)]
-  [did-change! (jsexpr? . -> . void?)]
   [hover (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]
   [code-action (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]
   [completion (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]
@@ -590,4 +588,3 @@
   [on-type-formatting! (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]
   [full-semantic-tokens (exact-nonnegative-integer? jsexpr? . -> . (or/c jsexpr? (-> jsexpr?)))]
   [range-semantic-tokens (exact-nonnegative-integer? jsexpr? . -> . (or/c jsexpr? (-> jsexpr?)))]))
-

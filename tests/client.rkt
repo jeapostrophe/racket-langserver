@@ -14,7 +14,6 @@
          racket/async-channel
          racket/match
          json
-         "../server.rkt"
          "../methods.rkt")
 
 (define id 0)
@@ -31,11 +30,10 @@
   (parameterize ([response-channel (make-async-channel)]
                  [request-channel (make-async-channel)]
                  [notification-channel (make-async-channel)])
-    (set-current-server! (new server%
-                              [response-channel (response-channel)]
-                              [request-channel (request-channel)]
-                              [notification-channel (notification-channel)]))
-    (define lsp current-server)
+    (define lsp (new server%
+                     [response-channel (response-channel)]
+                     [request-channel (request-channel)]
+                     [notification-channel (notification-channel)]))
 
     (define (handle-request)
       ;; Server request - handle immediately and send response

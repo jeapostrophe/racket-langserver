@@ -11,7 +11,6 @@
          "error-codes.rkt"
          "methods.rkt"
          "msg-io.rkt"
-         "server.rkt"
          "responses.rkt")
 
 ;; https://www.cs.utah.edu/plt/publications/pldi04-ff.pdf
@@ -60,10 +59,10 @@
 ;;                    to a specified output-port or current-output-port.
 (define (main-loop)
   (define resp-ch (make-async-channel))
-  (set-current-server! (new server%
-                            [response-channel resp-ch]
-                            [request-channel resp-ch]
-                            [notification-channel resp-ch]))
+  (define server (new server%
+                      [response-channel resp-ch]
+                      [request-channel resp-ch]
+                      [notification-channel resp-ch]))
 
   (define q (queue))
   (define (consume)
@@ -75,7 +74,7 @@
       [_
        (maybe-debug-log msg)
        (with-handlers ([exn:fail? report-error])
-         (send current-server process-message msg))])
+         (send server process-message msg))])
     (consume))
   (define (write-resp)
     (display-message/flush (async-channel-get resp-ch))
