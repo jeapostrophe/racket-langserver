@@ -2,8 +2,7 @@
 
 (require "../with-document.rkt"
          "../../../service/dynamic-import.rkt"
-         "../../../json-util.rkt"
-         chk)
+         "../../../json-util.rkt")
 
 (define uri "file:///test.rkt")
 

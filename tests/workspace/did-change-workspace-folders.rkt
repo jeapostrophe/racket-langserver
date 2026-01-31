@@ -1,7 +1,5 @@
 #lang racket
-(require "../client.rkt"
-         chk
-         json)
+(require "../client.rkt")
 
 (module+ test
   (with-racket-lsp
@@ -11,5 +9,4 @@
                              (hasheq 'event
                                      (hasheq 'added (list (hasheq 'uri "/tmp/project_a" 'name "projectA"))
                                              'removed (list)))))
-        (client-send lsp noti)
-        )))
+        (client-send lsp noti))))

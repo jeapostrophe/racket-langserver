@@ -1,8 +1,7 @@
 #lang racket
 
 (require "with-document.rkt"
-         "../../json-util.rkt"
-         chk)
+         "../../json-util.rkt")
 
 (define uri "file:///test.rkt")
 
@@ -15,6 +14,8 @@ END
   )
 
 (module+ test
+  (require rackunit)
+
   (with-document uri code
     (λ (lsp)
 
@@ -28,6 +29,6 @@ END
       (client-send lsp help-req)
 
       (let ([resp (client-wait-response help-req)])
-        (chk (jsexpr-has-key? resp '(result signatures)))
-        (chk (list? (jsexpr-ref resp '(result signatures))))
-        (chk (not (null? (jsexpr-ref resp '(result signatures)))))))))
+        (check-true (jsexpr-has-key? resp '(result signatures)))
+        (check-true (list? (jsexpr-ref resp '(result signatures))))
+        (check-true (not (null? (jsexpr-ref resp '(result signatures)))))))))

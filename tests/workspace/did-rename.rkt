@@ -1,7 +1,5 @@
 #lang racket
-(require "../client.rkt"
-         chk
-         json)
+(require "../client.rkt")
 
 (module+ test
   (with-racket-lsp
@@ -10,5 +8,4 @@
           (make-notification "workspace/didRenameFiles"
                              (hasheq 'files
                                      (list (hasheq 'oldUri "a.rkt" 'newUri "a1.rkt")))))
-        (client-send lsp did-rename-notification)
-        )))
+        (client-send lsp did-rename-notification))))
