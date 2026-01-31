@@ -1,7 +1,6 @@
 #lang racket
 
 (require "../with-document.rkt"
-         chk
          json)
 
 (define uri "file:///test.rkt")
