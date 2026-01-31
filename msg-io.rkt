@@ -35,10 +35,11 @@
 (define out-t (thread (lambda () (read-loop out-ch))))
 
 (provide
- (contract-out
-  [read-message (->* ()
-                     (input-port?)
-                     (or/c jsexpr? eof-object? 'parse-json-error))]
-  [display-message/flush (->* (jsexpr?)
-                              (output-port?)
-                              void?)]))
+  (contract-out
+    [read-message (->* ()
+                       (input-port?)
+                       (or/c jsexpr? eof-object? 'parse-json-error))]
+    [display-message/flush (->* (jsexpr?)
+                                (output-port?)
+                                void?)]))
+

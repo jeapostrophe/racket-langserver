@@ -26,26 +26,26 @@
            (serve (list (sync (channel-recv-evt in-ch))))]
           [else
            (sync (choice-evt
-                  (wrap-evt (channel-recv-evt in-ch)
-                            (λ (m)
-                              (serve (append ready-req-evts (list m)))))
-                  (wrap-evt (channel-send-evt out-ch (first ready-req-evts))
-                            (thunk*
-                             (serve (rest ready-req-evts))))))]))
+                   (wrap-evt (channel-recv-evt in-ch)
+                             (λ (m)
+                               (serve (append ready-req-evts (list m)))))
+                   (wrap-evt (channel-send-evt out-ch (first ready-req-evts))
+                             (thunk*
+                               (serve (rest ready-req-evts))))))]))
   (define mgr-t (spawn (λ () (serve empty))))
   (Q in-ch out-ch mgr-t))
 
 (define (queue-send-evt q v)
   (guard-evt
-   (λ ()
-     (thread-resume (Q-mgr-t q) (current-thread))
-     (channel-send-evt (Q-in-ch q) v))))
+    (λ ()
+      (thread-resume (Q-mgr-t q) (current-thread))
+      (channel-send-evt (Q-in-ch q) v))))
 
 (define (queue-recv-evt q)
   (guard-evt
-   (λ ()
-     (thread-resume (Q-mgr-t q) (current-thread))
-     (channel-recv-evt (Q-out-ch q)))))
+    (λ ()
+      (thread-resume (Q-mgr-t q) (current-thread))
+      (channel-recv-evt (Q-out-ch q)))))
 
 (define (report-error exn)
   (eprintf "\nCaught exn:\n~a\n" (exn->string exn)))
@@ -89,3 +89,4 @@
 
 (module+ main
   (main-loop))
+

@@ -39,8 +39,8 @@
     (define definition-tag (xref-binding->definition-tag xref (list mp (string->symbol id)) #f))
     (cond
       [definition-tag
-        (define-values (path url-tag) (xref-tag->path+anchor xref definition-tag))
-        (if path definition-tag #f)]
+       (define-values (path url-tag) (xref-tag->path+anchor xref definition-tag))
+       (if path definition-tag #f)]
       [else #f])))
 
 (define (get-docs-for-tag tag)
@@ -107,3 +107,4 @@
          id-to-tag
          make-proper-url-for-online-documentation
          def-tag->html-anchor-tag)
+

@@ -18,9 +18,9 @@
   (define h1
     (for/fold ([h (hash)])
               ([p (in-list (append
-                            (current-library-collection-paths)
-                            (links #:root? #t #:user? #f)
-                            (links #:root? #t #:user? #t)))]
+                             (current-library-collection-paths)
+                             (links #:root? #t #:user? #f)
+                             (links #:root? #t #:user? #t)))]
                #:when (directory-exists? p)
                [d (in-list (directory-list p #:build? #t))]
                #:when (directory-exists? d))
@@ -59,15 +59,15 @@
                            (member (path-get-extension f)
                                    '(#".rkt" #".rhm")))
                       (set-add
-                       s
-                       (join-str
-                        (path->string
-                         (path-replace-extension f #""))))]
+                        s
+                        (join-str
+                          (path->string
+                            (path-replace-extension f #""))))]
                      [(and (directory-exists? (build-path dir f))
                            (not (string=? (path->string f) "compiled")))
                       (set-add
-                       s
-                       (join-str (path->string f)))]
+                        s
+                        (join-str (path->string f)))]
                      [else s]))]
                 [(cons "" _) s]
                 [(cons p path*)
@@ -79,3 +79,4 @@
     [else (set)]))
 
 (provide collections get-completions)
+

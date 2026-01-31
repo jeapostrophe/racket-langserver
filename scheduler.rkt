@@ -67,12 +67,12 @@
 (define (async-query-wait uri task)
   (define query-ch (make-async-channel))
   (call-with-semaphore
-   *await-queries-semaphore*
-   (λ ()
-     (hash-update! *await-queries*
-                   uri
-                   (λ (old) (cons (list task query-ch) old))
-                   '())))
+    *await-queries-semaphore*
+    (λ ()
+      (hash-update! *await-queries*
+                    uri
+                    (λ (old) (cons (list task query-ch) old))
+                    '())))
 
   (λ () (sync query-ch)))
 
@@ -80,24 +80,24 @@
 ;; to be processed.
 (define (clear-old-queries/doc-change uri)
   (call-with-semaphore
-   *await-queries-semaphore*
-   (λ ()
-     (run-and-remove-queries uri *doc-change-signal*))))
+    *await-queries-semaphore*
+    (λ ()
+      (run-and-remove-queries uri *doc-change-signal*))))
 
 ;; send new trace signal (when check syntax completed) and waiting for all waiting queries
 ;; to be processed.
 (define (clear-old-queries/new-trace uri)
   (call-with-semaphore
-   *await-queries-semaphore*
-   (λ ()
-     (run-and-remove-queries uri *new-trace-signal*))))
+    *await-queries-semaphore*
+    (λ ()
+      (run-and-remove-queries uri *new-trace-signal*))))
 
 ;; remove all await queries
 (define (clear-old-queries/doc-close uri)
   (call-with-semaphore
-   *await-queries-semaphore*
-   (λ ()
-     (hash-remove! *await-queries* uri))))
+    *await-queries-semaphore*
+    (λ ()
+      (hash-remove! *await-queries* uri))))
 
 (provide async-query-wait
          signal-doc-change?

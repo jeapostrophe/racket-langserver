@@ -6,7 +6,7 @@
 (define uri "file:///test.rkt")
 
 (define code
-  #<<END
+#<<END
 #lang racket/base
 
 (list 1 2)
@@ -40,3 +40,4 @@ END
         (check-equal? (jsexpr-ref resp '(result range start character)) 1)
         (check-equal? (jsexpr-ref resp '(result range end line)) 2)
         (check-equal? (jsexpr-ref resp '(result range end character)) 5)))))
+

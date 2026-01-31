@@ -163,7 +163,7 @@
                     (if link
                         (~a (or maybe-signature "")
                             (or (extract-documentation-for-selected-element
-                                 link #:include-signature? (not maybe-signature))
+                                  link #:include-signature? (not maybe-signature))
                                 ""))
                         ""))
                   (define contents (if link
@@ -368,10 +368,10 @@
                      (define ranges (cons (start/end->range doc left right)
                                           (get-bindings uri decl)))
                      (WorkspaceEdit
-                      #:changes
-                      (hasheq (string->symbol uri)
-                              (for/list ([range (in-list ranges)])
-                                (TextEdit #:range range #:newText new-name))))])]
+                       #:changes
+                       (hasheq (string->symbol uri)
+                               (for/list ([range (in-list ranges)])
+                                 (TextEdit #:range range #:newText new-name))))])]
              [#f (json-null)]))))
      (success-response id result)]
     [_
@@ -560,31 +560,32 @@
   (if tokens
       (success-response id (hash 'data tokens))
       (async-query-wait
-       uri
-       (λ (_signal)
-         (define tokens (with-read-doc safe-doc (λ (doc) (doc-range-tokens doc start-pos end-pos))))
-         (success-response id (hash 'data tokens))))))
+        uri
+        (λ (_signal)
+          (define tokens (with-read-doc safe-doc (λ (doc) (doc-range-tokens doc start-pos end-pos))))
+          (success-response id (hash 'data tokens))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (provide
- did-open!
- did-change!
- (contract-out
-  [did-close! (jsexpr? . -> . void?)]
-  [hover (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]
-  [code-action (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]
-  [completion (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]
-  [signatureHelp (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]
-  [definition (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]
-  [document-highlight (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]
-  [references (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]
-  [document-symbol (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]
-  [inlay-hint (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]
-  [rename _rename rename (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]
-  [prepareRename (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]
-  [formatting! (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]
-  [range-formatting! (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]
-  [on-type-formatting! (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]
-  [full-semantic-tokens (exact-nonnegative-integer? jsexpr? . -> . (or/c jsexpr? (-> jsexpr?)))]
-  [range-semantic-tokens (exact-nonnegative-integer? jsexpr? . -> . (or/c jsexpr? (-> jsexpr?)))]))
+  did-open!
+  did-change!
+  (contract-out
+    [did-close! (jsexpr? . -> . void?)]
+    [hover (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]
+    [code-action (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]
+    [completion (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]
+    [signatureHelp (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]
+    [definition (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]
+    [document-highlight (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]
+    [references (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]
+    [document-symbol (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]
+    [inlay-hint (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]
+    [rename _rename rename (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]
+    [prepareRename (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]
+    [formatting! (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]
+    [range-formatting! (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]
+    [on-type-formatting! (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]
+    [full-semantic-tokens (exact-nonnegative-integer? jsexpr? . -> . (or/c jsexpr? (-> jsexpr?)))]
+    [range-semantic-tokens (exact-nonnegative-integer? jsexpr? . -> . (or/c jsexpr? (-> jsexpr?)))]))
+

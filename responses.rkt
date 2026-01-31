@@ -27,14 +27,15 @@
 (define Diag-Hint 4)
 
 (provide
- Diag-Error
- Diag-Warning
- Diag-Information
- Diag-Hint
- (contract-out
-  [success-response
-   ((or/c number? string?) jsexpr? . -> . jsexpr?)]
-  [error-response
-   (->* ((or/c number? string? (json-null)) number? string?)
-        (any/c)
-        jsexpr?)]))
+  Diag-Error
+  Diag-Warning
+  Diag-Information
+  Diag-Hint
+  (contract-out
+    [success-response
+     ((or/c number? string?) jsexpr? . -> . jsexpr?)]
+    [error-response
+     (->* ((or/c number? string? (json-null)) number? string?)
+          (any/c)
+          jsexpr?)]))
+
