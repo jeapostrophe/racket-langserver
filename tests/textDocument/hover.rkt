@@ -1,8 +1,7 @@
 #lang racket
 
 (require "../../json-util.rkt"
-         "with-document.rkt"
-         chk)
+         "with-document.rkt")
 
 (define uri "file:///test.rkt")
 
@@ -15,7 +14,9 @@ END
   )
 
 (module+ test
-  (with-document "../../main.rkt" uri code
+  (require rackunit)
+
+  (with-document uri code
     (λ (lsp)
 
       (define hover-req
@@ -27,15 +28,15 @@ END
                               (hasheq 'line 2 'character 1))))
       (client-send lsp hover-req)
 
-      (let ([resp (client-wait-response lsp)])
-        (chk (jsexpr-has-key? resp '(result contents)))
-        (chk (not (string=? "" (jsexpr-ref resp '(result contents)))))
+      (let ([resp (client-wait-response hover-req)])
+        (check-true (jsexpr-has-key? resp '(result contents)))
+        (check-false (string=? "" (jsexpr-ref resp '(result contents))))
 
-        (chk (jsexpr-has-key? resp '(result range start line)))
-        (chk (jsexpr-has-key? resp '(result range start character)))
-        (chk (jsexpr-has-key? resp '(result range end line)))
-        (chk (jsexpr-has-key? resp '(result range end character)))
-        (chk #:= (jsexpr-ref resp '(result range start line)) 2)
-        (chk #:= (jsexpr-ref resp '(result range start character)) 1)
-        (chk #:= (jsexpr-ref resp '(result range end line)) 2)
-        (chk #:= (jsexpr-ref resp '(result range end character)) 5)))))
+        (check-true (jsexpr-has-key? resp '(result range start line)))
+        (check-true (jsexpr-has-key? resp '(result range start character)))
+        (check-true (jsexpr-has-key? resp '(result range end line)))
+        (check-true (jsexpr-has-key? resp '(result range end character)))
+        (check-equal? (jsexpr-ref resp '(result range start line)) 2)
+        (check-equal? (jsexpr-ref resp '(result range start character)) 1)
+        (check-equal? (jsexpr-ref resp '(result range end line)) 2)
+        (check-equal? (jsexpr-ref resp '(result range end character)) 5)))))

@@ -15,7 +15,7 @@ END
   )
 
 (module+ test
-  (with-document "../../main.rkt" uri code
+  (with-document uri code
     (λ (lsp)
 
       (define help-req
@@ -27,7 +27,7 @@ END
                               (hasheq 'line 2 'character 6))))
       (client-send lsp help-req)
 
-      (let ([resp (client-wait-response lsp)])
+      (let ([resp (client-wait-response help-req)])
         (chk (jsexpr-has-key? resp '(result signatures)))
         (chk (list? (jsexpr-ref resp '(result signatures))))
         (chk (not (null? (jsexpr-ref resp '(result signatures)))))))))

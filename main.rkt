@@ -5,6 +5,8 @@
          racket/function
          racket/list
          racket/match
+         racket/class
+         racket/async-channel
          "debug.rkt"
          "error-codes.rkt"
          "methods.rkt"
@@ -56,6 +58,12 @@
 ;; * out-t          - defined in `msg-io.rkt`, put the response message
 ;;                    to a specified output-port or current-output-port.
 (define (main-loop)
+  (define resp-ch (make-async-channel))
+  (define server (new server%
+                      [response-channel resp-ch]
+                      [request-channel resp-ch]
+                      [notification-channel resp-ch]))
+
   (define q (queue))
   (define (consume)
     (define msg (sync (queue-recv-evt q)))
@@ -66,10 +74,14 @@
       [_
        (maybe-debug-log msg)
        (with-handlers ([exn:fail? report-error])
-         (process-message msg))])
+         (send server process-message msg))])
     (consume))
+  (define (write-resp)
+    (display-message/flush (async-channel-get resp-ch))
+    (write-resp))
 
   (spawn consume)
+  (spawn write-resp)
   (for ([msg (in-port read-message)])
     (sync (queue-send-evt q msg)))
   (eprintf "Unexpected EOF\n")

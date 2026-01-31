@@ -36,25 +36,25 @@
   #:mutable)
 
 ;; the only place where really run check-syntax
-(define (doc-run-check-syntax! safe-doc)
+(define (doc-run-check-syntax! notify-client safe-doc)
   (match-define (list uri old-version text)
-                (with-read-doc safe-doc
-                  (λ (doc)
-                    (list (Doc-uri doc) (Doc-version doc) (send (Doc-text doc) copy)))))
+    (with-read-doc safe-doc
+      (λ (doc)
+        (list (Doc-uri doc) (Doc-version doc) (send (Doc-text doc) copy)))))
 
   (define (task)
-    (define new-trace (check-syntax uri text))
+    (define new-trace (check-syntax notify-client uri text))
     ;; make a new thread to write doc because this task will be executed by
     ;; the scheduler and can be killed at any time.
     (thread
-      (λ ()
-        (with-write-doc safe-doc
-          (λ (doc)
-            (when (and (equal? old-version (Doc-version doc))
-                       new-trace)
-              (set-Doc-trace-version! doc old-version)
-              (set-Doc-trace! doc new-trace))))
-        (clear-old-queries/new-trace uri))))
+     (λ ()
+       (with-write-doc safe-doc
+         (λ (doc)
+           (when (and (equal? old-version (Doc-version doc))
+                      new-trace)
+             (set-Doc-trace-version! doc old-version)
+             (set-Doc-trace! doc new-trace))))
+       (clear-old-queries/new-trace uri))))
 
   (scheduler-push-task! (with-read-doc safe-doc (λ (doc) (Doc-uri doc))) 'check-syntax task))
 
@@ -75,13 +75,13 @@
 
 (define (with-read-doc safe-doc proc)
   (call-with-read-lock
-    (SafeDoc-rwlock safe-doc)
-    (λ () (proc (SafeDoc-doc safe-doc)))))
+   (SafeDoc-rwlock safe-doc)
+   (λ () (proc (SafeDoc-doc safe-doc)))))
 
 (define (with-write-doc safe-doc proc)
   (call-with-write-lock
-    (SafeDoc-rwlock safe-doc)
-    (λ () (proc (SafeDoc-doc safe-doc)))))
+   (SafeDoc-rwlock safe-doc)
+   (λ () (proc (SafeDoc-doc safe-doc)))))
 
 (define (doc-reset! doc new-text)
   (define doc-text (Doc-text doc))
@@ -256,16 +256,16 @@
         (if (> line end-line)
             null
             (append (filter-map
-                      values
-                      ;; NOTE: The order is important here.
-                      ;; `remove-trailing-space!` deletes content relative to the initial document
-                      ;; position. If we were to instead call `indent-line!` first and then
-                      ;; `remove-trailing-space!` second, the remove step could result in
-                      ;; losing user entered code.
-                      (list (if (false? (FormattingOptions-trim-trailing-whitespace opts))
-                                #f
-                                (remove-trailing-space! mut-doc-text skip-this-line? line))
-                            (indent-line! mut-doc-text indenter-wp line)))
+                     values
+                     ;; NOTE: The order is important here.
+                     ;; `remove-trailing-space!` deletes content relative to the initial document
+                     ;; position. If we were to instead call `indent-line!` first and then
+                     ;; `remove-trailing-space!` second, the remove step could result in
+                     ;; losing user entered code.
+                     (list (if (false? (FormattingOptions-trim-trailing-whitespace opts))
+                               #f
+                               (remove-trailing-space! mut-doc-text skip-this-line? line))
+                           (indent-line! mut-doc-text indenter-wp line)))
                     (loop (add1 line)))))))
 
 (define (replace-tab! doc-text line tabsize)
