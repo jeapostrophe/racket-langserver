@@ -53,6 +53,10 @@ You may need to restart your LSP runtime or your editor for `racket-langserver` 
 
 - **Document Outline** (textDocument/documentSymbol)
 
+## Development
+
+See [CONTRIBUTING.md](CONTRIBUTING.md).
+
 ## Notes for Contributers
 
 It is useful to think of this project as a "headless mode" for DrRacket. Contributions to this project should seek to avoid re-implementing functionality that is already exposed through DrRacket's public API.
