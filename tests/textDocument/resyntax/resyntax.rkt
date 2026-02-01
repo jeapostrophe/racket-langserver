@@ -7,7 +7,7 @@
 (define uri "file:///test.rkt")
 
 (define code
-  #<<END
+#<<END
 #lang racket/base
 
 (format "")
@@ -17,7 +17,7 @@ END
 ;; detect if resyntax is available
 (define has-resyntax? #t)
 (dynamic-imports ('resyntax
-                  resyntax-analyze)
+                   resyntax-analyze)
                  (λ () (set! has-resyntax? #f)))
 
 (module+ test

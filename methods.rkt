@@ -60,13 +60,13 @@
     (super-new)
 
     (init-field
-     response-channel
-     request-channel
-     notification-channel)
+      response-channel
+      request-channel
+      notification-channel)
     (field
-     ; Each request sent by server should register its response handler here
-     [response-handlers (make-hash)]
-     [server-request-id 0])
+      ; Each request sent by server should register its response handler here
+      [response-handlers (make-hash)]
+      [server-request-id 0])
 
     (define/public (send-response msg)
       (async-channel-put response-channel msg))
@@ -268,3 +268,4 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (provide server%)
+

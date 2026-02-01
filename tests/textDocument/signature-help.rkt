@@ -6,7 +6,7 @@
 (define uri "file:///test.rkt")
 
 (define code
-  #<<END
+#<<END
 #lang racket/base
 
 (list )
@@ -32,3 +32,4 @@ END
         (check-true (jsexpr-has-key? resp '(result signatures)))
         (check-true (list? (jsexpr-ref resp '(result signatures))))
         (check-true (not (null? (jsexpr-ref resp '(result signatures)))))))))
+

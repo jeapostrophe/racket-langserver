@@ -7,7 +7,7 @@
 (define uri "file:///test.rkt")
 
 (define code
-  #<<END
+#<<END
 #lang racket/base
 END
   )
@@ -41,3 +41,4 @@ END
                       (string? (jsexpr-ref item '(label)))))
         (check-true (for/and ([item result])
                       (not (string=? "" (jsexpr-ref item '(label))))))))))
+

@@ -57,3 +57,26 @@ jobs:
         run: raco pkg install --no-docs --auto resyntax
       - name: Running resyntax tests
         run: xvfb-run -a raco test -j 1 tests/textDocument/resyntax/
+
+  formatting:
+    name: "Code formatting check"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3.1.0
+      - uses: Bogdanp/setup-racket@v1.14
+        with:
+          architecture: x64
+          distribution: full
+          variant: CS
+          version: stable
+      - name: Installing racket-fixw
+        run: raco pkg install --auto fixw
+      - name: Checking code formatting
+        run: |
+          raco fixw .
+          if [ -n "$(git status --porcelain)" ]; then
+            echo "Code is not properly formatted. Please run 'raco fixw .' locally and commit the changes."
+            exit 1
+          else
+            echo "Code is properly formatted."
+          fi

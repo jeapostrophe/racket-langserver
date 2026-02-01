@@ -63,3 +63,4 @@
   (subprocess-wait sp)
   (define st (subprocess-status sp))
   (check-true (zero? st)))
+

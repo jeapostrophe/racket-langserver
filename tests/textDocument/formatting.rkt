@@ -5,7 +5,7 @@
 (define uri "file:///test.rkt")
 
 (define code
-  #<<END
+#<<END
 #lang racket/base
 
 (define (bob)
@@ -21,21 +21,21 @@ END
     (λ (lsp)
       ;; Insert a new line with indentation after line 2
       (let ([notif (make-notification
-                    "textDocument/didChange"
-                    (hasheq 'textDocument
-                            (hasheq 'uri uri
-                                    'version 0)
-                            'contentChanges
-                            (list
-                             (hasheq 'range
-                                     (hasheq 'start
-                                             (hasheq 'line 2
-                                                     'character 13)
-                                             'end
-                                             (hasheq 'line 2
-                                                     'character 13))
-                                     'rangeLength 0
-                                     'text "\n"))))])
+                     "textDocument/didChange"
+                     (hasheq 'textDocument
+                             (hasheq 'uri uri
+                                     'version 0)
+                             'contentChanges
+                             (list
+                               (hasheq 'range
+                                       (hasheq 'start
+                                               (hasheq 'line 2
+                                                       'character 13)
+                                               'end
+                                               (hasheq 'line 2
+                                                       'character 13))
+                                       'rangeLength 0
+                                       'text "\n"))))])
         (client-send lsp notif)
         (client-wait-notification lsp))
 
@@ -52,21 +52,22 @@ END
                                                          'insertSpaces #t)))]
              [res (make-expected-response req
                                           (list
-                                           (hasheq 'range
-                                                   (hasheq 'start
-                                                           (hasheq 'line 3
-                                                                   'character 0)
-                                                           'end
-                                                           (hasheq 'line 3
-                                                                   'character 0))
-                                                   'newText "")
-                                           (hasheq 'range
-                                                   (hasheq 'start
-                                                           (hasheq 'line 3
-                                                                   'character 0)
-                                                           'end
-                                                           (hasheq 'line 3
-                                                                   'character 0))
-                                                   'newText "  ")))])
+                                            (hasheq 'range
+                                                    (hasheq 'start
+                                                            (hasheq 'line 3
+                                                                    'character 0)
+                                                            'end
+                                                            (hasheq 'line 3
+                                                                    'character 0))
+                                                    'newText "")
+                                            (hasheq 'range
+                                                    (hasheq 'start
+                                                            (hasheq 'line 3
+                                                                    'character 0)
+                                                            'end
+                                                            (hasheq 'line 3
+                                                                    'character 0))
+                                                    'newText "  ")))])
         (client-send lsp req)
         (check-equal? (jsexpr->string (client-wait-response req)) (jsexpr->string res))))))
+

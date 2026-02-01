@@ -41,10 +41,10 @@
        (cond
          [maybe-lib-error-source/f
           (format (string-append
-                   "Failed to load file because it is compiled by a different version of Racket.\n"
-                   "  file: ~a\n"
-                   "  suggestion: ~a\n"
-                   "  complete message:\n\n  ~a")
+                    "Failed to load file because it is compiled by a different version of Racket.\n"
+                    "  file: ~a\n"
+                    "  suggestion: ~a\n"
+                    "  complete message:\n\n  ~a")
                   maybe-lib-error-source/f
                   (cond
                     [(regexp-match? #rx"<[a-z-]+>/" maybe-lib-error-source/f)
@@ -72,7 +72,7 @@
        (match-define (srcloc src line col pos span) sl)
        (if (and (number? line) (number? col) (number? span))
            (Diagnostic #:range (Range #:start (Pos #:line (sub1 line) #:char col)
-                                      #:end   (Pos #:line (sub1 line) #:char (+ col span)))
+                                      #:end (Pos #:line (sub1 line) #:char (+ col span)))
                        #:severity Diag-Error
                        #:source "Racket"
                        #:message msg)
@@ -80,7 +80,7 @@
            ;; Use end of file as a reasonable guess
            (let ([end-of-file (abs-pos->Pos doc-text (send doc-text end-pos))])
              (Diagnostic #:range (Range #:start end-of-file
-                                        #:end   end-of-file)
+                                        #:end end-of-file)
                          #:severity Diag-Error
                          #:source "Racket"
                          #:message msg))))]
@@ -170,9 +170,9 @@
                    [current-namespace ns]
                    [current-load-relative-directory src-dir])
       (with-intercepted-logging
-          (lambda (l)
-            (define result (check-typed-racket-log doc-text l))
-            (when (list? result) (set! diags (append result diags))))
+        (lambda (l)
+          (define result (check-typed-racket-log doc-text l))
+          (when (list? result) (set! diags (append result diags))))
         (lambda ()
           (with-handlers ([(or/c exn:fail:read?
                                  exn:fail:syntax?
@@ -210,3 +210,4 @@
   (if valid new-trace #f))
 
 (provide check-syntax)
+

@@ -8,11 +8,11 @@
                      syntax/parse))
 
 (provide
- (contract-out
-  [struct Decl ([filename any/c]
-                [id any/c]
-                [left exact-nonnegative-integer?]
-                [right exact-nonnegative-integer?])]))
+  (contract-out
+    [struct Decl ([filename any/c]
+                  [id any/c]
+                  [left exact-nonnegative-integer?]
+                  [right exact-nonnegative-integer?])]))
 
 (struct Decl (filename id left right) #:transparent)
 
@@ -93,11 +93,11 @@
 
 (struct FormattingOptions
   (tab-size
-   insert-spaces
-   trim-trailing-whitespace
-   insert-final-newline
-   trim-final-newlines
-   key))
+    insert-spaces
+    trim-trailing-whitespace
+    insert-final-newline
+    trim-final-newlines
+    key))
 
 (define/contract (make-FormattingOptions #:tab-size tab-size
                                          #:insert-spaces insert-spaces
@@ -172,3 +172,4 @@
          (struct-out SemanticToken)
          *semantic-token-types*
          *semantic-token-modifiers*)
+

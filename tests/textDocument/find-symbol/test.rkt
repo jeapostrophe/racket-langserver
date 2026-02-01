@@ -5,7 +5,7 @@
 (define uri "file:///test.rkt")
 
 (define code
-  #<<END
+#<<END
 #lang racket/base
 
 (define x 0)
@@ -53,3 +53,4 @@ END
 
         (check-equal? (jsexpr->string (client-wait-response req))
                       (jsexpr->string resp))))))
+
