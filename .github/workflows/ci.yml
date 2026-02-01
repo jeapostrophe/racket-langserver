@@ -70,7 +70,7 @@ jobs:
           variant: CS
           version: stable
       - name: Installing racket-fixw
-        run: raco pkg install fixw
+        run: raco pkg install --auto fixw
       - name: Checking code formatting
         run: |
           raco fixw .
