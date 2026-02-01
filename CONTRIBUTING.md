@@ -37,7 +37,9 @@ raco make **/*.rkt
 ```
 
 ## Formatting
-We use [fixw](https://docs.racket-lang.org/fixw/index.html). Install and run it manually:
+We use [`fixw`](https://docs.racket-lang.org/fixw/index.html) ([6cdh/fixw](https://github.com/6cdh/fixw)). Custom indentation rules are defined in [`.lispwords`](.lispwords).
+
+Run it manually:
 ```bash
 raco pkg install fixw
 raco fixw .
