@@ -10,3 +10,4 @@
 (define (uri->path uri)
   (cond [(string-prefix? uri "file:") (path->string (url->path (string->url uri)))]
         [else (uri->path (regexp-replace #rx".*?:" uri "file:"))]))
+

@@ -3,16 +3,17 @@
 (provide with-document
          client-send
          client-wait-response
+         client-wait-notification
          make-request
          make-expected-response
          make-notification)
 
 (require "../client.rkt")
 
-(define/contract (with-document path uri text proc)
-  (-> string? string? string? (-> Lsp? any/c) any/c)
+(define/contract (with-document uri text proc)
+  (-> string? string? (-> any/c any/c) any/c)
 
-  (with-racket-lsp path
+  (with-racket-lsp
     (λ (lsp)
       (define didopen-req
         (make-notification "textDocument/didOpen"
@@ -22,7 +23,7 @@
                                            'version 0
                                            'text text))))
       (client-send lsp didopen-req)
-      (client-wait-response lsp)
+      (client-wait-notification lsp)
 
       (proc lsp)
 
@@ -32,3 +33,4 @@
                            (hasheq 'textDocument
                                    (hasheq 'uri uri))))
       (client-send lsp didclose-req))))
+

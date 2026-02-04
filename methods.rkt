@@ -4,11 +4,11 @@
          racket/contract/base
          racket/exn
          racket/match
+         racket/class
+         racket/async-channel
          "error-codes.rkt"
-         "msg-io.rkt"
          "responses.rkt"
          "struct.rkt"
-         "server-request.rkt"
          (prefix-in workspace/ "workspace.rkt")
          (prefix-in text-document/ "text-document.rkt"))
 
@@ -55,117 +55,155 @@
 ;; Dispatch
 ;;;;;;;;;;;;;
 
-;; Processes a message. This displays any repsonse it generates
-;; and should always return void.
-(define (process-message msg)
-  (match msg
-    ;; Request
-    [(hash-table ['id (? (or/c number? string?) id)]
-                 ['method (? string? method)])
-     (define params (hash-ref msg 'params hasheq))
-     (define response (process-request id method params))
-     ;; the result can be a response or a procedure which returns
-     ;; a response. If it's a procedure, then it's expected to run
-     ;; concurrently.
-     (thread (λ ()
-               (display-message/flush
-                 (if (procedure? response)
-                     (response)
-                     response))))
-     (void)]
-    ;; Notification
-    [(hash-table ['method (? string? method)])
-     (define params (hash-ref msg 'params hasheq))
-     (process-notification method params)]
-    [(hash-table ['jsonrpc "2.0"]
-                 ['id id]
-                 ['result result])
-     (define handler (hash-ref response-handlers id))
-     (handler result)
-     (hash-remove! response-handlers id)]
-    ;; Batch Request
-    [(? (non-empty-listof (and/c hash? jsexpr?)))
-     (for-each process-message msg)]
-    ;; Invalid Message
-    [_
-     (define id-ref (hash-ref msg 'id void))
-     (define id (if ((or/c number? string?) id-ref) id-ref (json-null)))
-     (define err "The JSON sent is not a valid request object.")
-     (display-message/flush (error-response id INVALID-REQUEST err))]))
+(define server%
+  (class object%
+    (super-new)
+
+    (init-field
+      response-channel
+      request-channel
+      notification-channel)
+    (field
+      ; Each request sent by server should register its response handler here
+      [response-handlers (make-hash)]
+      [server-request-id 0])
+
+    (define/public (send-response msg)
+      (async-channel-put response-channel msg))
+
+    (define/public (send-request method params handler)
+      ; register handler
+      (hash-set! response-handlers server-request-id handler)
+      ; send request to LSP client
+      (async-channel-put request-channel
+                         (hasheq 'id server-request-id
+                                 'method method
+                                 'params params))
+      (set! server-request-id (add1 server-request-id)))
+
+    (define/public (send-notification method params)
+      (async-channel-put notification-channel
+                         (hasheq 'jsonrpc "2.0"
+                                 'method method
+                                 'params params)))
+
+    ;; Processes a message (a JSON). This displays any repsonse it generates
+    ;; and should always return void.
+    (define/public (process-message msg)
+      (match msg
+        ;; Request
+        [(hash-table ['id (? (or/c number? string?) id)]
+                     ['method (? string? method)])
+         (define params (hash-ref msg 'params hasheq))
+         (define response (handle-request id method params))
+         (cond
+           ;; result is a procedure which returns a response, hence we put it into a thread to postpone it
+           [(procedure? response)
+            (thread (λ ()
+                      (send-response (response))))]
+           ;; otherwise we just push response into the response channel
+           [else (send-response response)])]
+        ;; Notification
+        [(hash-table ['method (? string? method)])
+         (define params (hash-ref msg 'params hasheq))
+         (handle-notification method params)]
+        ;; Response
+        [(hash-table ['jsonrpc "2.0"]
+                     ['id id]
+                     ['result result])
+         (define handler (hash-ref response-handlers id))
+         (handler result)
+         (hash-remove! response-handlers id)]
+        ;; Batch Request
+        [(? (non-empty-listof (and/c hash? jsexpr?)))
+         (for-each (λ (msg) (process-message msg)) msg)]
+        ;; Invalid Message
+        [_
+         (define id-ref (hash-ref msg 'id void))
+         (define id (if ((or/c number? string?) id-ref) id-ref (json-null)))
+         (define err "The JSON sent is not a valid request object.")
+         (send-response (error-response id INVALID-REQUEST err))]))
+
+    ;; Handle a request. This procedure should always return a jsexpr
+    ;; which is a suitable response object.
+    ;; (-> (or/c integer? string?) string? jsexpr? jsexpr?)
+    (define/public (handle-request id method params)
+      (with-handlers ([exn:fail? (report-request-error id method)])
+        (match method
+          ["initialize"
+           (initialize id params)]
+          ["shutdown"
+           (shutdown id)]
+          ["textDocument/hover"
+           (text-document/hover id params)]
+          ["textDocument/codeAction"
+           (text-document/code-action id params)]
+          ["textDocument/completion"
+           (text-document/completion id params)]
+          ["textDocument/signatureHelp"
+           (text-document/signatureHelp id params)]
+          ["textDocument/definition"
+           (text-document/definition id params)]
+          ["textDocument/documentHighlight"
+           (text-document/document-highlight id params)]
+          ["textDocument/references"
+           (text-document/references id params)]
+          ["textDocument/documentSymbol"
+           (text-document/document-symbol id params)]
+          ["textDocument/inlayHint"
+           (text-document/inlay-hint id params)]
+          ["textDocument/rename"
+           (text-document/rename id params)]
+          ["textDocument/prepareRename"
+           (text-document/prepareRename id params)]
+          ["textDocument/formatting"
+           (text-document/formatting! id params)]
+          ["textDocument/rangeFormatting"
+           (text-document/range-formatting! id params)]
+          ["textDocument/onTypeFormatting"
+           (text-document/on-type-formatting! id params)]
+          ["textDocument/semanticTokens/full"
+           (text-document/full-semantic-tokens id params)]
+          ["textDocument/semanticTokens/range"
+           (text-document/range-semantic-tokens id params)]
+          [_
+           (eprintf "invalid request for method ~v\n" method)
+           (define err (format "The method ~v was not found" method))
+           (error-response id METHOD-NOT-FOUND err)])))
+
+    ;; Handle a notification. Because notifications do not require
+    ;; a response, this procedure always returns void.
+    (define/public (handle-notification method params)
+      (match method
+        ["exit"
+         (exit (if already-shutdown? 0 1))]
+        ["workspace/didRenameFiles"
+         (workspace/didRenameFiles params)]
+        ["workspace/didChangeWorkspaceFolders"
+         (workspace/didChangeWorkspaceFolders params)]
+        ["workspace/didChangeWatchedFiles"
+         (workspace/didChangeWatchedFiles params)]
+        ["workspace/didChangeConfiguration"
+         (workspace/didChangeConfiguration params)]
+        ["textDocument/didOpen"
+         (text-document/did-open! (λ (method params handler)
+                                    (send-request method params handler))
+                                  (λ (method params)
+                                    (send-notification method params))
+                                  params)]
+        ["textDocument/didClose"
+         (text-document/did-close! params)]
+        ["textDocument/didChange"
+         (text-document/did-change! (λ (method params)
+                                      (send-notification method params))
+                                    params)]
+        [_ (void)]))
+    ))
 
 (define ((report-request-error id method) exn)
   (eprintf "Caught exn in request ~v\n~a\n" method (exn->string exn))
   (define err (format "internal error in method ~v" method))
   (error-response id INTERNAL-ERROR err))
-
-;; Processes a request. This procedure should always return a jsexpr
-;; which is a suitable response object.
-;; (-> (or/c integer? string?) string? jsexpr? jsexpr?)
-(define (process-request id method params)
-  (with-handlers ([exn:fail? (report-request-error id method)])
-    (match method
-      ["initialize"
-       (initialize id params)]
-      ["shutdown"
-       (shutdown id)]
-      ["textDocument/hover"
-       (text-document/hover id params)]
-      ["textDocument/codeAction"
-       (text-document/code-action id params)]
-      ["textDocument/completion"
-       (text-document/completion id params)]
-      ["textDocument/signatureHelp"
-       (text-document/signatureHelp id params)]
-      ["textDocument/definition"
-       (text-document/definition id params)]
-      ["textDocument/documentHighlight"
-       (text-document/document-highlight id params)]
-      ["textDocument/references"
-       (text-document/references id params)]
-      ["textDocument/documentSymbol"
-       (text-document/document-symbol id params)]
-      ["textDocument/inlayHint"
-       (text-document/inlay-hint id params)]
-      ["textDocument/rename"
-       (text-document/rename id params)]
-      ["textDocument/prepareRename"
-       (text-document/prepareRename id params)]
-      ["textDocument/formatting"
-       (text-document/formatting! id params)]
-      ["textDocument/rangeFormatting"
-       (text-document/range-formatting! id params)]
-      ["textDocument/onTypeFormatting"
-       (text-document/on-type-formatting! id params)]
-      ["textDocument/semanticTokens/full"
-       (text-document/full-semantic-tokens id params)]
-      ["textDocument/semanticTokens/range"
-       (text-document/range-semantic-tokens id params)]
-      [_
-       (eprintf "invalid request for method ~v\n" method)
-       (define err (format "The method ~v was not found" method))
-       (error-response id METHOD-NOT-FOUND err)])))
-
-;; Processes a notification. Because notifications do not require
-;; a response, this procedure always returns void.
-(define (process-notification method params)
-  (match method
-    ["exit"
-     (exit (if already-shutdown? 0 1))]
-    ["workspace/didRenameFiles"
-     (workspace/didRenameFiles params)]
-    ["workspace/didChangeWorkspaceFolders"
-     (workspace/didChangeWorkspaceFolders params)]
-    ["workspace/didChangeWatchedFiles"
-     (workspace/didChangeWatchedFiles params)]
-    ["workspace/didChangeConfiguration"
-     (workspace/didChangeConfiguration params)]
-    ["textDocument/didOpen"
-     (text-document/did-open! params)]
-    ["textDocument/didClose"
-     (text-document/did-close! params)]
-    ["textDocument/didChange"
-     (text-document/did-change! params)]
-    [_ (void)]))
 
 ;;
 ;; Requests
@@ -211,10 +249,10 @@
                'workspace
                (hasheq 'fileOperations
                        (hasheq 'didRename ; workspace.fileOperations.didRename
-                                (hasheq 'filters
-                                        (map (lambda (ext)
-                                                (hasheq 'scheme "file" 'pattern (hasheq 'glob (format "**/*.~a" ext))))
-                                              (get-module-suffixes))))
+                               (hasheq 'filters
+                                       (map (lambda (ext)
+                                              (hasheq 'scheme "file" 'pattern (hasheq 'glob (format "**/*.~a" ext))))
+                                            (get-module-suffixes))))
                        'workspaceFolders (hasheq 'changeNotifications #t))))
 
      (define resp (success-response id (hasheq 'capabilities server-capabilities)))
@@ -229,8 +267,5 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-(provide
-  (contract-out
-    [process-message
-     (jsexpr? . -> . void?)]))
+(provide server%)
 

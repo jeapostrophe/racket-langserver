@@ -2,14 +2,12 @@
 
 (require "../with-document.rkt"
          "../../../service/dynamic-import.rkt"
-         "../../../json-util.rkt"
-         chk
-         json)
+         "../../../json-util.rkt")
 
 (define uri "file:///test.rkt")
 
 (define code
-  #<<END
+#<<END
 #lang racket/base
 
 (format "")
@@ -23,13 +21,17 @@ END
                  (λ () (set! has-resyntax? #f)))
 
 (module+ test
+  (require rackunit
+           json)
+
   (when has-resyntax?
-    (with-document "../../../main.rkt" uri code
+    (with-document uri code
       (λ (lsp)
-        (define diag (client-wait-response lsp))
-        (chk #:= (jsexpr-ref diag '(method)) "textDocument/publishDiagnostics")
+        (define diag (client-wait-notification lsp))
+        (check-equal? (jsexpr-ref diag '(method)) "textDocument/publishDiagnostics")
         (let ([req (read-json (open-input-file "req.json"))]
               [resp (read-json (open-input-file "resp.json"))])
           (client-send lsp req)
-          (chk #:= (client-wait-response lsp) resp))))))
+          (check-equal? (jsexpr->string (client-wait-response req))
+                        (jsexpr->string resp)))))))
 

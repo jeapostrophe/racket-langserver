@@ -1,6 +1,5 @@
 #lang racket/base
-(require chk
-         json
+(require json
          compiler/module-suffix
          racket/os
          "../../msg-io.rkt"
@@ -30,6 +29,8 @@
     (displayln str (current-error-port))))
 
 (module+ test
+  (require rackunit)
+
   (define racket-path (find-executable-path "racket"))
   (define-values (sp stdout stdin stderr)
     (subprocess #f #f #f racket-path "-t" "../../main.rkt"))
@@ -44,20 +45,22 @@
                                      'tokenTypes (map symbol->string *semantic-token-types*))))
     (set! json (jsexpr-set json '(result capabilities workspace fileOperations didRename filters)
                            (map (lambda (ext)
-                                                (hasheq 'scheme "file" 'pattern (hasheq 'glob (format "**/*.~a" ext))))
-                                              (get-module-suffixes))))
-    (chk #:= resp json))
+                                  (hasheq 'scheme "file" 'pattern (hasheq 'glob (format "**/*.~a" ext))))
+                                (get-module-suffixes))))
+    (check-equal? (jsexpr->string resp)
+                  (jsexpr->string json)))
 
   ;; Shutdown request
   (display-message/flush shutdown-req stdin)
   (let ([resp (read-message stdout)])
-    (chk #:= resp (hasheq 'id (hash-ref shutdown-req 'id)
-                          'jsonrpc "2.0"
-                          'result (json-null))))
+    (check-equal? (jsexpr->string resp)
+                  (jsexpr->string (hasheq 'id (hash-ref shutdown-req 'id)
+                                          'jsonrpc "2.0"
+                                          'result (json-null)))))
 
   ;; Exit
   (display-message/flush exit-notf stdin)
   (subprocess-wait sp)
   (define st (subprocess-status sp))
-  (chk (zero? st)))
+  (check-true (zero? st)))
 

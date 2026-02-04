@@ -48,8 +48,8 @@
           ; we simply give up to handle it, let's trust LSP client will send others request about analysis this file.
           (when safe-doc
             (with-write-doc safe-doc
-                            (lambda (doc)
-                              (doc-update-uri! doc new-uri)))
+              (lambda (doc)
+                (doc-update-uri! doc new-uri)))
             (hash-set! open-docs (string->symbol new-uri) safe-doc)))
         (hash-remove! open-docs (string->symbol old-uri)))))
 
@@ -94,3 +94,4 @@
 (define (didChangeConfiguration params)
   (match-define (hash-table ['settings settings]) params)
   (update-configuration settings))
+

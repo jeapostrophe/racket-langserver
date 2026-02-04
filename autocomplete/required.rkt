@@ -18,8 +18,8 @@
 
 (define (visible? id)
   (for/and ([scope (in-list
-                    (hash-ref (syntax-debug-info id)
-                              'context (λ () '())))])
+                     (hash-ref (syntax-debug-info id)
+                               'context (λ () '())))])
     (not (eq? 'macro (vector-ref scope 1)))))
 
 (define-syntax (for/union stx)
@@ -37,9 +37,9 @@
 (define (walk-module fpe)
 
   (define declared-modules (mutable-set))
-  
+
   (define ids (mutable-set))
-  
+
   (define alls (mutable-set))
   (define prefixs (mutable-set))
   (define all-excepts (mutable-set))
@@ -64,7 +64,7 @@
         (when (ext-module-path? id0)
           (let ([id (syntax->datum exp)] ...)
             body ...))))
-    
+
     (syntax-case* spec
       (only prefix all-except prefix-all-except rename)
       sym=?
@@ -121,7 +121,7 @@
   (define (each f syn . args)
     (for ([s (in-syntax syn)])
       (apply f s args)))
-    
+
   (define (raw-require-spec spec)
     (define (adjust just shift)
       (cond
@@ -129,7 +129,7 @@
         [(boolean? just) just]
         [(not shift) #f]
         [else (- just shift)]))
-    
+
     (define (maybe-just-meta spec)
       (syntax-case* spec (just-meta) sym=?
         [(just-meta ?n ?phaseless-spec* ...)
@@ -155,7 +155,7 @@
            (each phaseless-spec #'(?phaseless-spec ...) #f))]
         [?phaseless-spec
          (phaseless-spec #'?phaseless-spec just)]))
-    
+
     (syntax-case* spec
       (for-meta for-syntax for-template for-label just-meta)
       sym=?
@@ -172,38 +172,38 @@
          (each maybe-shift #'(?raw-require-spec ...) level))]
       [?phaseless-spec
        (phaseless-spec #'?phaseless-spec #t)]))
-  
+
   (define (walk form phase)
     (kernel-syntax-case/phase
-     form phase
-     [(module ?id ?path (_ ?form ...))
-      (begin
-        (spaceless-spec #'?path #f)
-        (walk* #'(?form ...) 0))]
-     [(module* ?id #f (_ ?form ...))
-      (walk* #'(?form ...) phase)]
-     [(module* ?id ?path (_ ?form ...))
-      (begin
-        (spaceless-spec #'?path #f)
-        (walk* #'(?form ...) 0))]
-     [(#%require ?spec ...)
-      (for ([spec (in-syntax #'(?spec ...))])
-        (raw-require-spec spec))]
-     [(begin ?form ...)
-      (walk* #'(?form ...) phase)]
-     [(begin-for-syntax ?form ...)
-      (walk* #'(?form ...) (add1 phase))]
-     [_ (void)]))
+      form phase
+      [(module ?id ?path (_ ?form ...))
+       (begin
+         (spaceless-spec #'?path #f)
+         (walk* #'(?form ...) 0))]
+      [(module* ?id #f (_ ?form ...))
+       (walk* #'(?form ...) phase)]
+      [(module* ?id ?path (_ ?form ...))
+       (begin
+         (spaceless-spec #'?path #f)
+         (walk* #'(?form ...) 0))]
+      [(#%require ?spec ...)
+       (for ([spec (in-syntax #'(?spec ...))])
+         (raw-require-spec spec))]
+      [(begin ?form ...)
+       (walk* #'(?form ...) phase)]
+      [(begin-for-syntax ?form ...)
+       (walk* #'(?form ...) (add1 phase))]
+      [_ (void)]))
 
   (define (walk* form* phase)
     (for-each (λ (s) (walk s phase)) (syntax->list form*)))
-    
+
   (kernel-syntax-case fpe #f
     [(module ?id ?path (#%plain-module-begin ?form ...))
      (begin
        (spaceless-spec #'?path #t)
        (walk* #'(?form ...) (namespace-base-phase))
-         
+
        (define (get-exports mod just)
          (define just-phase
            (cond
@@ -230,7 +230,7 @@
 
        (for ([mod (in-set declared-modules)])
          (module-declared? mod #t))
-         
+
        (for ([jm (in-set alls)])
          (for ([id (in-set (get-exports (cdr jm) (car jm)))])
            (set-add! ids id)))
@@ -249,3 +249,4 @@
            (set-add! ids (string->symbol (string-append (symbol->string (caddr jm))
                                                         (symbol->string id)))))))])
   ids)
+

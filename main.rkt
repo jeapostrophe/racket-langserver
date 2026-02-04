@@ -5,6 +5,8 @@
          racket/function
          racket/list
          racket/match
+         racket/class
+         racket/async-channel
          "debug.rkt"
          "error-codes.rkt"
          "methods.rkt"
@@ -24,26 +26,26 @@
            (serve (list (sync (channel-recv-evt in-ch))))]
           [else
            (sync (choice-evt
-                  (wrap-evt (channel-recv-evt in-ch)
-                            (λ (m)
-                              (serve (append ready-req-evts (list m)))))
-                  (wrap-evt (channel-send-evt out-ch (first ready-req-evts))
-                            (thunk*
-                             (serve (rest ready-req-evts))))))]))
+                   (wrap-evt (channel-recv-evt in-ch)
+                             (λ (m)
+                               (serve (append ready-req-evts (list m)))))
+                   (wrap-evt (channel-send-evt out-ch (first ready-req-evts))
+                             (thunk*
+                               (serve (rest ready-req-evts))))))]))
   (define mgr-t (spawn (λ () (serve empty))))
   (Q in-ch out-ch mgr-t))
 
 (define (queue-send-evt q v)
   (guard-evt
-   (λ ()
-     (thread-resume (Q-mgr-t q) (current-thread))
-     (channel-send-evt (Q-in-ch q) v))))
+    (λ ()
+      (thread-resume (Q-mgr-t q) (current-thread))
+      (channel-send-evt (Q-in-ch q) v))))
 
 (define (queue-recv-evt q)
   (guard-evt
-   (λ ()
-     (thread-resume (Q-mgr-t q) (current-thread))
-     (channel-recv-evt (Q-out-ch q)))))
+    (λ ()
+      (thread-resume (Q-mgr-t q) (current-thread))
+      (channel-recv-evt (Q-out-ch q)))))
 
 (define (report-error exn)
   (eprintf "\nCaught exn:\n~a\n" (exn->string exn)))
@@ -56,6 +58,12 @@
 ;; * out-t          - defined in `msg-io.rkt`, put the response message
 ;;                    to a specified output-port or current-output-port.
 (define (main-loop)
+  (define resp-ch (make-async-channel))
+  (define server (new server%
+                   [response-channel resp-ch]
+                   [request-channel resp-ch]
+                   [notification-channel resp-ch]))
+
   (define q (queue))
   (define (consume)
     (define msg (sync (queue-recv-evt q)))
@@ -66,10 +74,14 @@
       [_
        (maybe-debug-log msg)
        (with-handlers ([exn:fail? report-error])
-         (process-message msg))])
+         (send server process-message msg))])
     (consume))
+  (define (write-resp)
+    (display-message/flush (async-channel-get resp-ch))
+    (write-resp))
 
   (spawn consume)
+  (spawn write-resp)
   (for ([msg (in-port read-message)])
     (sync (queue-send-evt q msg)))
   (eprintf "Unexpected EOF\n")
@@ -77,3 +89,4 @@
 
 (module+ main
   (main-loop))
+

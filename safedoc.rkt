@@ -9,8 +9,6 @@
          "doc.rkt"
          "check-syntax.rkt"
          "scheduler.rkt"
-         "msg-io.rkt"
-         "responses.rkt"
          racket/set
          racket/match
          racket/class)
@@ -41,15 +39,17 @@
 ;; Currently it uses the `uri` of the document that triggers
 ;; the check-syntax. But some diagnostics may come from other files.
 ;; In this case, it send them with wrong uri.
-(define (send-diagnostics uri diag-lst)
-  (display-message/flush (diagnostics-message uri (set->list diag-lst))))
+(define (send-diagnostics notify-client uri diag-lst)
+  (notify-client "textDocument/publishDiagnostics"
+                 (hasheq 'uri uri
+                         'diagnostics (set->list diag-lst))))
 
 ;; the only place where really run check-syntax
-(define (safedoc-run-check-syntax! safe-doc)
+(define (safedoc-run-check-syntax! notify-client safe-doc)
   (match-define (list uri old-version doc-text)
-                (with-read-doc safe-doc
-                  (λ (doc)
-                    (list (Doc-uri doc) (Doc-version doc) (send (Doc-text doc) copy)))))
+    (with-read-doc safe-doc
+      (λ (doc)
+        (list (Doc-uri doc) (Doc-version doc) (send (Doc-text doc) copy)))))
 
   (define (check-syntax-task)
     (define result (doc-expand uri doc-text))
@@ -62,7 +62,7 @@
             (define cur-version (Doc-version doc))
             (define trace (CSResult-trace result))
             (define diags (set->list (send trace get-warn-diags)))
-            (send-diagnostics uri diags)
+            (send-diagnostics notify-client uri diags)
 
             (when (and (CSResult-succeed? result) (equal? old-version cur-version))
               (doc-update-trace! doc trace cur-version)
@@ -71,7 +71,7 @@
                 (doc-walk-text trace (CSResult-text result))
                 (define new-diags (set->list (send trace get-warn-diags)))
                 (when (not (set=? diags new-diags))
-                  (send-diagnostics uri new-diags)))
+                  (send-diagnostics notify-client uri new-diags)))
 
               (scheduler-push-task! uri 'walk-text walk-text-task))))
         (clear-old-queries/new-trace uri))))

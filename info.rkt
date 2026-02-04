@@ -10,11 +10,12 @@
                "drracket-tool-lib"
                "gui-lib"
                "syntax-color-lib"
-               "sandbox-lib"  ;; running macro expansion with time limits
+               "sandbox-lib" ;; running macro expansion with time limits
                "scribble-lib" ;; for blueboxes (scribble/blueboxes)
                "racket-index" ;; for cross references (setup/xref)
                "html-parsing" ;; for parsing documentation text
                ))
-(define build-deps '("chk-lib" "rackunit-lib"))
+(define build-deps '("rackunit-lib"))
 (define pkg-desc "Language Server Protocol implementation for Racket.")
 (define version "1.0")
+

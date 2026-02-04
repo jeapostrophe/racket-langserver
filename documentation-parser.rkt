@@ -84,14 +84,14 @@
       [else #f]))
   (define (find-doc-beginning cursor)
     (or
-     (cursor-go-up-until-true cursor
-                              (match-lambda [`(div (@ (class "SIntrapara")) ,_ ...) #t] [_ #f]))
-     ;; Just in case someone for some peculiar reason forgot to include <div class="SIntrapara"> in the documentation
-     (cursor-go-up-until-true cursor
-                              (match-lambda [`(blockquote (@ (class "SVInsetFlow")) ,_ ...) #t] [_ #f]))))
+      (cursor-go-up-until-true cursor
+                               (match-lambda [`(div (@ (class "SIntrapara")) ,_ ...) #t] [_ #f]))
+      ;; Just in case someone for some peculiar reason forgot to include <div class="SIntrapara"> in the documentation
+      (cursor-go-up-until-true cursor
+                               (match-lambda [`(blockquote (@ (class "SVInsetFlow")) ,_ ...) #t] [_ #f]))))
   (define maybe-cursor (find-node
-                        (λ (x) (equal? x (list 'name anchor-name)))
-                        (make-cursor doc-xexp)))
+                         (λ (x) (equal? x (list 'name anchor-name)))
+                         (make-cursor doc-xexp)))
   (and maybe-cursor (find-doc-beginning maybe-cursor)))
 
 (define (selected-node-contains-documentation-boundary? cursor doc-is-nested?)
@@ -105,16 +105,16 @@
       [(list? tree) (ormap (λ (x) (find-boundary-node predicate? x)) tree)]
       [else #f]))
   (find-boundary-node
-   (match-lambda
-     ;; beginning of docs for the next function, method, struct, or whatever
-     [`(div (@ (class "RBackgroundLabelInner"))
-            (p ,(or "class" "constructor" "interface" "method" "mixin" "parameter" "procedure" "signature" "struct" "syntax" "value"))) #t]
-     ;; end of a doc list ;; e.g. <div class="navsetbottom">
-     [`(@ (class "navsetbottom")) #t]
-     ;; end of a module ;; e.g. <h5 x-source-module="..." ...>
-     [`(@ (x-source-module ,_) ,_ ...) #t]
-     [_ #f])
-   (cursor-selected-node cursor)))
+    (match-lambda
+      ;; beginning of docs for the next function, method, struct, or whatever
+      [`(div (@ (class "RBackgroundLabelInner"))
+             (p ,(or "class" "constructor" "interface" "method" "mixin" "parameter" "procedure" "signature" "struct" "syntax" "value"))) #t]
+      ;; end of a doc list ;; e.g. <div class="navsetbottom">
+      [`(@ (class "navsetbottom")) #t]
+      ;; end of a module ;; e.g. <h5 x-source-module="..." ...>
+      [`(@ (x-source-module ,_) ,_ ...) #t]
+      [_ #f])
+    (cursor-selected-node cursor)))
 
 (define (collect-docs cursor doc-is-nested? [is-inside-boundary-node? #f])
   (cond [(not cursor) '()]
@@ -139,7 +139,7 @@
 (define (tag? mb-tag)
   (match mb-tag [(list tag-name _ ...) #:when (not (eq? '@ tag-name)) #t] [_ #f])) ; ignore attributes "('@ ...)"
 (define (tag-name? tag name)
-  (match tag [(list (== name)  _ ...) #t] [_ #f]))
+  (match tag [(list (== name) _ ...) #t] [_ #f]))
 (define (get-tag-attribute tag attr-name)
   (match tag
     [(list _ ... (list '@ _ ... (list (== attr-name) attr-value) _ ...) _ ...) attr-value] [_ #f]))
@@ -160,18 +160,18 @@
 
     (define (convert-tag-contents) (string-join (map (λ (child-tag) (recursive-convert child-tag tag)) tag) ""))
     (define (should-be-in-fenced-code-block? tag) (or (tag-attribute? tag 'class "SCodeFlow") (and (tag-name? tag 'table) (not inside-code-block?))))
-    (define (should-be-emphasized? tag) (ormap (λ (x) (tag-attribute? tag 'class x)) '("RktVar" "RktVal" )))
+    (define (should-be-emphasized? tag) (ormap (λ (x) (tag-attribute? tag 'class x)) '("RktVar" "RktVal")))
     (define (ignore? tag) (ormap (λ (x) (tag-attribute? tag 'class x)) '("refcolumn" "RBackgroundLabelInner")))
     (define (escape-markdown str)
       (if inside-code-block? str ; in markdown everything inside code blocks is escaped by default
           (regexp-replace*
-           #rx"[\n<>]" str
-           (match-lambda
-             ;; Otherwise text like "#<void>" would be rendered just as "#", because Md eats everything that looks like an html tag.
-             ;; Also could be prepended with a slash ('\>') or replaced with an html entity ('&lt;'),
-             ;; but the former doesn't work in Atom's Md parser and both don't look very well if the editor doesn't support Markdown.
-             ["<" "❮"] [">" "❯"]
-             ["\n" " "] [s s]))))
+            #rx"[\n<>]" str
+            (match-lambda
+              ;; Otherwise text like "#<void>" would be rendered just as "#", because Md eats everything that looks like an html tag.
+              ;; Also could be prepended with a slash ('\>') or replaced with an html entity ('&lt;'),
+              ;; but the former doesn't work in Atom's Md parser and both don't look very well if the editor doesn't support Markdown.
+              ["<" "❮"] [">" "❯"]
+              ["\n" " "] [s s]))))
 
     ;; normally markdown supports html entities but only outside of code blocks
     (define (convert-if-tag-is-html-entity tag)
@@ -288,3 +288,4 @@
 
 
 (provide extract-documentation-for-selected-element)
+

@@ -3,112 +3,105 @@
 ;; This module provides a simple incomplete lsp client for test.
 
 (provide with-racket-lsp
-         Lsp?
          client-send
          client-wait-response
+         client-wait-notification
          make-request
          make-expected-response
-         make-notification
-         handle-server-request)
+         make-notification)
 
 (require racket/os
+         racket/async-channel
+         racket/match
          json
-         data/queue
-         "../msg-io.rkt")
+         "../methods.rkt")
 
-(struct Lsp
-  (stdout stdin stderr response-queue [id #:mutable #:auto])
-  #:auto-value -1)
+(define id 0)
+(define (genid)
+  (set! id (add1 id))
+  id)
 
-(define (Lsp-genid lsp)
-  (set-Lsp-id! lsp (add1 (Lsp-id lsp)))
-  (Lsp-id lsp))
+(define request-channel (make-parameter #f))
+(define response-channel (make-parameter #f))
+(define notification-channel (make-parameter #f))
 
-(define/contract (process-incoming-message lsp msg)
-  (-> Lsp? jsexpr? void?)
+(define/contract (with-racket-lsp proc)
+  (-> (-> any/c any/c) void?)
+  (parameterize ([response-channel (make-async-channel)]
+                 [request-channel (make-async-channel)]
+                 [notification-channel (make-async-channel)])
+    (define lsp (new server%
+                  [response-channel (response-channel)]
+                  [request-channel (request-channel)]
+                  [notification-channel (notification-channel)]))
 
-  (cond
-    ;; Server request - handle immediately and send response
-    [(and (hash-has-key? msg 'method) (hash-has-key? msg 'id))
-     (handle-server-request lsp msg)]
-    ;; Server notification - queue diagnostic notifications, ignore others
-    [(hash-has-key? msg 'method)
-     (define method (hash-ref msg 'method))
-     (when (equal? method "textDocument/publishDiagnostics")
-       (enqueue! (Lsp-response-queue lsp) msg))]
-    ;; Response - queue it for client-wait-response
-    [else
-     (enqueue! (Lsp-response-queue lsp) msg)]))
+    (define (handle-request)
+      ;; Server request - handle immediately and send response
+      (match (async-channel-get (request-channel))
+        [(hash-table ['id (? (or/c number? string?) id)]
+                     ['method (? string? method)])
+         (define result
+           (match method
+             ["workspace/configuration" (list (json-null))]
+             [_ (json-null)]))
 
-(define ((forward-errors in))
-  (for ([str (in-port read-line in)])
-    (displayln (format "LSP ERROR: ~a" str) (current-error-port))))
+         (define response
+           (hasheq 'jsonrpc "2.0"
+                   'id id
+                   'result result))
 
-(define/contract (with-racket-lsp path proc)
-  (-> string? (-> Lsp? any/c) void?)
+         (client-send lsp response)]
+        [_ (error "Not a request from server")])
+      (handle-request))
+    (thread handle-request)
 
-  (define racket-path (find-executable-path "racket"))
-  (define-values (sp stdout stdin stderr)
-    (subprocess #f #f #f racket-path path))
-  (define _err-thd (thread (forward-errors stderr)))
-  (define lsp (Lsp stdout stdin stderr (make-queue)))
+    (define init-req
+      (make-request lsp "initialize"
+                    (hasheq 'processId (getpid)
+                            'capabilities (hasheq))))
+    (client-send lsp init-req)
+    (client-wait-response init-req)
 
-  (define init-req
-    (make-request lsp "initialize"
-                  (hasheq 'processId (getpid)
-                          'capabilities (hasheq))))
-  (client-send lsp init-req)
-  (client-wait-response lsp)
+    (proc lsp)
 
-  (proc lsp)
+    (define shutdown-req
+      (make-request lsp "shutdown" #f))
+    (client-send lsp shutdown-req)
+    (client-wait-response shutdown-req)
 
-  (define shutdown-req
-    (make-request lsp "shutdown" #f))
-  (client-send lsp shutdown-req)
-  (client-wait-response lsp)
+    (define exit-notf (make-notification "exit" #f))
+    (client-send lsp exit-notf)
 
-  (define exit-notf (make-notification "exit" #f))
-  (client-send lsp exit-notf)
-  (client-should-no-response lsp)
-
-  (subprocess-wait sp))
+    (void)))
 
 (define/contract (client-send lsp req)
-  (-> Lsp? jsexpr? void?)
+  (-> any/c jsexpr? void?)
 
-  (display-message/flush req (Lsp-stdin lsp)))
+  (send lsp process-message req))
 
-(define/contract (client-wait-response lsp)
-  (-> Lsp? jsexpr?)
+(define/contract (client-wait-response req)
+  (-> any/c jsexpr?)
 
-  ;; First, check if there's already a response in the queue
-  (define queued-response
-    (if (queue-empty? (Lsp-response-queue lsp))
-        #f
-        (dequeue! (Lsp-response-queue lsp))))
+  (define msg (async-channel-get (response-channel)))
 
-  (if queued-response
-      queued-response
-      ;; No queued response, so read and process messages until we get one
-      (let loop ()
-        (define msg (read-message (Lsp-stdout lsp)))
-        (process-incoming-message lsp msg)
-        ;; Check if processing the message added a response to the queue
-        (if (queue-empty? (Lsp-response-queue lsp))
-            (loop)
-            (dequeue! (Lsp-response-queue lsp))))))
+  (match msg
+    [(hash-table ['id (? (or/c number? string?) id)]
+                 ['result _result])
+     (cond
+       [(equal? (hash-ref req 'id) id) msg]
+       ; not the response of this request, wait next
+       [else (async-channel-put (response-channel) msg)])]
+    [_ (error "Not a response from server")]))
 
-(define/contract (client-should-no-response lsp)
-  (-> Lsp? eof-object?)
-  
-  (read-message (Lsp-stdout lsp)))
+(define (client-wait-notification lsp)
+  (async-channel-get (notification-channel)))
 
 (define/contract (make-request lsp method params)
-  (-> Lsp? string? jsexpr? jsexpr?)
+  (-> any/c string? jsexpr? jsexpr?)
 
   (define req
     (hasheq 'jsonrpc "2.0"
-            'id (Lsp-genid lsp)
+            'id (genid)
             'method method))
   (cond [(not params) req]
         [else (hash-set req 'params params)]))
@@ -131,20 +124,3 @@
   (cond [(not params) req]
         [else (hash-set req 'params params)]))
 
-;; Currently this is just a stub procedure that always reply null
-(define/contract (handle-server-request lsp request)
-  (-> Lsp? jsexpr? void?)
-  (define id (hash-ref request 'id))
-  (define method (hash-ref request 'method))
-
-  (define result
-    (match method
-      ["workspace/configuration" (list (json-null))]
-      [_ (json-null)]))
-
-  (define response
-    (hasheq 'jsonrpc "2.0"
-            'id id
-            'result result))
-
-  (client-send lsp response))

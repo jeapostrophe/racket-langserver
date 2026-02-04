@@ -24,21 +24,17 @@
   (define documents (make-hash))
   (let loop ()
     (sync (handle-evt incoming-jobs-ch
-            (λ (data)
-              (match-define (list uri type task) data)
-              (unless (hash-has-key? documents uri)
-                (hash-set! documents uri (make-hash)))
-              (define doc (hash-ref documents uri))
-
-              (when (hash-has-key? doc type)
-                (define th (hash-ref doc type))
-                (unless (thread-dead? th)
-                  (kill-thread th)))
-              (define timeout-task90 (timeout-task 90 task))
-              (hash-set! doc type
-                         (if (version>=9.0?)
-                             (thread #:pool 'own timeout-task90)
-                             (thread timeout-task90))))))
+                      (λ (data)
+                        (match-define (list uri type task) data)
+                        (unless (hash-has-key? documents uri)
+                          (hash-set! documents uri (make-hash)))
+                        (define doc (hash-ref documents uri))
+                        (when (hash-has-key? doc type)
+                          (define th (hash-ref doc type))
+                          (unless (thread-dead? th)
+                            (kill-thread th)))
+                        (hash-set! doc type
+                                   (thread task)))))
     (loop)))
 
 (define _scheduler (thread schedule))
