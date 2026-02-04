@@ -170,35 +170,11 @@
     [(hash-table ['textDocument (DocIdentifier #:uri uri)]
                  ['position (Pos #:line line #:char ch)])
      (define safe-doc (hash-ref open-docs (string->symbol uri)))
-     (with-read-doc safe-doc
-       (λ (doc)
-         (define doc-trace (Doc-trace doc))
-
-         (define pos (doc-pos doc line ch))
-         (define new-pos (doc-find-containing-paren doc (- pos 1)))
-         (define result
-           (cond [new-pos
-                  (define maybe-tag (interval-map-ref (send doc-trace get-docs) (+ new-pos 1) #f))
-                  (define tag
-                    (cond [maybe-tag (last maybe-tag)]
-                          [else
-                           (define symbols (doc-get-symbols doc))
-                           (define-values (start end symbol)
-                             (interval-map-ref/bounds symbols (+ new-pos 2) #f))
-                           (cond [symbol
-                                  (id-to-tag (first symbol) doc-trace)]
-                                 [else #f])]))
-                  (cond [tag
-                         (match-define (list sigs docs) (get-docs-for-tag tag))
-                         (if sigs
-                             (hasheq 'signatures (map (lambda (sig)
-                                                        (hasheq 'label sig
-                                                                'documentation (or docs (json-null))))
-                                                      sigs))
-                             (json-null))]
-                        [else (json-null)])]
-                 [else (json-null)]))
-         (success-response id result)))]
+     (define result
+       (with-read-doc safe-doc
+         (λ (doc)
+           (doc-signature-help doc line ch))))
+     (success-response id result)]
     [_
      (error-response id INVALID-PARAMS "textDocument/signatureHelp failed")]))
 
