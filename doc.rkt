@@ -24,7 +24,10 @@
          "msg-io.rkt"
          "responses.rkt"
          "scheduler.rkt"
+         "docs-helpers.rkt"
+         "documentation-parser.rkt"
          drracket/check-syntax
+         racket/format
          syntax/modread)
 
 (struct Doc
@@ -78,7 +81,7 @@
   (send trace walk-text text))
 
 (define (doc-expand! doc)
-  (define result (doc-expand doc))
+  (define result (doc-expand (Doc-uri doc) (Doc-text doc)))
   (define new-trace (CSResult-trace result))
   (cond [(CSResult-succeed? result)
          (define text (CSResult-text result))
@@ -375,6 +378,63 @@
 (define (doc-guess-token doc pos)
   (list->string (reverse (-doc-find-token (send (Doc-text doc) get-text) pos))))
 
+(define (pos->abs-pos doc pos)
+  (match-define (Pos #:line line #:char char) pos)
+  (doc-pos doc line char))
+
+(define (abs-pos->pos doc pos)
+  (define-values (line char) (doc-line/ch doc pos))
+  (Pos #:line line #:char char))
+
+(define (start/end->range doc start end)
+  (Range #:start (abs-pos->pos doc start) #:end (abs-pos->pos doc end)))
+
+(define (doc-hover doc line ch)
+  (define doc-trace (Doc-trace doc))
+  (define hovers (send doc-trace get-hovers))
+  (define pos (doc-pos doc line ch))
+  (define-values (start end text)
+    (interval-map-ref/bounds hovers pos #f))
+  (match-define (list link tag)
+    (interval-map-ref (send doc-trace get-docs) pos (list #f #f)))
+  (define result
+    (cond [text
+           ;; We want signatures from `scribble/blueboxes` as they have better indentation,
+           ;; but in some super rare cases blueboxes aren't accessible, thus we try to use the
+           ;; parsed signature instead
+           (match-define (list sigs args-descr)
+             (if tag
+                 (get-docs-for-tag tag)
+                 (list #f #f)))
+           (define maybe-signature
+             (and sigs
+                  (~a "```\n"
+                      (string-join sigs "\n")
+                      (if args-descr
+                          (~a "\n" args-descr)
+                          "")
+                      "\n```\n---\n")))
+           (define documentation-text
+             (if link
+                 (~a (or maybe-signature "")
+                     (or (extract-documentation-for-selected-element
+                           link #:include-signature? (not maybe-signature))
+                         ""))
+                 ""))
+           (define contents (if link
+                                (~a text
+                                    " - [online docs]("
+                                    (make-proper-url-for-online-documentation link)
+                                    ")\n"
+                                    (if (non-empty-string? documentation-text)
+                                        (~a "\n---\n" documentation-text)
+                                        ""))
+                                text))
+           (hasheq 'contents contents
+                   'range (start/end->range doc start end))]
+          [else (hasheq 'contents "")]))
+  result)
+
 (provide (struct-out Doc)
          new-doc
          doc-update!
@@ -396,5 +456,6 @@
          doc-update-trace!
          doc-expand!
          doc-walk-text
+         doc-hover
          )
 

@@ -134,52 +134,11 @@
     [(hash-table ['textDocument (DocIdentifier #:uri uri)]
                  ['position (Pos #:line line #:char ch)])
      (define safe-doc (hash-ref open-docs (string->symbol uri)))
-     (with-read-doc safe-doc
+     (define result
+       (with-read-doc safe-doc
        (λ (doc)
-         (define doc-trace (Doc-trace doc))
-         (define hovers (send doc-trace get-hovers))
-         (define pos (doc-pos doc line ch))
-         (define-values (start end text)
-           (interval-map-ref/bounds hovers pos #f))
-         (match-define (list link tag)
-           (interval-map-ref (send doc-trace get-docs) pos (list #f #f)))
-         (define result
-           (cond [text
-                  ;; We want signatures from `scribble/blueboxes` as they have better indentation,
-                  ;; but in some super rare cases blueboxes aren't accessible, thus we try to use the
-                  ;; parsed signature instead
-                  (match-define (list sigs args-descr)
-                    (if tag
-                        (get-docs-for-tag tag)
-                        (list #f #f)))
-                  (define maybe-signature
-                    (and sigs
-                         (~a "```\n"
-                             (string-join sigs "\n")
-                             (if args-descr
-                                 (~a "\n" args-descr)
-                                 "")
-                             "\n```\n---\n")))
-                  (define documentation-text
-                    (if link
-                        (~a (or maybe-signature "")
-                            (or (extract-documentation-for-selected-element
-                                  link #:include-signature? (not maybe-signature))
-                                ""))
-                        ""))
-                  (define contents (if link
-                                       (~a text
-                                           " - [online docs]("
-                                           (make-proper-url-for-online-documentation link)
-                                           ")\n"
-                                           (if (non-empty-string? documentation-text)
-                                               (~a "\n---\n" documentation-text)
-                                               ""))
-                                       text))
-                  (hasheq 'contents contents
-                          'range (start/end->range doc start end))]
-                 [else (hasheq 'contents "")]))
-         (success-response id result)))]
+         (doc-hover doc line ch))))
+     (success-response id result)]
     [_
      (error-response id INVALID-PARAMS "textDocument/hover failed")]))
 

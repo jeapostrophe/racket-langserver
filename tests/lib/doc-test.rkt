@@ -1,14 +1,12 @@
 #lang racket
 
-(require rackunit
-         "../../doc.rkt"
-         "../../struct.rkt"
-         racket/class
-         racket/file)
+(module+ test
+  (require rackunit
+           "../../doc.rkt"
+           "../../struct.rkt"
+           racket/class
+           racket/file)
 
-(provide (all-defined-out))
-
-(define (test-doc)
   (test-case
     "Document creation and basic accessors"
     (define d (new-doc "file:///test.rkt" "hello world" 1))
@@ -204,8 +202,6 @@
     (check-true (or (*Range? def-range) (hash? def-range)))
 
     (delete-file tmp-file))
-  )
 
-(module+ test
-  (test-doc))
+  )
 
