@@ -52,9 +52,7 @@
                     (list (Doc-uri doc) (Doc-version doc) (send (Doc-text doc) copy)))))
 
   (define (check-syntax-task)
-    ;; TODO: cache the namespace with some strategy
-    (define ns (make-base-namespace))
-    (define result (doc-expand uri doc-text ns))
+    (define result (doc-expand uri doc-text))
     ;; make a new thread to write doc because this task will be executed by
     ;; the scheduler and may be cancelled at any time.
     (thread

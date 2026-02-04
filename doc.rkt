@@ -67,8 +67,8 @@
         [(< new-len old-len) (send doc-trace contract (+ st-pos new-len) end-pos)])
   (send doc-text replace text st-pos end-pos))
 
-(define (doc-expand uri doc-text ns)
-  (check-syntax uri doc-text ns))
+(define (doc-expand uri doc-text)
+  (check-syntax uri doc-text))
 
 (define (doc-update-trace! doc new-trace new-version)
   (set-Doc-trace! doc new-trace)
@@ -78,8 +78,7 @@
   (send trace walk-text text))
 
 (define (doc-expand! doc)
-  (define ns (make-base-namespace))
-  (define result (doc-expand doc ns))
+  (define result (doc-expand doc))
   (define new-trace (CSResult-trace result))
   (cond [(CSResult-succeed? result)
          (define text (CSResult-text result))
@@ -178,9 +177,8 @@
     (split-path path))
   (define in (open-input-string (send doc-text get-text)))
 
-  (define ns (make-base-namespace))
   ;; expand-source handles traversal and adding syntax to collector
-  (expand-source path in ns collector)
+  (expand-source path in collector)
   (send collector get id))
 
 (define (get-definition-by-id path id)

@@ -37,8 +37,10 @@
    [logs (listof (vector/c log-level/c string? any/c (or/c symbol? #f)))])
   #:transparent)
 
-(define (expand-source path in ns collector)
+;; TODO: cache the namespace with some strategy
+(define (expand-source path in collector)
   (define-values (src-dir _1 _2) (split-path path))
+  (define ns (make-base-namespace))
   (define-values (add-syntax done)
     (make-traversal ns src-dir))
   (port-count-lines! in)
@@ -76,14 +78,14 @@
    [succeed? boolean?])
   #:transparent)
 
-(define (check-syntax uri doc-text ns)
+(define (check-syntax uri doc-text)
   (define path (uri->path uri))
   (define text (send doc-text get-text))
   (define indenter (get-indenter text))
   (define new-trace (new build-trace% [src path] [doc-text doc-text] [indenter indenter]))
 
   (define in (open-input-string text))
-  (define er (expand-source path in ns new-trace))
+  (define er (expand-source path in new-trace))
 
   (define pre-stx (ExpandResult-pre-stx er))
   (define post-stx (ExpandResult-post-stx er))
@@ -96,6 +98,6 @@
   (struct-out ExpandResult)
   (struct-out CSResult)
   (contract-out
-    [expand-source (-> path? input-port? namespace? (is-a?/c syncheck-annotations<%>) ExpandResult?)]
-    [check-syntax (-> any/c (is-a?/c lsp-editor%) namespace? CSResult?)]))
+    [expand-source (-> path? input-port? (is-a?/c syncheck-annotations<%>) ExpandResult?)]
+    [check-syntax (-> any/c (is-a?/c lsp-editor%) CSResult?)]))
 
