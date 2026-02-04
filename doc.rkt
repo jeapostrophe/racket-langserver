@@ -435,6 +435,14 @@
           [else (hasheq 'contents "")]))
   result)
 
+(define (doc-code-action doc start _end)
+  (define doc-trace (Doc-trace doc))
+  (define act
+    (interval-map-ref (send doc-trace get-quickfixs)
+                      (pos->abs-pos doc start)
+                      #f))
+  (if act (list act) (list)))
+
 (provide (struct-out Doc)
          new-doc
          doc-update!
@@ -457,5 +465,6 @@
          doc-expand!
          doc-walk-text
          doc-hover
+         doc-code-action
          )
 

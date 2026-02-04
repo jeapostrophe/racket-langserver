@@ -136,8 +136,8 @@
      (define safe-doc (hash-ref open-docs (string->symbol uri)))
      (define result
        (with-read-doc safe-doc
-       (λ (doc)
-         (doc-hover doc line ch))))
+         (λ (doc)
+           (doc-hover doc line ch))))
      (success-response id result)]
     [_
      (error-response id INVALID-PARAMS "textDocument/hover failed")]))
@@ -154,16 +154,11 @@
                  ['context _ctx])
      (define safe-doc (hash-ref open-docs (string->symbol uri)))
 
-     (define act
+     (define actions
        (with-read-doc safe-doc
          (λ (doc)
-           (define doc-trace (Doc-trace doc))
-           (interval-map-ref (send doc-trace get-quickfixs)
-                             (pos->abs-pos doc start)
-                             #f))))
-     (if act
-         (success-response id (list act))
-         (success-response id (list)))]
+           (doc-code-action doc start _end))))
+     (success-response id actions)]
     [(hash-table ['textDocument (DocIdentifier #:uri uri)])
      (error-response id INVALID-PARAMS
                      (format "textDocument/codeAction failed uri is not a path ~a" uri))]
