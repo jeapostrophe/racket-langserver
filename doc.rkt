@@ -10,25 +10,23 @@
          "path-util.rkt"
          "doc-trace.rkt"
          "struct.rkt"
+         "symbol-kinds.rkt"
          racket/match
          racket/class
          racket/set
          racket/list
          racket/string
          racket/bool
+         racket/dict
          data/interval-map
          syntax-color/module-lexer
          syntax-color/racket-lexer
          json
          "check-syntax.rkt"
-         "msg-io.rkt"
-         "responses.rkt"
-         "scheduler.rkt"
          "docs-helpers.rkt"
          "documentation-parser.rkt"
          drracket/check-syntax
-         racket/format
-         syntax/modread)
+         racket/format)
 
 (struct Doc
   (uri text trace version trace-version)
@@ -472,6 +470,133 @@
           [else (json-null)]))
   result)
 
+;; Get the declaration at a given position in the document.
+;; Returns (values start end decl) where decl is a Decl or #f.
+(define (doc-get-decl doc line char)
+  (define doc-trace (Doc-trace doc))
+  (define pos (doc-pos doc line char))
+  (define doc-decls (send doc-trace get-sym-decls))
+  (define doc-bindings (send doc-trace get-sym-bindings))
+  (define-values (start end maybe-decl)
+    (interval-map-ref/bounds doc-bindings pos #f))
+  (define-values (bind-start bind-end maybe-bindings)
+    (interval-map-ref/bounds doc-decls pos #f))
+  (if maybe-decl
+      (values start end maybe-decl)
+      (if maybe-bindings
+          (values bind-start
+                  bind-end
+                  (interval-map-ref doc-bindings (car (set-first maybe-bindings)) #f))
+          (values #f #f #f))))
+
+;; Get binding ranges for a declaration.
+;; Returns a list of Range hashes.
+(define (doc-get-bindings doc decl)
+  (define doc-trace (Doc-trace doc))
+  (define doc-decls (send doc-trace get-sym-decls))
+  (match-define (Decl req? id left right) decl)
+  (define-values (bind-start bind-end bindings)
+    (interval-map-ref/bounds doc-decls left #f))
+  (if bindings
+      (for/list ([range (in-set bindings)])
+        (start/end->range doc (car range) (cdr range)))
+      empty))
+
+;; Completion: returns a hash with 'isIncomplete and 'items.
+(define (doc-completion doc line ch)
+  (define doc-trace (Doc-trace doc))
+  (define pos (sub1 (doc-pos doc line ch)))
+  (define completions
+    (append (send doc-trace get-completions)
+            (send doc-trace get-online-completions (doc-guess-token doc pos))))
+  (define result
+    (for/list ([completion (in-list completions)])
+      (hasheq 'label (symbol->string completion))))
+  (hash 'isIncomplete #t
+        'items result))
+
+;; Definition: returns a Location hash, or json-null.
+(define (doc-definition doc uri line char)
+  (define-values (start end decl) (doc-get-decl doc line char))
+  (match decl
+    [#f (json-null)]
+    [(Decl #f id start end)
+     (hasheq 'uri uri
+             'range (start/end->range doc start end))]
+    [(Decl path id 0 0)
+     (hasheq 'uri (path->uri path)
+             'range (Range->hash (get-definition-by-id path id)))]))
+
+;; References: returns a list of Location hashes, or json-null.
+(define (doc-references doc uri line char include-decl?)
+  (define-values (start end decl) (doc-get-decl doc line char))
+  (match decl
+    [(Decl req? id left right)
+     (define ranges
+       (if req?
+           (list (start/end->range doc start end)
+                 (start/end->range doc left right))
+           (or (doc-get-bindings doc decl))))
+     (for/list ([range (in-list ranges)])
+       (hasheq 'uri uri 'range range))]
+    [#f (json-null)]))
+
+;; Document Highlight: returns a list of DocumentHighlight hashes, or json-null.
+(define (doc-highlights doc line char)
+  (define-values (start end decl) (doc-get-decl doc line char))
+  (match decl
+    [(Decl filename id left right)
+     (define ranges
+       (if filename
+           (list (start/end->range doc start end)
+                 (start/end->range doc left right))
+           (or (append (doc-get-bindings doc decl)
+                       (list (start/end->range doc left right))))))
+     (for/list ([range (in-list ranges)])
+       (hasheq 'range range))]
+    [#f (json-null)]))
+
+;; Rename: returns a WorkspaceEdit hash, or json-null.
+(define (doc-rename doc uri line char new-name)
+  (define-values (start end decl) (doc-get-decl doc line char))
+  (match decl
+    [(Decl req? id left right)
+     (cond [req? (json-null)]
+           [else
+            (define ranges (cons (start/end->range doc left right)
+                                 (doc-get-bindings doc decl)))
+            (WorkspaceEdit
+              #:changes
+              (hasheq (string->symbol uri)
+                      (for/list ([range (in-list ranges)])
+                        (TextEdit #:range range #:newText new-name))))])]
+    [#f (json-null)]))
+
+;; Prepare Rename: returns a Range hash, or json-null.
+(define (doc-prepare-rename doc line char)
+  (define-values (start end decl) (doc-get-decl doc line char))
+  (if (and decl (not (Decl-filename decl)))
+      (start/end->range doc start end)
+      (json-null)))
+
+;; Document Symbols: returns a list of SymbolInformation hashes.
+(define (doc-symbols doc uri)
+  (dict-map (doc-get-symbols doc)
+            (λ (key value)
+              (match-define (cons start end) key)
+              (match-define (list text type) value)
+              (define kind (match type
+                             ['constant SymbolKind-Constant]
+                             ['string SymbolKind-String]
+                             ['symbol SymbolKind-Variable]))
+              (define range
+                (Range #:start (abs-pos->pos doc start)
+                       #:end (abs-pos->pos doc end)))
+              (hasheq 'name text
+                      'kind kind
+                      'location (hasheq 'uri uri
+                                        'range range)))))
+
 (provide (struct-out Doc)
          new-doc
          doc-update!
@@ -496,5 +621,14 @@
          doc-hover
          doc-code-action
          doc-signature-help
+         doc-get-decl
+         doc-get-bindings
+         doc-completion
+         doc-definition
+         doc-references
+         doc-highlights
+         doc-rename
+         doc-prepare-rename
+         doc-symbols
          )
 
