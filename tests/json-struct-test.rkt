@@ -51,6 +51,6 @@
   (define r (Range p1 p2))
   (check-equal? (jsexpr-encode r)
                 (hasheq 'start (hasheq 'line 1 'character 10)
-                        'end   (hasheq 'line 2 'character 20)))
+                        'end (hasheq 'line 2 'character 20)))
 
-)
+  )
