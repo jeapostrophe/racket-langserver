@@ -8,3 +8,4 @@
 (syntax-case* 1)
 (with-datum 1)
 (kernel-syntax-case 1)
+(define-json-struct 1)
