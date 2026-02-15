@@ -1,8 +1,10 @@
 #lang racket/base
 (require (for-syntax racket/base
                      racket/list
+                     racket/set
                      racket/syntax
-                     syntax/parse)
+                     syntax/parse
+                     racket/provide-transform)
          racket/generic
          racket/match
          racket/contract
@@ -67,7 +69,7 @@
     [else v]))
 
 ;; define-json-struct — generates a transparent struct with JSON support,
-;; keyword constructors, and polymorphic pattern matching.
+;; keyword constructors, and split pattern matching.
 (begin-for-syntax
   (define (symbol->keyword sym)
     (string->keyword (symbol->string sym)))
@@ -88,101 +90,140 @@
     (for/or ([x (in-list (syntax->list stx))])
       (keyword? (syntax-e x))))
 
-  ;; Generates the internal struct definition with JSON serialization method.
-  (define (gen-struct-def stx iname fields json-keys accessors)
-    (with-syntax ([(fld ...) fields])
-      (define jsexpr-pairs
-        (append*
-          (for/list ([jk json-keys]
-                     [acc accessors])
-            (list #`'#,(datum->syntax stx (syntax-e jk))
-                  #`(jsexpr-encode (#,acc self))))))
-      #`(struct #,iname (fld ...)
+  (define (ensure-no-duplicate-keywords who k-list)
+    (define seen (mutable-seteq))
+    (for ([k k-list])
+      (define key (syntax-e k))
+      (when (set-member? seen key)
+        (raise-syntax-error who
+                            (format "duplicate keyword argument ~a" key)
+                            k))
+      (set-add! seen key)))
+
+  ;; Generates the internal struct definition with JSON serialization method and contracts.
+  (define (gen-contracted-struct stx iname fields contracts json-keys accessors)
+    (with-syntax ([iname iname]
+                  [(fld ...) fields]
+                  [(ctc ...) contracts]
+                  [(jk ...) json-keys]
+                  [(acc ...) accessors])
+      #'(struct iname (fld ...)
           #:transparent
+          #:guard (struct-guard/c ctc ...)
           #:methods gen:jsexpr-struct
           [(define (->jsexpr self)
-             (hasheq #,@jsexpr-pairs))])))
+             (hasheq (~@ 'jk (jsexpr-encode (acc self))) ...))])))
 
-  ;; Positional constructor with contract enforcement.
-  (define (gen-checked-constructor iname-checked fields contracts ipred iname)
-    #`(define/contract (#,iname-checked #,@fields)
-        (-> #,@contracts #,ipred)
-        (#,iname #,@fields)))
+  ;; Public aliases for the accessors.
+  (define (gen-public-accessors public-accessors accessors)
+    (for/list ([pub public-accessors]
+               [acc accessors])
+      #`(define #,pub #,acc)))
 
-  ;; Public aliases for the predicate and contracted accessors.
-  (define (gen-alias-defs pred ipred public-accessors accessors contracts)
-    (cons #`(define #,pred #,ipred)
-          (for/list ([pub public-accessors]
-                     [acc accessors]
-                     [ctc contracts])
-            #`(define/contract #,pub
-                (-> #,ipred #,ctc)
-                #,acc))))
+  ;; Generates Name-js? predicate.
+  ;; Checks JSON hash shape and validates each field contract.
+  (define (gen-json-predicate stx js-pred-name json-keys contracts)
+    (with-syntax ([js-pred-name js-pred-name]
+                  [(jk ...) json-keys]
+                  [(ctc ...) contracts])
+      #'(define (js-pred-name x)
+          (and (hash? x)
+               (and (hash-has-key? x 'jk)
+                    (ctc (hash-ref x 'jk)))
+               ...))))
+
+  ;; Generates the export bundle macro.
+  (define (gen-exports name-exports name pred public-accessors name-js name-js-pred)
+    (with-syntax ([name-exports name-exports]
+                  [name name]
+                  [pred pred]
+                  [(pub ...) public-accessors]
+                  [name-js name-js]
+                  [name-js-pred name-js-pred])
+      #'(define-syntax name-exports
+          (make-provide-transformer
+            (lambda (stx modes)
+              (expand-export
+                #'(combine-out name pred pub ... name-js name-js-pred)
+                modes))))))
 
   ;; Generates the public match expander.
-  ;; 1. Patterns: matches internal struct OR hasheq (for incoming JSON).
+  ;; 1. Patterns: matches internal struct.
   ;; 2. Expressions: constructor with contract checks.
 
   ;; keyword-argument constructor with contract enforcement.
-  (define (gen-kw-constructor iname-kw iname fields keywords contracts ipred)
-    (define kw-args
-      (append*
-        (for/list ([kw keywords] [f fields])
-          (list kw f))))
-    (define kw-ctcs
-      (append*
-        (for/list ([kw keywords] [ctc contracts])
-          (list kw ctc))))
-    #`(define/contract (#,iname-kw #,@kw-args)
-        (-> #,@kw-ctcs #,ipred)
-        (#,iname #,@fields)))
+  (define (gen-kw-constructor iname-kw-proc iname fields keywords contracts struct-pred)
+    (with-syntax ([iname-kw-proc iname-kw-proc]
+                  [iname iname]
+                  [struct-pred struct-pred]
+                  [(kw ...) keywords]
+                  [(fld ...) fields]
+                  [(ctc ...) contracts])
+      #'(define/contract (iname-kw-proc (~@ kw fld) ...)
+          (-> (~@ kw ctc) ... struct-pred)
+          (iname fld ...))))
+
   ;; Generates the match pattern for keyword-based matching.
   ;; Supports both internal structs (via struct*) and hashes (via hash-table).
-  ;; This allows out-of-order and partial matching.
-  (define (gen-match-kw-pattern stx k-list v-list keywords fields json-keys contracts iname)
-    (define (find-index target-kw)
-      (for/first ([kw keywords] [i (in-naturals)]
-                  #:when (eq? (syntax-e target-kw) (syntax-e kw)))
-        i))
+  ;; Mode determines output: 'struct (struct pattern) or 'json (hash pattern).
+  (define (gen-match-kw-pattern stx k-list v-list keywords fields json-keys iname mode)
+    (ensure-no-duplicate-keywords 'define-json-struct k-list)
+
+    (define keyword->idx
+      (for/hasheq ([kw keywords]
+                   [i (in-naturals)])
+        (values (syntax-e kw) i)))
+
+    (define (unknown-keyword-failure k)
+      (lambda ()
+        (raise-syntax-error 'define-json-struct
+                            (format "unknown keyword ~a" (syntax-e k))
+                            k)))
 
     (define-values (s-pats h-pats)
-      (for/lists (s h) ([k k-list] [v v-list])
-        (define idx (find-index k))
-        (unless idx
-          (raise-syntax-error 'define-json-struct (format "unknown keyword ~a" (syntax-e k)) k))
+      (for/lists (s h)
+                 ([k k-list]
+                  [v v-list])
+        (define idx (hash-ref keyword->idx (syntax-e k) (unknown-keyword-failure k)))
         (define fld (list-ref fields idx))
         (define jk (list-ref json-keys idx))
-        (define ctc (list-ref contracts idx))
-        (values #`[#,fld #,v]
-                #`['#,(datum->syntax stx (syntax-e jk)) (? #,ctc #,v)])))
+        (with-syntax ([fld fld]
+                      [v v]
+                      [jk jk])
+          (values #'[fld v] #'['jk v]))))
 
-    #`(or (struct* #,iname (#,@s-pats))
-          (hash-table #,@h-pats)))
+    (if (eq? mode 'struct)
+        #`(struct* #,iname (#,@s-pats))
+        #`(hash-table #,@h-pats)))
 
   ;; Generates the match pattern for positional matching.
-  ;; Enforces full arity to avoid ambiguity with hashes.
-  (define (gen-match-pos-pattern stx v-list fields json-keys contracts iname)
+  ;; Enforces full arity.
+  ;; Mode determines output: 'struct (struct pattern) or 'json (hash pattern).
+  (define (gen-match-pos-pattern stx v-list fields json-keys iname mode)
     (unless (= (length v-list) (length fields))
-      (raise-syntax-error 'define-json-struct
-                          (format "wrong number of arguments for positional pattern (expected ~a, given ~a)"
-                                  (length fields) (length v-list))
-                          stx))
-    (define h-pats
-      (for/list ([jk json-keys] [ctc contracts] [v v-list])
-        #`['#,(datum->syntax stx (syntax-e jk)) (? #,ctc #,v)]))
-    #`(or (#,iname #,@v-list)
-          (hash-table #,@h-pats)))
+      (raise-syntax-error
+        'define-json-struct
+        (format "wrong number of arguments for positional pattern (expected ~a, given ~a)"
+                (length fields) (length v-list))
+        stx))
 
-  ;; Generates the public match expander.
-  (define (gen-match-expander stx name iname iname-kw iname-checked keywords fields contracts json-keys)
+    (with-syntax ([iname iname]
+                  [(v ...) v-list]
+                  [(jk ...) json-keys])
+      (cond [(eq? mode 'struct)
+             #'(iname v ...)]
+            [else
+             #'(hash-table ['jk v] ...)])))
+
+  ;; Generates the public Name match/constructor wrapper.
+  ;; Pattern mode matches struct values; expression mode constructs structs.
+  (define (gen-struct-match-expander stx name iname iname-kw keywords fields json-keys)
     (with-syntax ([iname iname]
                   [iname-kw iname-kw]
-                  [iname-checked iname-checked]
                   [name name]
                   [(kw ...) keywords]
                   [(fld ...) fields]
-                  [(jk ...) json-keys]
-                  [(ctc ...) contracts])
+                  [(jk ...) json-keys])
       #`(define-match-expander name
           ;; Pattern transformer
           (λ (inner-stx)
@@ -190,23 +231,58 @@
               ;; Keyword pattern: (Name #:field1 val1 ...)
               [(_ (~seq k:keyword v) (... ...+))
                (gen-match-kw-pattern inner-stx (syntax->list #'(k (... ...))) (syntax->list #'(v (... ...)))
-                                     (list #'kw ...) (list #'fld ...) (list #'jk ...) (list #'ctc ...)
-                                     #'iname)]
+                                     (list #'kw ...) (list #'fld ...) (list #'jk ...)
+                                     #'iname 'struct)]
               ;; Positional pattern: (Name val1 ...)
+              ;; Dispatch to internal struct for pattern matching
               [(_ v (... ...))
                (gen-match-pos-pattern inner-stx (syntax->list #'(v (... ...)))
-                                      (list #'fld ...) (list #'jk ...) (list #'ctc ...)
-                                      #'iname)]))
+                                      (list #'fld ...) (list #'jk ...)
+                                      #'iname 'struct)]))
           ;; Expression transformer (constructor)
           (λ (inner-stx)
             (syntax-parse inner-stx
-              [(_ . args)
-               (if (any-keyword? #'args)
-                   (syntax/loc inner-stx (iname-kw . args))
-                   (syntax/loc inner-stx (iname-checked . args)))]))))))
+              [(_ (~seq k:keyword v) (... ...+))
+               (begin
+                 (define k-list (syntax->list #'(k (... ...))))
+                 (define v-list (syntax->list #'(v (... ...))))
+                 (ensure-no-duplicate-keywords 'define-json-struct k-list)
+                 (define kv-args
+                   (append*
+                     (for/list ([kw-arg k-list] [val-arg v-list])
+                       (list kw-arg val-arg))))
+                 (with-syntax ([(arg (... ...)) kv-args])
+                   (syntax/loc inner-stx
+                     (iname-kw arg (... ...)))))]
+              [(_ a (... ...))
+               #:fail-when (any-keyword? #'(a (... ...)))
+               "mixed positional and keyword arguments are not allowed"
+               (syntax/loc inner-stx (iname a (... ...)))])))))
+
+  ;; Generates the Name-js match expander (matches JSON hashes only).
+  (define (gen-json-match-expander stx name-js keywords fields json-keys)
+    (with-syntax ([name-js name-js]
+                  [(kw ...) keywords]
+                  [(fld ...) fields]
+                  [(jk ...) json-keys])
+      #`(define-match-expander name-js
+          ;; Pattern transformer
+          (λ (inner-stx)
+            (syntax-parse inner-stx
+              ;; Keyword pattern: (Name-js #:field1 val1 ...)
+              [(_ (~seq k:keyword v) (... ...+))
+               (gen-match-kw-pattern inner-stx (syntax->list #'(k (... ...))) (syntax->list #'(v (... ...)))
+                                     (list #'kw ...) (list #'fld ...) (list #'jk ...)
+                                     #f 'json)]
+              ;; Positional pattern: (Name-js val1 ...)
+              [(_ v (... ...))
+               (gen-match-pos-pattern inner-stx (syntax->list #'(v (... ...)))
+                                      (list #'fld ...) (list #'jk ...)
+                                      #f 'json)]))))))
+
 
 ;; define-json-struct — Generates a transparent struct with recursive JSON encoding
-;; and polymorphic pattern matching (matching both structs and JSON hashes).
+;; and split pattern matching (struct via Name, JSON via Name-js).
 ;;
 ;; Syntax:
 ;;   (define-json-struct Name
@@ -221,8 +297,9 @@
 ;;   - Positional: (match x [(Name p1 p2 ...) ...]) [requires all fields]
 ;;   - Keyword:    (match x [(Name #:f1 p1) ...])    [partial & order-independent]
 ;;
-;; Patterns match both instances of Name and hasheq tables containing the keys.
-;; Field contracts are enforced on construction and during pattern matching.
+;; Name patterns match instances of Name only.
+;; Name-js patterns match hasheq tables containing the JSON keys.
+;; Field contracts are enforced on construction and by Name-js?.
 (define-syntax (define-json-struct stx)
   (syntax-parse stx
     [(_ name:id clause:json-struct-clause ...+)
@@ -233,30 +310,54 @@
      (define keywords (syntax->list #'(clause.keyword ...)))
 
      ;; Generate names for internal parts
-     (define iname (format-id stx "~a:struct" #'name))
-     (define iname-checked (format-id stx "~a:checked" #'name))
-     (define iname-kw (format-id stx "~a:struct-kw" #'name))
+     (define iname (format-id stx "~a:struct" #'name)) ; Internal Struct
+     (define iname-kw (format-id stx "~a:kw" #'name)) ; Internal keyword constructor
      (define accessors
        (for/list ([f fields])
          (format-id stx "~a:struct-~a" #'name f)))
      (define public-accessors
        (for/list ([f fields])
          (format-id stx "~a-~a" #'name f)))
-     (define ipred (format-id stx "~a:struct?" #'name))
+
+     ;; struct-pred-internal aliases the generated internal struct predicate.
+     (define struct-pred-internal (format-id stx "~a:struct?" #'name))
      (define pred (format-id stx "~a?" #'name))
+
+     (define name-js-pred (format-id stx "~a-js?" #'name))
+     (define name-js (format-id stx "~a-js" #'name))
+     (define name-exports (format-id stx "~a-exports" #'name))
 
      ;; Combine generated parts into a single begin block
      (datum->syntax
        stx
        `(begin
-          ,(gen-struct-def stx iname fields json-keys accessors)
-          ,(gen-checked-constructor iname-checked fields contracts ipred iname)
-          ,(gen-kw-constructor iname-kw iname fields keywords contracts ipred)
-          ,@(gen-alias-defs pred ipred public-accessors accessors contracts)
-          ,(gen-match-expander stx #'name iname iname-kw iname-checked keywords fields contracts json-keys))
+          ,(gen-contracted-struct stx iname fields contracts json-keys accessors)
+          ,(gen-kw-constructor iname-kw iname fields keywords contracts struct-pred-internal)
+          ,@(gen-public-accessors public-accessors accessors)
+          (define ,pred ,struct-pred-internal)
+
+          ,(gen-struct-match-expander stx #'name iname iname-kw keywords fields json-keys)
+          ,(gen-json-match-expander stx name-js keywords fields json-keys)
+          ,(gen-json-predicate stx name-js-pred json-keys contracts)
+
+          ,(gen-exports name-exports #'name pred public-accessors name-js name-js-pred))
        stx)]))
+
+(define-syntax json-struct-out
+  (make-provide-transformer
+    (lambda (stx modes)
+      (syntax-parse stx
+        [(_ name:id ...)
+         (with-syntax ([(export-macro-call ...)
+                        (for/list ([n (in-list (syntax->list #'(name ...)))])
+                          #`(#,(format-id n "~a-exports" n)))])
+           (expand-export
+             #'(combine-out export-macro-call ...)
+             modes))]))))
+
 (provide define-json-expander
          define-json-struct
+         json-struct-out
          gen:jsexpr-struct
          jsexpr-struct?
          ->jsexpr
@@ -265,4 +366,3 @@
          jsexpr-ref
          jsexpr-set
          jsexpr-remove)
-
