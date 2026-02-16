@@ -3,82 +3,95 @@
 (module+ test
   (require rackunit
            "../../doc.rkt"
-           "../../struct.rkt"
+           "../../internal-types.rkt"
            "../../interfaces.rkt"
            racket/class
            racket/file
-           json)
+           data/interval-map)
 
   (test-case
     "Document creation and basic accessors"
-    (define d (new-doc "file:///test.rkt" "hello world" 1))
-    (check-equal? (Doc-version d) 1)
+    (define d (new-doc "file:///test.rkt" "hello world"))
+    (check-equal? (Doc-version d) 0)
     (check-equal? (Doc-uri d) "file:///test.rkt")
-    (check-equal? (send (Doc-text d) get-text) "hello world"))
+    (check-equal? (doc-get-text d) "hello world"))
 
   (test-case
     "Document update"
-    (define d (new-doc "file:///test.rkt" "hello world" 1))
+    (define d (new-doc "file:///test.rkt" "hello world"))
     ;; Replace "world" with "racket"
     ;; "hello world"
     ;; 01234567890
     ;; world starts at 6, len 5.
-    (doc-update! d 0 6 0 11 "racket")
-    (check-equal? (send (Doc-text d) get-text) "hello racket")
+    (doc-update! d
+                 (Range (Pos 0 6) (Pos 0 11))
+                 "racket")
+    (check-equal? (doc-get-text d) "hello racket")
 
     ;; Insert "!" at end
     ;; "hello racket" length is 12
-    (doc-update! d 0 12 0 12 "!")
-    (check-equal? (send (Doc-text d) get-text) "hello racket!"))
+    (doc-update! d
+                 (Range (Pos 0 12) (Pos 0 12))
+                 "!")
+    (check-equal? (doc-get-text d) "hello racket!"))
 
   (test-case
     "Document deletions and complex updates"
-    (define d (new-doc "file:///test.rkt" "12345" 1))
+    (define d (new-doc "file:///test.rkt" "12345"))
 
     ;; Delete "234" (indices 1 to 4)
     ;; "12345"
     ;;  01234
-    (doc-update! d 0 1 0 4 "")
-    (check-equal? (send (Doc-text d) get-text) "15")
+    (doc-update! d
+                 (Range (Pos 0 1) (Pos 0 4))
+                 "")
+    (check-equal? (doc-get-text d) "15")
 
     ;; Prepend "0"
-    (doc-update! d 0 0 0 0 "0")
-    (check-equal? (send (Doc-text d) get-text) "015")
+    (doc-update! d
+                 (Range (Pos 0 0) (Pos 0 0))
+                 "0")
+    (check-equal? (doc-get-text d) "015")
 
     ;; Replace everything
-    (doc-update! d 0 0 0 3 "cleaned")
-    (check-equal? (send (Doc-text d) get-text) "cleaned"))
+    (doc-update! d
+                 (Range (Pos 0 0) (Pos 0 3))
+                 "cleaned")
+    (check-equal? (doc-get-text d) "cleaned"))
 
   (test-case
     "Document position conversion"
     (define text "line1\nline2\nline3")
-    (define d (new-doc "file:///test.rkt" text 1))
+    (define d (new-doc "file:///test.rkt" text))
 
-    ;; check doc-pos
+    ;; check doc-pos->abs-pos
     ;; line1\n is 6 chars (0-5)
     ;; line2 starts at 6
-    (check-equal? (doc-pos d 0 0) 0)
-    (check-equal? (doc-pos d 1 0) 6)
-    (check-equal? (doc-pos d 2 0) 12)
+    (check-equal? (doc-pos->abs-pos d (Pos 0 0)) 0)
+    (check-equal? (doc-pos->abs-pos d (Pos 1 0)) 6)
+    (check-equal? (doc-pos->abs-pos d (Pos 2 0)) 12)
 
-    ;; check doc-line/ch
-    (define-values (l c) (doc-line/ch d 6))
-    (check-equal? l 1)
-    (check-equal? c 0))
+    ;; check doc-abs-pos->pos
+    (define p (doc-abs-pos->pos d 6))
+    (check-equal? (Pos-line p) 1)
+    (check-equal? (Pos-char p) 0))
 
   (test-case
     "Document symbols"
     (define text "#lang racket\n(define x 1)\n")
-    (define d (new-doc "file:///test.rkt" text 1))
-    ;; This might require more complex setup if get-symbols depends on more things
-    ;; But let's try basic check
+    (define d (new-doc "file:///test.rkt" text))
     (define syms (doc-get-symbols d))
-    (check-not-false syms))
+    ;; lexer positions are 1-based in this symbol map:
+    ;; define: 15..21, x: 22..23, 1: 24..25
+    (check-equal? (interval-map-ref syms 15 #f) (list "define" 'symbol))
+    (check-equal? (interval-map-ref syms 22 #f) (list "x" 'symbol))
+    (check-equal? (interval-map-ref syms 24 #f) (list "1" 'constant))
+    (check-false (interval-map-ref syms 21 #f) "space should not be a symbol"))
 
   (test-case
     "Find containing paren"
     (define text "(list 1 2)")
-    (define d (new-doc "file:///test.rkt" text 1))
+    (define d (new-doc "file:///test.rkt" text))
     ;; (list 1 2)
     ;; 0123456789
     ;; inside `list` at 2
@@ -87,7 +100,7 @@
     (check-equal? (doc-find-containing-paren d 1) 0)
 
     (define text2 "((a) b)")
-    (define d2 (new-doc "file:///test.rkt" text2 1))
+    (define d2 (new-doc "file:///test.rkt" text2))
     ;; ((a) b)
     ;; 0123456
     ;; inside (a) at 2 ('a')
@@ -98,7 +111,7 @@
     ;; Edge cases
     (define text3 "( [ { ] )")
     ;; 012345678
-    (define d3 (new-doc "file:///test.rkt" text3 1))
+    (define d3 (new-doc "file:///test.rkt" text3))
 
     ;; Inside [ : pos 3 ' '. Previous is [.
     (check-equal? (doc-find-containing-paren d3 3) 2)
@@ -116,32 +129,32 @@
     (check-equal? (doc-find-containing-paren d3 5) 2)
 
     ;; Unmatched close
-    (define d4 (new-doc "file:///test.rkt" " ) (" 1))
+    (define d4 (new-doc "file:///test.rkt" " ) ("))
     ;; 0123
     (check-equal? (doc-find-containing-paren d4 1) #f))
 
   (test-case
     "Document meta updates"
-    (define d (new-doc "file:///test.rkt" "v1" 1))
+    (define d (new-doc "file:///test.rkt" "v1"))
     (doc-update-version! d 2)
     (check-equal? (Doc-version d) 2)
     (doc-update-uri! d "file:///test2.rkt")
     (check-equal? (Doc-uri d) "file:///test2.rkt")
     (doc-reset! d "v2")
-    (check-equal? (send (Doc-text d) get-text) "v2"))
+    (check-equal? (doc-get-text d) "v2"))
 
   (test-case
     "Document line/pos calc"
     (define text "line1\nline2")
     ;; line1\n is 6 chars, line2 is 5 chars. Total 11.
-    (define d (new-doc "file:///test.rkt" text 1))
-    ;; doc-endpos
-    (check-equal? (doc-endpos d) 11)
-    ;; doc-line-start-pos
-    (check-equal? (doc-line-start-pos d 1) 6)
-    ;; doc-line-end-pos
-    (check-equal? (doc-line-end-pos d 0) 5) ;; excludes newline
-    (check-equal? (doc-line-end-pos d 1) 11))
+    (define d (new-doc "file:///test.rkt" text))
+    ;; doc-end-abs-pos
+    (check-equal? (doc-end-abs-pos d) 11)
+    ;; doc-line-start-abs-pos
+    (check-equal? (doc-line-start-abs-pos d 1) 6)
+    ;; doc-line-end-abs-pos
+    (check-equal? (doc-line-end-abs-pos d 0) 5) ;; excludes newline
+    (check-equal? (doc-line-end-abs-pos d 1) 11))
 
   (test-case
     "Token guessing"
@@ -149,7 +162,7 @@
     ;; 01234567890123456
     ;; "foo bar-baz " is 12 chars.
     ;; "str" starts at 12.
-    (define d (new-doc "file:///test.rkt" text 1))
+    (define d (new-doc "file:///test.rkt" text))
 
     ;; "foo" at 2 ('o') -> "foo"
     (check-equal? (doc-guess-token d 2) "foo")
@@ -167,32 +180,48 @@
   (test-case
     "Range tokens (Semantic Tokens)"
     (define text "#lang racket\n(define x 1)")
-    (define d (new-doc "file:///test.rkt" text 1))
+    (define d (new-doc "file:///test.rkt" text))
 
-    ;; Just check it returns a list (maybe empty if expansion hasn't happened)
-    (define tokens (doc-range-tokens d 0 20))
-    (check-pred list? tokens)
+    (define before-expand (doc-range-tokens d (Range (Pos 0 0) (Pos 1 11))))
+    (check-true (empty? before-expand) "tokens should be empty before doc-expand!")
 
-    ;; If tokens are generated, check structure
-    (when (not (empty? tokens))
-      (define first-token (first tokens))
-      ;; deltaLine, deltaStart, length, tokenType, tokenModifiers
-      (check-equal? (length first-token) 5)
-      (check-pred exact-nonnegative-integer? (first first-token))))
+    (check-true (doc-expand! d))
+    (define after-expand (doc-range-tokens d (Range (Pos 0 0) (Pos 1 11))))
+    (check-false (empty? after-expand) "tokens should exist after doc-expand!")
+
+    ;; Encoded semantic tokens are a flat list of integers in groups of 5.
+    (check-equal? (modulo (length after-expand) 5) 0)
+    (check-true (andmap exact-nonnegative-integer? after-expand)))
 
   (test-case
     "Formatting"
     ;; doc.rkt `format!` uses `indenter` from trace.
     (define text "(define x\n1)")
-    (define d (new-doc "file:///test.rkt" text 1))
-    (define opts (FormattingOptions 2 #t #t #f #f #f)) ;; tab-size 2
-    (define edits (format! d 0 0 2 0 #:formatting-options opts))
-    (check-pred list? edits)
+    (define d (new-doc "file:///test.rkt" text))
+    (define opts
+      (FormattingOptions #:tab-size 2
+                         #:insert-spaces #t
+                         #:trim-trailing-whitespace #t
+                         #:insert-final-newline #f
+                         #:trim-final-newlines #f
+                         #:key #f)) ;; tab-size 2
+    (define edits (format! d (Range (Pos 0 0) (Pos 2 0)) #:formatting-options opts))
+    (check-equal? (length edits) 3)
+    (check-true (andmap TextEdit? edits))
+    (check-equal? (map TextEdit-newText edits) (list "" "" "  "))
 
     ;; Test with tab size 4
-    (define opts4 (FormattingOptions 4 #t #t #f #f #f))
-    (define edits4 (format! d 0 0 2 0 #:formatting-options opts4))
-    (check-pred list? edits4))
+    (define opts4
+      (FormattingOptions #:tab-size 4
+                         #:insert-spaces #t
+                         #:trim-trailing-whitespace #t
+                         #:insert-final-newline #f
+                         #:trim-final-newlines #f
+                         #:key #f))
+    (define edits4 (format! d (Range (Pos 0 0) (Pos 2 0)) #:formatting-options opts4))
+    (check-equal? (length edits4) 3)
+    (check-true (andmap TextEdit? edits4))
+    (check-equal? (map TextEdit-newText edits4) (list "" "" "  ")))
 
   (test-case
     "Get definition"
@@ -200,8 +229,8 @@
     (define text "#lang racket\n(define x 1)\nx")
     (with-output-to-file tmp-file #:exists 'replace (lambda () (display text)))
 
-    (define def-range (get-definition-by-id tmp-file 'x))
-    (check-true (or (*Range? def-range) (hash? def-range)))
+    (define def-range (doc-get-definition-by-id tmp-file 'x))
+    (check-pred Range? def-range)
 
     (delete-file tmp-file))
 
@@ -229,47 +258,39 @@ x
 END
       )
     (define uri "file:///tmp/doc-test.rkt")
-    (define d (new-doc uri text 1))
+    (define d (new-doc uri text))
     (doc-expand! d)
     (values d uri))
 
-  (define (make-pos line char)
-    (Pos #:line line #:char char))
-  (define (make-range st-ln st-ch ed-ln ed-ch)
-    (Range #:start (make-pos st-ln st-ch) #:end (make-pos ed-ln ed-ch)))
-
   (test-case
     "doc-get-decl on a binding usage"
-    (define-values (d uri) (make-expanded-doc))
+    (define-values (d _uri) (make-expanded-doc))
     ;; "x" at line 2, char 0 is a usage → resolves to local declaration
-    (define-values (start end decl) (doc-get-decl d 2 0))
+    (define-values (start end decl) (doc-get-decl d (Pos 2 0)))
     (check-equal? start 26 "usage start pos")
     (check-equal? end 27 "usage end pos")
-    (check-pred Decl? decl)
     (check-false (Decl-filename decl) "local binding has no filename")
     (check-equal? (Decl-left decl) 21 "declaration left pos")
     (check-equal? (Decl-right decl) 22 "declaration right pos"))
 
   (test-case
     "doc-get-decl on the definition site"
-    (define-values (d uri) (make-expanded-doc))
+    (define-values (d _uri) (make-expanded-doc))
     ;; "x" in (define x 1) at line 1, char 8
-    (define-values (start end decl) (doc-get-decl d 1 8))
+    (define-values (start end decl) (doc-get-decl d (Pos 1 8)))
     (check-equal? start 21 "definition start pos")
     (check-equal? end 22 "definition end pos")
-    (check-pred Decl? decl)
     (check-false (Decl-filename decl) "local binding has no filename")
     (check-equal? (Decl-left decl) 21)
     (check-equal? (Decl-right decl) 22))
 
   (test-case
     "doc-get-decl on imported 'define'"
-    (define-values (d uri) (make-expanded-doc))
+    (define-values (d _uri) (make-expanded-doc))
     ;; "define" at line 1, char 1 is an imported symbol
-    (define-values (start end decl) (doc-get-decl d 1 1))
+    (define-values (start end decl) (doc-get-decl d (Pos 1 1)))
     (check-equal? start 14 "imported define start pos")
     (check-equal? end 20 "imported define end pos")
-    (check-pred Decl? decl)
     (check-not-false (Decl-filename decl) "imported binding has a filename")
     ;; Imported symbols have left=0, right=0
     (check-equal? (Decl-left decl) 0)
@@ -277,112 +298,116 @@ END
 
   (test-case
     "doc-get-decl on literal returns #f"
-    (define-values (d uri) (make-expanded-doc))
+    (define-values (d _uri) (make-expanded-doc))
     ;; "1" at line 1, char 10 is a literal
-    (define-values (start end decl) (doc-get-decl d 1 10))
+    (define-values (_start _end decl) (doc-get-decl d (Pos 1 10)))
     (check-false decl "literal should not have a declaration"))
 
   (test-case
     "doc-get-bindings returns usage ranges for local x"
-    (define-values (d uri) (make-expanded-doc))
-    (define-values (_s _e decl) (doc-get-decl d 2 0))
+    (define-values (d _uri) (make-expanded-doc))
+    (define-values (_s _e decl) (doc-get-decl d (Pos 2 0)))
     (define bindings (doc-get-bindings d decl))
     ;; Should contain exactly the usage of "x" at line 2, char 0..1
     (check-equal? (length bindings) 1)
-    (check-equal? (first bindings) (make-range 2 0 2 1)))
+    (check-equal? (first bindings)
+                  (Range (Pos 2 0) (Pos 2 1))))
 
   (test-case
     "doc-completion returns x in items"
-    (define-values (d uri) (make-expanded-doc))
-    (define result (doc-completion d 2 1))
-    (check-equal? (hash-ref result 'isIncomplete) #t)
-    (define items (hash-ref result 'items))
-    (check-pred list? items)
+    (define-values (d _uri) (make-expanded-doc))
+    (define result (doc-completion d (Pos 2 1)))
+    (check-equal? (CompletionList-isIncomplete result) #t)
+    (define items (CompletionList-items result))
     ;; "x" should be among the completions
     (check-not-false
-      (findf (λ (i) (equal? (hash-ref i 'label) "x")) items)
+      (findf (λ (i) (equal? (CompletionItem-label i) "x")) items)
       "x should be in completions"))
 
   (test-case
     "doc-definition for local x usage"
     (define-values (d uri) (make-expanded-doc))
     ;; "x" at line 2 → definition at line 1 char 8..9
-    (define result (doc-definition d uri 2 0))
-    (check-equal? (hash-ref result 'uri) uri)
-    (check-equal? (hash-ref result 'range) (make-range 1 8 1 9)))
+    (define result (doc-definition d uri (Pos 2 0)))
+    (check-equal? (Location-uri result) uri)
+    (check-equal? (Location-range result)
+                  (Range (Pos 1 8) (Pos 1 9))))
 
   (test-case
     "doc-definition for imported define"
     (define-values (d uri) (make-expanded-doc))
     ;; "define" at line 1 → jumps to external file
-    (define result (doc-definition d uri 1 1))
-    (check-pred hash? result)
+    (define result (doc-definition d uri (Pos 1 1)))
     ;; URI should point to the racket source file, not our test file
-    (check-not-equal? (hash-ref result 'uri) uri
+    (check-not-equal? (Location-uri result) uri
                       "imported define should point to external file"))
 
   (test-case
-    "doc-definition returns null for literal"
+    "doc-definition returns #f for literal"
     (define-values (d uri) (make-expanded-doc))
-    (define result (doc-definition d uri 1 10))
-    (check-equal? result (json-null)))
+    (define result (doc-definition d uri (Pos 1 10)))
+    (check-false result))
 
   (test-case
     "doc-references for local x"
     (define-values (d uri) (make-expanded-doc))
     ;; "x" usage at (2,0) is a local binding, so doc-references returns bindings
-    (define result (doc-references d uri 2 0 #t))
-    (check-pred list? result)
+    (define result (doc-references d uri (Pos 2 0) #t))
     (check-equal? (length result) 1)
     (define ref (first result))
-    (check-equal? (hash-ref ref 'uri) uri)
-    (check-equal? (hash-ref ref 'range) (make-range 2 0 2 1)))
+    (check-equal? (Location-uri ref) uri)
+    (check-equal? (Location-range ref)
+                  (Range (Pos 2 0) (Pos 2 1))))
 
   (test-case
     "doc-highlights for local x"
-    (define-values (d uri) (make-expanded-doc))
+    (define-values (d _uri) (make-expanded-doc))
     ;; "x" usage at (2,0): highlights should include both usage and declaration
-    (define result (doc-highlights d 2 0))
+    (define result (doc-highlights d (Pos 2 0)))
     (check-equal? (length result) 2)
     ;; First highlight: the usage (binding) at line 2
-    (check-equal? (hash-ref (first result) 'range) (make-range 2 0 2 1))
+    (check-equal? (DocumentHighlight-range (first result))
+                  (Range (Pos 2 0) (Pos 2 1)))
     ;; Second highlight: the declaration at line 1
-    (check-equal? (hash-ref (second result) 'range) (make-range 1 8 1 9)))
+    (check-equal? (DocumentHighlight-range (second result))
+                  (Range (Pos 1 8) (Pos 1 9))))
 
   (test-case
     "doc-rename local x to y"
     (define-values (d uri) (make-expanded-doc))
     ;; Rename "x" at definition site (1,8) to "y"
-    (define result (doc-rename d uri 1 8 "y"))
-    (check-pred hash? result)
-    (define changes (hash-ref result 'changes))
+    (define result (doc-rename d uri (Pos 1 8) "y"))
+    (define changes (WorkspaceEdit-changes result))
     (define edits (hash-ref changes (string->symbol uri)))
     (check-equal? (length edits) 2 "should produce 2 edits (defn + usage)")
     ;; First edit: declaration at line 1 char 8..9
-    (check-equal? (hash-ref (first edits) 'newText) "y")
-    (check-equal? (hash-ref (first edits) 'range) (make-range 1 8 1 9))
+    (check-equal? (TextEdit-newText (first edits)) "y")
+    (check-equal? (TextEdit-range (first edits))
+                  (Range (Pos 1 8) (Pos 1 9)))
     ;; Second edit: usage at line 2 char 0..1
-    (check-equal? (hash-ref (second edits) 'newText) "y")
-    (check-equal? (hash-ref (second edits) 'range) (make-range 2 0 2 1)))
+    (check-equal? (TextEdit-newText (second edits)) "y")
+    (check-equal? (TextEdit-range (second edits))
+                  (Range (Pos 2 0) (Pos 2 1))))
 
   (test-case
-    "doc-rename on imported define returns null"
+    "doc-rename on imported define returns #f"
     (define-values (d uri) (make-expanded-doc))
-    (define result (doc-rename d uri 1 1 "my-define"))
-    (check-equal? result (json-null)))
+    (define result (doc-rename d uri (Pos 1 1) "my-define"))
+    (check-false result))
 
   (test-case
     "doc-prepare-rename for local x"
-    (define-values (d uri) (make-expanded-doc))
+    (define-values (d _uri) (make-expanded-doc))
     ;; "x" at definition site (1,8) → renamable, returns its range
-    (define result (doc-prepare-rename d 1 8))
-    (check-equal? result (make-range 1 8 1 9)))
+    (define result (doc-prepare-rename d (Pos 1 8)))
+    (check-equal? result
+                  (Range (Pos 1 8) (Pos 1 9))))
 
   (test-case
-    "doc-prepare-rename on imported define returns null"
-    (define-values (d uri) (make-expanded-doc))
-    (define result (doc-prepare-rename d 1 1))
-    (check-equal? result (json-null)))
+    "doc-prepare-rename on imported define returns #f"
+    (define-values (d _uri) (make-expanded-doc))
+    (define result (doc-prepare-rename d (Pos 1 1)))
+    (check-false result))
 
   (test-case
     "doc-symbols returns lexed symbols with correct positions"
@@ -393,13 +418,71 @@ END
     ;; Exact results depend on the lexer, but we can check structure and known entries.
     (check-equal? (length result) 4)
     ;; Check that "define" symbol is present with kind=SymbolKind-Variable (13)
-    (define define-sym (findf (λ (s) (equal? (hash-ref s 'name) "define")) result))
+    (define define-sym (findf (λ (s) (equal? (SymbolInformation-name s) "define")) result))
     (check-not-false define-sym)
-    (check-equal? (hash-ref define-sym 'kind) 13)
+    (check-equal? (SymbolInformation-kind define-sym) 13)
     ;; Check that "1" is present with kind=SymbolKind-Constant (14)
-    (define one-sym (findf (λ (s) (equal? (hash-ref s 'name) "1")) result))
+    (define one-sym (findf (λ (s) (equal? (SymbolInformation-name s) "1")) result))
     (check-not-false one-sym)
-    (check-equal? (hash-ref one-sym 'kind) 14))
+    (check-equal? (SymbolInformation-kind one-sym) 14))
+
+  (test-case
+    "Document hover"
+    (define text
+#<<END
+#lang racket
+(list)
+END
+      )
+    (define uri "file:///tmp/hover-test.rkt")
+    (define d (new-doc uri text))
+    (doc-expand! d)
+
+    (define h (doc-hover d (Pos 1 1)))
+    (check-not-false h)
+    (define result (Hover-contents h))
+    (check-true (string-contains? result "Returns a newly allocated list")))
+
+  (test-case
+    "Document signature help"
+    (define text
+#<<END
+#lang racket/base
+
+(list )
+END
+      )
+    (define uri "file:///tmp/signature-help-test.rkt")
+    (define d (new-doc uri text))
+    (doc-expand! d)
+
+    (define help (doc-signature-help d (Pos 2 6)))
+    (check-not-false help "help should not be #f")
+    (define sigs (SignatureHelp-signatures help))
+    (check-false (empty? sigs) "signatures should not be empty")
+    (define first-sig (first sigs))
+    (check-true (string-contains? (SignatureInformation-label first-sig) "list")
+                "label should contain 'list'"))
+
+  (test-case
+    "Document code action"
+    (define text
+#<<END
+#lang racket/base
+
+(define x 0)
+END
+      )
+    (define uri "file:///tmp/code-action-test.rkt")
+    (define d (new-doc uri text))
+    (doc-expand! d)
+
+    (define start (Pos 2 8))
+    (define end (Pos 2 9))
+    (define actions (doc-code-action d (Range start end)))
+    (check-false (empty? actions) "actions should not be empty")
+    (define act (first actions))
+    (check-equal? (CodeAction-title act) "Add prefix `_` to ignore"))
 
   )
 

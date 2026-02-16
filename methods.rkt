@@ -7,8 +7,8 @@
          racket/class
          racket/async-channel
          "error-codes.rkt"
+         "interfaces.rkt"
          "responses.rkt"
-         "struct.rkt"
          (prefix-in workspace/ "workspace.rkt")
          (prefix-in text-document/ "text-document.rkt"))
 

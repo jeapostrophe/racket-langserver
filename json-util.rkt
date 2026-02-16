@@ -310,17 +310,17 @@
      (define keywords (syntax->list #'(clause.keyword ...)))
 
      ;; Generate names for internal parts
-     (define iname (format-id stx "~a:struct" #'name)) ; Internal Struct
-     (define iname-kw (format-id stx "~a:kw" #'name)) ; Internal keyword constructor
+     (define iname (format-id stx "~a~~" #'name)) ; Internal struct
+     (define iname-kw (format-id stx "~a~~kw" #'name)) ; Internal keyword constructor
      (define accessors
        (for/list ([f fields])
-         (format-id stx "~a:struct-~a" #'name f)))
+         (format-id stx "~a~~-~a" #'name f)))
      (define public-accessors
        (for/list ([f fields])
          (format-id stx "~a-~a" #'name f)))
 
      ;; struct-pred-internal aliases the generated internal struct predicate.
-     (define struct-pred-internal (format-id stx "~a:struct?" #'name))
+     (define struct-pred-internal (format-id stx "~a~~?" #'name))
      (define pred (format-id stx "~a?" #'name))
 
      (define name-js-pred (format-id stx "~a-js?" #'name))
@@ -366,3 +366,4 @@
          jsexpr-ref
          jsexpr-set
          jsexpr-remove)
+

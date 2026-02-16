@@ -2,7 +2,7 @@
 
 (require drracket/check-syntax
          syntax/parse
-         "../struct.rkt"
+         "../interfaces.rkt"
          racket/class
          racket/list
          racket/bool

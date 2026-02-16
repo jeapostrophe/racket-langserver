@@ -4,7 +4,7 @@
          racket/os
          "../../msg-io.rkt"
          "../../json-util.rkt"
-         "../../struct.rkt")
+         "../../interfaces.rkt")
 
 (define init-req
   (hasheq 'jsonrpc "2.0"

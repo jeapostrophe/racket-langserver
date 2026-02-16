@@ -2,7 +2,7 @@
 
 (require "interface.rkt"
          racket/class
-         "../struct.rkt"
+         "../internal-types.rkt"
          data/interval-map
          racket/dict
          racket/set

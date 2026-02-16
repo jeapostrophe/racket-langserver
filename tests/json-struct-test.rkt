@@ -61,14 +61,14 @@
 
   (test-case "matching: Pos-js matches hashes"
     (check-equal?
-     (match p-hash [(Pos-js #:line l) l] [_ #f])
-     10)
+      (match p-hash [(Pos-js #:line l) l] [_ #f])
+      10)
     (check-equal?
-     (match p-hash-2 [(Pos-js l c) (list l c)] [_ #f])
-     '(3 30))
+      (match p-hash-2 [(Pos-js l c) (list l c)] [_ #f])
+      '(3 30))
     (check-equal?
-     (match p1 [(Pos-js l c) (list l c)] [_ #f])
-     #f))
+      (match p1 [(Pos-js l c) (list l c)] [_ #f])
+      #f))
 
   (test-case "validation: Pos-js? validates JSON hash only"
     (check-true (Pos-js? p-hash))
@@ -137,3 +137,4 @@
     ;; Contract: JSON-only
     (check-false (Exported-js? e))
     (check-true (Exported-js? (hasheq 'x 40)))))
+

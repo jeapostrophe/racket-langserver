@@ -9,6 +9,7 @@
          "doc.rkt"
          "check-syntax.rkt"
          "scheduler.rkt"
+         "json-util.rkt"
          racket/set
          racket/match
          racket/class)
@@ -42,14 +43,14 @@
 (define (send-diagnostics notify-client uri diag-lst)
   (notify-client "textDocument/publishDiagnostics"
                  (hasheq 'uri uri
-                         'diagnostics (set->list diag-lst))))
+                         'diagnostics (jsexpr-encode (set->list diag-lst)))))
 
 ;; the only place where really run check-syntax
 (define (safedoc-run-check-syntax! notify-client safe-doc)
   (match-define (list uri old-version doc-text)
     (with-read-doc safe-doc
       (λ (doc)
-        (list (Doc-uri doc) (Doc-version doc) (send (Doc-text doc) copy)))))
+        (list (Doc-uri doc) (Doc-version doc) (doc-copy-text-buffer doc)))))
 
   (define (check-syntax-task)
     (define result (doc-expand uri doc-text))
