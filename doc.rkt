@@ -76,6 +76,36 @@
         [(< new-len old-len) (send doc-trace contract (+ st-pos new-len) end-pos)])
   (send doc-text replace text st-pos end-pos))
 
+(define/contract (doc-apply-edits! doc edits)
+  (-> Doc? (listof TextEdit?) void?)
+  ;; Apply from the end of the document so earlier edits do not shift
+  ;; the positions of later edits.
+  (define edits-descending-by-start
+    (sort edits
+          (λ (a b)
+            (define a-start (doc-pos->abs-pos doc (Range-start (TextEdit-range a))))
+            (define b-start (doc-pos->abs-pos doc (Range-start (TextEdit-range b))))
+            (if (= a-start b-start)
+                (> (doc-pos->abs-pos doc (Range-end (TextEdit-range a)))
+                   (doc-pos->abs-pos doc (Range-end (TextEdit-range b))))
+                (> a-start b-start)))))
+  (doc-check-non-overlapping-edits! doc edits-descending-by-start)
+  (for ([edit (in-list edits-descending-by-start)])
+    (doc-update! doc (TextEdit-range edit) (TextEdit-newText edit))))
+
+(define (doc-check-non-overlapping-edits! doc edits-descending-by-start)
+  (for ([later-start-edit (in-list edits-descending-by-start)]
+        [earlier-start-edit (in-list (rest edits-descending-by-start))])
+    (define later-start (doc-pos->abs-pos doc (Range-start (TextEdit-range later-start-edit))))
+    (define earlier-start (doc-pos->abs-pos doc (Range-start (TextEdit-range earlier-start-edit))))
+    (define earlier-end (doc-pos->abs-pos doc (Range-end (TextEdit-range earlier-start-edit))))
+    (when (> earlier-end later-start)
+      (error 'doc-apply-edits!
+             "overlapping edits: ~a..~a, next starts at ~a"
+             earlier-start
+             earlier-end
+             earlier-start))))
+
 (define/contract (doc-expand uri doc-text)
   (-> string? (is-a?/c lsp-editor%) CSResult?)
   (check-syntax uri doc-text))
@@ -230,7 +260,7 @@
 ;; formatting ;;
 
 ;; Shared path for all formatting requests
-(define (format! doc fmt-range
+(define (doc-format! doc fmt-range
                  #:on-type? [on-type? #f]
                  #:formatting-options opts)
   (define doc-text (Doc-text doc))
@@ -655,6 +685,7 @@
          Doc-uri
          new-doc
          doc-update!
+         doc-apply-edits!
          doc-reset!
          doc-update-version!
          doc-update-uri!
@@ -668,7 +699,7 @@
          doc-find-containing-paren
          doc-get-symbols
          doc-get-definition-by-id
-         format!
+         doc-format!
          doc-range-tokens
          doc-guess-token
          doc-expand
@@ -689,4 +720,3 @@
          doc-prepare-rename
          doc-symbols
          )
-

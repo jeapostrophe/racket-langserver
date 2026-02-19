@@ -195,7 +195,7 @@
 
   (test-case
     "Formatting"
-    ;; doc.rkt `format!` uses `indenter` from trace.
+    ;; doc.rkt `doc-format!` uses `indenter` from trace.
     (define text "(define x\n1)")
     (define d (new-doc "file:///test.rkt" text))
     (define opts
@@ -205,7 +205,8 @@
                          #:insert-final-newline #f
                          #:trim-final-newlines #f
                          #:key #f)) ;; tab-size 2
-    (define edits (format! d (Range (Pos 0 0) (Pos 2 0)) #:formatting-options opts))
+    (define edits (doc-format! d (Range (Pos 0 0) (Pos 2 0)) #:formatting-options opts))
+    (println edits)
     (check-equal? (length edits) 3)
     (check-true (andmap TextEdit? edits))
     (check-equal? (map TextEdit-newText edits) (list "" "" "  "))
@@ -218,10 +219,30 @@
                          #:insert-final-newline #f
                          #:trim-final-newlines #f
                          #:key #f))
-    (define edits4 (format! d (Range (Pos 0 0) (Pos 2 0)) #:formatting-options opts4))
+    (define edits4 (doc-format! d (Range (Pos 0 0) (Pos 2 0)) #:formatting-options opts4))
     (check-equal? (length edits4) 3)
     (check-true (andmap TextEdit? edits4))
     (check-equal? (map TextEdit-newText edits4) (list "" "" "  ")))
+
+  (test-case
+    "Apply TextEdits"
+    (define text "(define x\n1)")
+    (define d (new-doc "file:///test.rkt" text))
+    (define opts
+      (FormattingOptions #:tab-size 2
+                         #:insert-spaces #t
+                         #:trim-trailing-whitespace #t
+                         #:insert-final-newline #f
+                         #:trim-final-newlines #f
+                         #:key #f))
+    (define edits (doc-format! d (Range (Pos 0 0) (Pos 2 0)) #:formatting-options opts))
+    (check-equal?
+     edits
+     (list (TextEdit (Range (Pos 0 9) (Pos 0 9)) "")
+           (TextEdit (Range (Pos 1 2) (Pos 1 2)) "")
+           (TextEdit (Range (Pos 1 0) (Pos 1 0)) "  ")))
+    (doc-apply-edits! d edits)
+    (check-equal? (doc-get-text d) "(define x\n  1)"))
 
   (test-case
     "Get definition"
@@ -485,4 +506,3 @@ END
     (check-equal? (CodeAction-title act) "Add prefix `_` to ignore"))
 
   )
-

@@ -249,7 +249,7 @@
          (define end (doc-abs-pos->pos doc (doc-end-abs-pos doc)))
          (success-response/encoded
            id
-           (format! doc
+           (doc-format! doc
                     (Range start end)
                     #:formatting-options opts))))]
     [_
@@ -267,7 +267,7 @@
        (λ (doc)
          (success-response/encoded
            id
-           (format! doc
+           (doc-format! doc
                     (Range (Pos st-ln st-ch)
                            (Pos ed-ln ed-ch))
                     #:formatting-options opts))))]
@@ -302,7 +302,7 @@
               (Range start end)]))
          (success-response/encoded
            id
-           (format! doc range
+           (doc-format! doc range
                     #:on-type? #t
                     #:formatting-options opts))))]
     [_
@@ -368,4 +368,3 @@
     [on-type-formatting! (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]
     [full-semantic-tokens (exact-nonnegative-integer? jsexpr? . -> . (or/c jsexpr? (-> jsexpr?)))]
     [range-semantic-tokens (exact-nonnegative-integer? jsexpr? . -> . (or/c jsexpr? (-> jsexpr?)))]))
-
