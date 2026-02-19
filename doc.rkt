@@ -261,8 +261,8 @@
 
 ;; Shared path for all formatting requests
 (define (doc-format! doc fmt-range
-                 #:on-type? [on-type? #f]
-                 #:formatting-options opts)
+                     #:on-type? [on-type? #f]
+                     #:formatting-options opts)
   (define doc-text (Doc-text doc))
   (define doc-trace (Doc-trace doc))
 

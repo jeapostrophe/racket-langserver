@@ -237,10 +237,10 @@
                          #:key #f))
     (define edits (doc-format! d (Range (Pos 0 0) (Pos 2 0)) #:formatting-options opts))
     (check-equal?
-     edits
-     (list (TextEdit (Range (Pos 0 9) (Pos 0 9)) "")
-           (TextEdit (Range (Pos 1 2) (Pos 1 2)) "")
-           (TextEdit (Range (Pos 1 0) (Pos 1 0)) "  ")))
+      edits
+      (list (TextEdit (Range (Pos 0 9) (Pos 0 9)) "")
+            (TextEdit (Range (Pos 1 2) (Pos 1 2)) "")
+            (TextEdit (Range (Pos 1 0) (Pos 1 0)) "  ")))
     (doc-apply-edits! d edits)
     (check-equal? (doc-get-text d) "(define x\n  1)"))
 

@@ -250,8 +250,8 @@
          (success-response/encoded
            id
            (doc-format! doc
-                    (Range start end)
-                    #:formatting-options opts))))]
+                        (Range start end)
+                        #:formatting-options opts))))]
     [_
      (error-response id INVALID-PARAMS "textDocument/formatting failed")]))
 
@@ -268,9 +268,9 @@
          (success-response/encoded
            id
            (doc-format! doc
-                    (Range (Pos st-ln st-ch)
-                           (Pos ed-ln ed-ch))
-                    #:formatting-options opts))))]
+                        (Range (Pos st-ln st-ch)
+                               (Pos ed-ln ed-ch))
+                        #:formatting-options opts))))]
     [_
      (error-response id INVALID-PARAMS "textDocument/rangeFormatting failed")]))
 
@@ -303,8 +303,8 @@
          (success-response/encoded
            id
            (doc-format! doc range
-                    #:on-type? #t
-                    #:formatting-options opts))))]
+                        #:on-type? #t
+                        #:formatting-options opts))))]
     [_
      (error-response id INVALID-PARAMS "textDocument/onTypeFormatting failed")]))
 
