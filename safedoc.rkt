@@ -23,7 +23,7 @@
   #:transparent)
 
 (define (new-safedoc uri text version)
-  (define doc (new-doc uri text version))
+  (define doc (make-doc uri text version))
   (SafeDoc doc (make-rwlock)))
 
 (define (with-read-doc safe-doc proc)

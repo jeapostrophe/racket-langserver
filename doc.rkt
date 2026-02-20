@@ -33,7 +33,7 @@
   (uri text trace version trace-version)
   #:mutable)
 
-(define/contract (new-doc uri text [version 0])
+(define/contract (make-doc uri text [version 0])
   (->* (string? string?)
        (exact-nonnegative-integer?)
        Doc?)
@@ -260,9 +260,9 @@
 ;; formatting ;;
 
 ;; Shared path for all formatting requests
-(define (doc-format! doc fmt-range
-                     #:on-type? [on-type? #f]
-                     #:formatting-options opts)
+(define (doc-format-edits doc fmt-range
+                          #:on-type? [on-type? #f]
+                          #:formatting-options opts)
   (define doc-text (Doc-text doc))
   (define doc-trace (Doc-trace doc))
 
@@ -286,7 +286,7 @@
   (define indenter-wp (indenter-wrapper indenter mut-doc-text on-type?))
   (define skip-this-line? #f)
 
-  (if (eq? indenter 'missing) (json-null)
+  (if (eq? indenter 'missing) #f
       (let loop ([line start-line])
         (define line-start (send mut-doc-text line-start-pos line))
         (define line-end (send mut-doc-text line-end-pos line))
@@ -419,7 +419,7 @@
 ;; the previous token of the first token in the result is defined as a zero length fake token which
 ;; has line number 0 and character position 0.
 (define/contract (doc-range-tokens doc range)
-  (-> Doc? Range? list?)
+  (-> Doc? Range? (listof exact-nonnegative-integer?))
   (define tokens (send (Doc-trace doc) get-semantic-tokens))
   (define pos-start (doc-pos->abs-pos doc (Range-start range)))
   (define pos-end (doc-pos->abs-pos doc (Range-end range)))
@@ -680,10 +680,10 @@
                 #:location (Location #:uri uri
                                      #:range range)))))
 
-(provide Doc
+(provide Doc?
          Doc-version
          Doc-uri
-         new-doc
+         make-doc
          doc-update!
          doc-apply-edits!
          doc-reset!
@@ -699,7 +699,7 @@
          doc-find-containing-paren
          doc-get-symbols
          doc-get-definition-by-id
-         doc-format!
+         doc-format-edits
          doc-range-tokens
          doc-guess-token
          doc-expand
@@ -720,3 +720,4 @@
          doc-prepare-rename
          doc-symbols
          )
+

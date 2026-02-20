@@ -17,7 +17,7 @@
   (if v (jsexpr-encode v) (json-null)))
 
 (define (success-response/encoded id result)
-  (success-response id (jsexpr-encode result)))
+  (success-response id (nullable->jsexpr result)))
 
 (define (fetch-configuration request-client uri)
   (request-client "workspace/configuration"
@@ -249,9 +249,9 @@
          (define end (doc-abs-pos->pos doc (doc-end-abs-pos doc)))
          (success-response/encoded
            id
-           (doc-format! doc
-                        (Range start end)
-                        #:formatting-options opts))))]
+           (doc-format-edits doc
+                             (Range start end)
+                             #:formatting-options opts))))]
     [_
      (error-response id INVALID-PARAMS "textDocument/formatting failed")]))
 
@@ -267,10 +267,10 @@
        (λ (doc)
          (success-response/encoded
            id
-           (doc-format! doc
-                        (Range (Pos st-ln st-ch)
-                               (Pos ed-ln ed-ch))
-                        #:formatting-options opts))))]
+           (doc-format-edits doc
+                             (Range (Pos st-ln st-ch)
+                                    (Pos ed-ln ed-ch))
+                             #:formatting-options opts))))]
     [_
      (error-response id INVALID-PARAMS "textDocument/rangeFormatting failed")]))
 
@@ -302,9 +302,9 @@
               (Range start end)]))
          (success-response/encoded
            id
-           (doc-format! doc range
-                        #:on-type? #t
-                        #:formatting-options opts))))]
+           (doc-format-edits doc range
+                             #:on-type? #t
+                             #:formatting-options opts))))]
     [_
      (error-response id INVALID-PARAMS "textDocument/onTypeFormatting failed")]))
 
@@ -368,3 +368,4 @@
     [on-type-formatting! (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]
     [full-semantic-tokens (exact-nonnegative-integer? jsexpr? . -> . (or/c jsexpr? (-> jsexpr?)))]
     [range-semantic-tokens (exact-nonnegative-integer? jsexpr? . -> . (or/c jsexpr? (-> jsexpr?)))]))
+

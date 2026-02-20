@@ -11,14 +11,14 @@
 
   (test-case
     "Document creation and basic accessors"
-    (define d (new-doc "file:///test.rkt" "hello world"))
+    (define d (make-doc "file:///test.rkt" "hello world"))
     (check-equal? (Doc-version d) 0)
     (check-equal? (Doc-uri d) "file:///test.rkt")
     (check-equal? (doc-get-text d) "hello world"))
 
   (test-case
     "Document update"
-    (define d (new-doc "file:///test.rkt" "hello world"))
+    (define d (make-doc "file:///test.rkt" "hello world"))
     ;; Replace "world" with "racket"
     ;; "hello world"
     ;; 01234567890
@@ -37,7 +37,7 @@
 
   (test-case
     "Document deletions and complex updates"
-    (define d (new-doc "file:///test.rkt" "12345"))
+    (define d (make-doc "file:///test.rkt" "12345"))
 
     ;; Delete "234" (indices 1 to 4)
     ;; "12345"
@@ -62,7 +62,7 @@
   (test-case
     "Document position conversion"
     (define text "line1\nline2\nline3")
-    (define d (new-doc "file:///test.rkt" text))
+    (define d (make-doc "file:///test.rkt" text))
 
     ;; check doc-pos->abs-pos
     ;; line1\n is 6 chars (0-5)
@@ -79,7 +79,7 @@
   (test-case
     "Document symbols"
     (define text "#lang racket\n(define x 1)\n")
-    (define d (new-doc "file:///test.rkt" text))
+    (define d (make-doc "file:///test.rkt" text))
     (define syms (doc-get-symbols d))
     ;; lexer positions are 1-based in this symbol map:
     ;; define: 15..21, x: 22..23, 1: 24..25
@@ -91,7 +91,7 @@
   (test-case
     "Find containing paren"
     (define text "(list 1 2)")
-    (define d (new-doc "file:///test.rkt" text))
+    (define d (make-doc "file:///test.rkt" text))
     ;; (list 1 2)
     ;; 0123456789
     ;; inside `list` at 2
@@ -100,7 +100,7 @@
     (check-equal? (doc-find-containing-paren d 1) 0)
 
     (define text2 "((a) b)")
-    (define d2 (new-doc "file:///test.rkt" text2))
+    (define d2 (make-doc "file:///test.rkt" text2))
     ;; ((a) b)
     ;; 0123456
     ;; inside (a) at 2 ('a')
@@ -111,7 +111,7 @@
     ;; Edge cases
     (define text3 "( [ { ] )")
     ;; 012345678
-    (define d3 (new-doc "file:///test.rkt" text3))
+    (define d3 (make-doc "file:///test.rkt" text3))
 
     ;; Inside [ : pos 3 ' '. Previous is [.
     (check-equal? (doc-find-containing-paren d3 3) 2)
@@ -129,13 +129,13 @@
     (check-equal? (doc-find-containing-paren d3 5) 2)
 
     ;; Unmatched close
-    (define d4 (new-doc "file:///test.rkt" " ) ("))
+    (define d4 (make-doc "file:///test.rkt" " ) ("))
     ;; 0123
     (check-equal? (doc-find-containing-paren d4 1) #f))
 
   (test-case
     "Document meta updates"
-    (define d (new-doc "file:///test.rkt" "v1"))
+    (define d (make-doc "file:///test.rkt" "v1"))
     (doc-update-version! d 2)
     (check-equal? (Doc-version d) 2)
     (doc-update-uri! d "file:///test2.rkt")
@@ -147,7 +147,7 @@
     "Document line/pos calc"
     (define text "line1\nline2")
     ;; line1\n is 6 chars, line2 is 5 chars. Total 11.
-    (define d (new-doc "file:///test.rkt" text))
+    (define d (make-doc "file:///test.rkt" text))
     ;; doc-end-abs-pos
     (check-equal? (doc-end-abs-pos d) 11)
     ;; doc-line-start-abs-pos
@@ -162,7 +162,7 @@
     ;; 01234567890123456
     ;; "foo bar-baz " is 12 chars.
     ;; "str" starts at 12.
-    (define d (new-doc "file:///test.rkt" text))
+    (define d (make-doc "file:///test.rkt" text))
 
     ;; "foo" at 2 ('o') -> "foo"
     (check-equal? (doc-guess-token d 2) "foo")
@@ -180,7 +180,7 @@
   (test-case
     "Range tokens (Semantic Tokens)"
     (define text "#lang racket\n(define x 1)")
-    (define d (new-doc "file:///test.rkt" text))
+    (define d (make-doc "file:///test.rkt" text))
 
     (define before-expand (doc-range-tokens d (Range (Pos 0 0) (Pos 1 11))))
     (check-true (empty? before-expand) "tokens should be empty before doc-expand!")
@@ -195,9 +195,9 @@
 
   (test-case
     "Formatting"
-    ;; doc.rkt `doc-format!` uses `indenter` from trace.
+    ;; doc.rkt `doc-format-edits` uses `indenter` from trace.
     (define text "(define x\n1)")
-    (define d (new-doc "file:///test.rkt" text))
+    (define d (make-doc "file:///test.rkt" text))
     (define opts
       (FormattingOptions #:tab-size 2
                          #:insert-spaces #t
@@ -205,8 +205,7 @@
                          #:insert-final-newline #f
                          #:trim-final-newlines #f
                          #:key #f)) ;; tab-size 2
-    (define edits (doc-format! d (Range (Pos 0 0) (Pos 2 0)) #:formatting-options opts))
-    (println edits)
+    (define edits (doc-format-edits d (Range (Pos 0 0) (Pos 2 0)) #:formatting-options opts))
     (check-equal? (length edits) 3)
     (check-true (andmap TextEdit? edits))
     (check-equal? (map TextEdit-newText edits) (list "" "" "  "))
@@ -219,7 +218,7 @@
                          #:insert-final-newline #f
                          #:trim-final-newlines #f
                          #:key #f))
-    (define edits4 (doc-format! d (Range (Pos 0 0) (Pos 2 0)) #:formatting-options opts4))
+    (define edits4 (doc-format-edits d (Range (Pos 0 0) (Pos 2 0)) #:formatting-options opts4))
     (check-equal? (length edits4) 3)
     (check-true (andmap TextEdit? edits4))
     (check-equal? (map TextEdit-newText edits4) (list "" "" "  ")))
@@ -227,7 +226,7 @@
   (test-case
     "Apply TextEdits"
     (define text "(define x\n1)")
-    (define d (new-doc "file:///test.rkt" text))
+    (define d (make-doc "file:///test.rkt" text))
     (define opts
       (FormattingOptions #:tab-size 2
                          #:insert-spaces #t
@@ -235,7 +234,7 @@
                          #:insert-final-newline #f
                          #:trim-final-newlines #f
                          #:key #f))
-    (define edits (doc-format! d (Range (Pos 0 0) (Pos 2 0)) #:formatting-options opts))
+    (define edits (doc-format-edits d (Range (Pos 0 0) (Pos 2 0)) #:formatting-options opts))
     (check-equal?
       edits
       (list (TextEdit (Range (Pos 0 9) (Pos 0 9)) "")
@@ -279,7 +278,7 @@ x
 END
       )
     (define uri "file:///tmp/doc-test.rkt")
-    (define d (new-doc uri text))
+    (define d (make-doc uri text))
     (doc-expand! d)
     (values d uri))
 
@@ -456,7 +455,7 @@ END
 END
       )
     (define uri "file:///tmp/hover-test.rkt")
-    (define d (new-doc uri text))
+    (define d (make-doc uri text))
     (doc-expand! d)
 
     (define h (doc-hover d (Pos 1 1)))
@@ -474,7 +473,7 @@ END
 END
       )
     (define uri "file:///tmp/signature-help-test.rkt")
-    (define d (new-doc uri text))
+    (define d (make-doc uri text))
     (doc-expand! d)
 
     (define help (doc-signature-help d (Pos 2 6)))
@@ -495,7 +494,7 @@ END
 END
       )
     (define uri "file:///tmp/code-action-test.rkt")
-    (define d (new-doc uri text))
+    (define d (make-doc uri text))
     (doc-expand! d)
 
     (define start (Pos 2 8))
@@ -506,3 +505,4 @@ END
     (check-equal? (CodeAction-title act) "Add prefix `_` to ignore"))
 
   )
+

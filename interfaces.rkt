@@ -60,20 +60,20 @@
   [newText string?])
 
 (define-json-struct WorkspaceEdit
-  [changes hash?])
-
-(define-json-struct CodeAction
-  [title string?]
-  [kind string?]
-  [diagnostics any/c]
-  [isPreferred boolean?]
-  [edit any/c])
+  [changes (hash/c symbol? (listof TextEdit?))])
 
 (define-json-struct Diagnostic
   [range Range?]
   [severity (or/c 1 2 3 4)]
   [source string?]
   [message string?])
+
+(define-json-struct CodeAction
+  [title string?]
+  [kind string?]
+  [diagnostics (listof Diagnostic?)]
+  [isPreferred boolean?]
+  [edit WorkspaceEdit?])
 
 (define-json-struct Location
   [uri string?]
@@ -93,7 +93,7 @@
 
 (define-json-struct SignatureInformation
   [label string?]
-  [documentation any/c])
+  [documentation string?])
 
 (define-json-struct SignatureHelp
   [signatures (listof SignatureInformation?)])
