@@ -11,8 +11,26 @@
   (define p2 (Pos #:char 20 #:line 2))
 
   (define-json-struct Range
-    [start Pos?]
-    [end Pos?])
+    [start Pos]
+    [end Pos])
+
+  (define-json-struct MaybePosHolder
+    [pos (maybe Pos)])
+
+  (define-json-struct PosListHolder
+    [items (listof Pos)])
+
+  (define-json-struct PosHashHolder
+    [items (hash/c symbol? Pos)])
+
+  (define-json-struct OrPosHolder
+    [item (or/c string? Pos)])
+
+  (define-json-struct MaybeOrPosHolder
+    [item (maybe (or/c string? Pos))])
+
+  (define-json-struct OrPosListHolder
+    [items (listof (or/c string? Pos))])
 
   (define p-hash (hasheq 'line 10 'character 5))
   (define p-hash-2 (hasheq 'line 3 'character 30))
@@ -75,12 +93,105 @@
     (check-false (Pos-js? p1))
     (check-false (Pos-js? p-hash-invalid)))
 
+  (test-case "matching: as-Pos decodes valid JSON hash"
+    (check-equal?
+      (match p-hash
+        [(as-Pos pos) (Pos-line pos)]
+        [_ #f])
+      10)
+    (check-equal?
+      (match p-hash-invalid
+        [(as-Pos _pos) #t]
+        [_ #f])
+      #f)
+    (check-equal?
+      (match p1
+        [(as-Pos _pos) #t]
+        [_ #f])
+      #f))
+
+  (test-case "matching: jsexpr styles for Pos"
+    ;; optional schema guard for raw JSON
+    (check-equal? (match p-hash [(? Pos-js? (Pos-js #:line l)) l] [_ #f])
+                  10)
+    ;; decode-then-match with as-Name
+    (check-equal? (match p-hash [(as-Pos (Pos #:line l #:char c)) (list l c)] [_ #f])
+                  '(10 5))
+    ;; generated alias: ^Name => (as-Name (Name ...))
+    (check-equal? (match p-hash [(^Pos #:line l #:char c) (list l c)] [_ #f])
+                  '(10 5))
+    (check-equal? (match p-hash [(^Pos l c) (list l c)] [_ #f])
+                  '(10 5)))
+
   (test-case "encoding: simple and recursive"
-    (check-equal? (jsexpr-encode p1)
+    (check-equal? (->jsexpr p1)
                   (hasheq 'line 1 'character 10))
-    (check-equal? (jsexpr-encode r)
+    (check-equal? (->jsexpr r)
                   (hasheq 'start (hasheq 'line 1 'character 10)
                           'end (hasheq 'line 2 'character 20))))
+
+  (test-case "decoding: recursive jsexpr->Range"
+    (define decoded (jsexpr->Range r-hash))
+    (check-true (Range? decoded))
+    (check-true (Pos? (Range-start decoded)))
+    (check-equal? (Pos-line (Range-start decoded)) 10)
+    (check-equal? (Pos-char (Range-end decoded)) 15))
+
+  (test-case "validation: Range-js? validates nested json shape"
+    (check-true (Range-js? r-hash))
+    (check-false (Range-js? (hasheq 'start p1 'end p2)))
+    (check-false (Range-js? (hasheq 'start p-hash))))
+
+  (test-case "decoding: maybe field can be absent"
+    (define holder (jsexpr->MaybePosHolder (hasheq)))
+    (check-true (Nothing? (MaybePosHolder-pos holder)))
+    (define holder2 (jsexpr->MaybePosHolder (hasheq 'pos p-hash)))
+    (check-true (Pos? (MaybePosHolder-pos holder2))))
+
+  (test-case "decoding: listof decodes compound entries"
+    (define holder (jsexpr->PosListHolder (hasheq 'items (list p-hash p-hash-2))))
+    (check-true (Pos? (first (PosListHolder-items holder))))
+    (check-equal? (Pos-line (second (PosListHolder-items holder))) 3))
+
+  (test-case "decoding: hash/c decodes compound values"
+    (define holder (jsexpr->PosHashHolder (hasheq 'items (hasheq 'a p-hash))))
+    (define decoded-pos (hash-ref (PosHashHolder-items holder) 'a))
+    (check-true (Pos? decoded-pos))
+    (check-equal? (Pos-char decoded-pos) 5))
+
+  (test-case "decoding: or/c chooses matching decoded variant"
+    (define from-str (jsexpr->OrPosHolder (hasheq 'item "hello")))
+    (check-equal? (OrPosHolder-item from-str) "hello")
+    (define from-pos (jsexpr->OrPosHolder (hasheq 'item p-hash)))
+    (check-true (Pos? (OrPosHolder-item from-pos)))
+    (check-equal? (Pos-line (OrPosHolder-item from-pos)) 10)
+    (check-exn exn:fail? (lambda () (jsexpr->OrPosHolder (hasheq 'item 42)))))
+
+  (test-case "validation: or/c json predicate"
+    (check-true (OrPosHolder-js? (hasheq 'item "s")))
+    (check-true (OrPosHolder-js? (hasheq 'item p-hash)))
+    (check-false (OrPosHolder-js? (hasheq 'item 42))))
+
+  (test-case "decoding: maybe with or/c"
+    (define missing (jsexpr->MaybeOrPosHolder (hasheq)))
+    (check-true (Nothing? (MaybeOrPosHolder-item missing)))
+    (define from-str (jsexpr->MaybeOrPosHolder (hasheq 'item "ok")))
+    (check-equal? (MaybeOrPosHolder-item from-str) "ok")
+    (define from-pos (jsexpr->MaybeOrPosHolder (hasheq 'item p-hash-2)))
+    (check-true (Pos? (MaybeOrPosHolder-item from-pos)))
+    (check-equal? (Pos-char (MaybeOrPosHolder-item from-pos)) 30))
+
+  (test-case "decoding: listof with or/c"
+    (define holder
+      (jsexpr->OrPosListHolder (hasheq 'items (list "a" p-hash "b" p-hash-2))))
+    (define items (OrPosListHolder-items holder))
+    (check-equal? (first items) "a")
+    (check-true (Pos? (second items)))
+    (check-equal? (third items) "b")
+    (check-true (Pos? (fourth items)))
+    (check-exn exn:fail?
+               (lambda ()
+                 (jsexpr->OrPosListHolder (hasheq 'items (list "a" 99))))))
 
   (test-case "matching: nested Range-js hash"
     (match r-hash
@@ -109,19 +220,28 @@
       [(Range s e)
        (check-true (Pos? s))
        (check-equal? (Pos-line s) 10)]))
+
+  (test-case "matching: nested decode pattern with as-Range"
+    (check-equal?
+      (match r-hash
+        [(as-Range (Range #:start (Pos #:line sl #:char sc)
+                          #:end (Pos #:line el #:char ec)))
+         (list sl sc el ec)]
+        [_ #f])
+      '(10 5 20 15)))
   )
 
 ;; 6. Export Test
 (module export-test racket
   (require "../json-util.rkt")
   (define-json-struct Exported [x integer?])
-  (provide (json-struct-out Exported))
+  (provide (json-type-out Exported))
   )
 
 (module+ test
   (require (submod ".." export-test) rackunit)
 
-  (test-case "Verify json-struct-out exports"
+  (test-case "Verify json-type-out exports"
     ;; Struct constructor and predicate
     (define e (Exported 10))
     (check-true (Exported? e))
@@ -136,5 +256,18 @@
 
     ;; Contract: JSON-only
     (check-false (Exported-js? e))
-    (check-true (Exported-js? (hasheq 'x 40)))))
+    (check-true (Exported-js? (hasheq 'x 40)))
+
+    ;; as-Name should be exported by json-type-out
+    (check-equal?
+      (match (hasheq 'x 41)
+        [(as-Exported ex) (Exported-x ex)]
+        [_ #f])
+      41)
+    ;; ^Name should be exported by json-type-out
+    (check-equal?
+      (match (hasheq 'x 42)
+        [(^Exported x) x]
+        [_ #f])
+      42)))
 

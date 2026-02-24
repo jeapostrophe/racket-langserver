@@ -43,7 +43,7 @@
 (define (send-diagnostics notify-client uri diag-lst)
   (notify-client "textDocument/publishDiagnostics"
                  (hasheq 'uri uri
-                         'diagnostics (jsexpr-encode (set->list diag-lst)))))
+                         'diagnostics (->jsexpr (set->list diag-lst)))))
 
 ;; the only place where really run check-syntax
 (define (safedoc-run-check-syntax! notify-client safe-doc)

@@ -9,3 +9,5 @@
 (with-datum 1)
 (kernel-syntax-case 1)
 (define-json-struct 1)
+(define-json-enum 1)
+(define-json-union 1)

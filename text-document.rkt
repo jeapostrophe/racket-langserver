@@ -13,15 +13,12 @@
          "workspace.rkt")
 (require "open-docs.rkt")
 
-(define (nullable->jsexpr v)
-  (if v (jsexpr-encode v) (json-null)))
-
-(define (success-response/encoded id result)
-  (success-response id (nullable->jsexpr result)))
+(define (success/enc id result)
+  (success-response id (->jsexpr result)))
 
 (define (fetch-configuration request-client uri)
   (request-client "workspace/configuration"
-                  (jsexpr-encode
+                  (->jsexpr
                     (ConfigurationParams
                       #:items (list (ConfigurationItem #:scopeUri uri #:section "racket-langserver"))))
                   update-configuration))
@@ -84,7 +81,7 @@
        (with-read-doc safe-doc
          (λ (doc)
            (doc-hover doc pos))))
-     (success-response id (nullable->jsexpr result))]
+     (success/enc id result)]
     [_
      (error-response id INVALID-PARAMS "textDocument/hover failed")]))
 
@@ -108,7 +105,7 @@
              doc
              (Range #:start (Pos #:line st-line #:char st-char)
                     #:end (Pos #:line ed-line #:char ed-char))))))
-     (success-response/encoded id actions)]
+     (success/enc id actions)]
     [(hash-table ['textDocument (DocIdentifier-js #:uri uri)])
      (error-response id INVALID-PARAMS
                      (format "textDocument/codeAction failed uri is not a path ~a" uri))]
@@ -125,7 +122,7 @@
        (with-read-doc safe-doc
          (λ (doc)
            (doc-signature-help doc pos))))
-     (success-response id (nullable->jsexpr result))]
+     (success/enc id result)]
     [_
      (error-response id INVALID-PARAMS "textDocument/signatureHelp failed")]))
 
@@ -139,7 +136,7 @@
      (define result
        (with-read-doc safe-doc
          (λ (doc) (doc-completion doc pos))))
-     (success-response/encoded id result)]
+     (success/enc id result)]
     [_
      (error-response id INVALID-PARAMS "textDocument/completion failed")]))
 
@@ -154,7 +151,7 @@
      (define result
        (with-read-doc safe-doc
          (λ (doc) (doc-definition doc uri pos))))
-     (success-response id (nullable->jsexpr result))]
+     (success/enc id result)]
     [_
      (error-response id INVALID-PARAMS "textDocument/definition failed")]))
 
@@ -169,7 +166,7 @@
      (define result
        (with-read-doc safe-doc
          (λ (doc) (doc-references doc uri pos include-decl?))))
-     (success-response id (nullable->jsexpr result))]
+     (success/enc id result)]
     [_
      (error-response id INVALID-PARAMS "textDocument/references failed")]))
 
@@ -183,7 +180,7 @@
      (define result
        (with-read-doc safe-doc
          (λ (doc) (doc-highlights doc pos))))
-     (success-response id (nullable->jsexpr result))]
+     (success/enc id result)]
     [_
      (error-response id INVALID-PARAMS "textDocument/documentHighlight failed")]))
 
@@ -198,7 +195,7 @@
      (define result
        (with-read-doc safe-doc
          (λ (doc) (doc-rename doc uri pos new-name))))
-     (success-response id (nullable->jsexpr result))]
+     (success/enc id result)]
     [_
      (error-response id INVALID-PARAMS "textDocument/rename failed")]))
 
@@ -212,7 +209,7 @@
      (define result
        (with-read-doc safe-doc
          (λ (doc) (doc-prepare-rename doc pos))))
-     (success-response id (nullable->jsexpr result))]
+     (success/enc id result)]
     [_
      (error-response id INVALID-PARAMS "textDocument/prepareRename failed")]))
 
@@ -224,7 +221,7 @@
      (define results
        (with-read-doc safe-doc
          (λ (doc) (doc-symbols doc uri))))
-     (success-response/encoded id results)]
+     (success/enc id results)]
     [_
      (error-response id INVALID-PARAMS "textDocument/documentSymbol failed")]))
 
@@ -233,7 +230,7 @@
   (match params
     [(hash-table ['textDocument (DocIdentifier-js #:uri uri)]
                  ['range (Range-js #:start start #:end end)])
-     (success-response/encoded id '())]
+     (success/enc id '())]
     [_ (error-response id INVALID-PARAMS "textDocument/inlayHint failed")]))
 
 ;; Full document formatting request
@@ -247,7 +244,7 @@
        (λ (doc)
          (define start (doc-abs-pos->pos doc 0))
          (define end (doc-abs-pos->pos doc (doc-end-abs-pos doc)))
-         (success-response/encoded
+         (success/enc
            id
            (doc-format-edits doc
                              (Range start end)
@@ -265,7 +262,7 @@
      (define safe-doc (hash-ref open-docs (string->symbol uri)))
      (with-read-doc safe-doc
        (λ (doc)
-         (success-response/encoded
+         (success/enc
            id
            (doc-format-edits doc
                              (Range (Pos st-ln st-ch)
@@ -300,7 +297,7 @@
                 (doc-abs-pos->pos doc (or (doc-find-containing-paren doc (max 0 (sub1 ch-pos))) 0)))
               (define end (doc-abs-pos->pos doc ch-pos))
               (Range start end)]))
-         (success-response/encoded
+         (success/enc
            id
            (doc-format-edits doc range
                              #:on-type? #t
@@ -338,12 +335,12 @@
             (doc-range-tokens doc range)
             #f))))
   (if tokens
-      (success-response/encoded id (hash 'data tokens))
+      (success/enc id (hash 'data tokens))
       (async-query-wait
         uri
         (λ (_signal)
           (define tokens (with-read-doc safe-doc (λ (doc) (doc-range-tokens doc range))))
-          (success-response/encoded id (hash 'data tokens))))))
+          (success/enc id (hash 'data tokens))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 

@@ -5,6 +5,7 @@
            "../../doc.rkt"
            "../../internal-types.rkt"
            "../../interfaces.rkt"
+           "../../json-util.rkt"
            racket/class
            racket/file
            data/interval-map)
@@ -202,8 +203,8 @@
       (FormattingOptions #:tab-size 2
                          #:insert-spaces #t
                          #:trim-trailing-whitespace #t
-                         #:insert-final-newline #f
-                         #:trim-final-newlines #f
+                         #:insert-final-newline (Nothing)
+                         #:trim-final-newlines (Nothing)
                          #:key #f)) ;; tab-size 2
     (define edits (doc-format-edits d (Range (Pos 0 0) (Pos 2 0)) #:formatting-options opts))
     (check-equal? (length edits) 3)
@@ -215,8 +216,8 @@
       (FormattingOptions #:tab-size 4
                          #:insert-spaces #t
                          #:trim-trailing-whitespace #t
-                         #:insert-final-newline #f
-                         #:trim-final-newlines #f
+                         #:insert-final-newline (Nothing)
+                         #:trim-final-newlines (Nothing)
                          #:key #f))
     (define edits4 (doc-format-edits d (Range (Pos 0 0) (Pos 2 0)) #:formatting-options opts4))
     (check-equal? (length edits4) 3)
@@ -231,8 +232,8 @@
       (FormattingOptions #:tab-size 2
                          #:insert-spaces #t
                          #:trim-trailing-whitespace #t
-                         #:insert-final-newline #f
-                         #:trim-final-newlines #f
+                         #:insert-final-newline (Nothing)
+                         #:trim-final-newlines (Nothing)
                          #:key #f))
     (define edits (doc-format-edits d (Range (Pos 0 0) (Pos 2 0)) #:formatting-options opts))
     (check-equal?

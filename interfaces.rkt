@@ -6,38 +6,34 @@
 ;;   payloads or otherwise cross protocol boundaries.
 ;; - Put shared interface structs here when they are consumed across module
 ;;   boundaries (for example formatting options and semantic-token metadata).
-;; - JSON payload structs are expected to be encoded with `jsexpr-encode`.
+;; - JSON payload structs are expected to be encoded with `->jsexpr`.
 ;;
 ;; Internal-only runtime/domain structs belong in `internal-types.rkt`.
-(require (for-syntax racket/base
-                     syntax/parse)
-         racket/class
-         racket/contract/base
+(require racket/class
          racket/contract
          racket/match
-         syntax/parse
          "json-util.rkt")
 
-(provide (json-struct-out Pos)
-         (json-struct-out Range)
-         (json-struct-out TextEdit)
-         (json-struct-out WorkspaceEdit)
-         (json-struct-out CodeAction)
-         (json-struct-out Diagnostic)
-         (json-struct-out Location)
-         (json-struct-out DocumentHighlight)
-         (json-struct-out SymbolInformation)
-         (json-struct-out Hover)
-         (json-struct-out SignatureInformation)
-         (json-struct-out SignatureHelp)
-         (json-struct-out CompletionItem)
-         (json-struct-out CompletionList)
-         (json-struct-out ContentChangeEvent)
-         (json-struct-out DocIdentifier)
-         (json-struct-out DocItem)
-         (json-struct-out InlayHint)
-         (json-struct-out ConfigurationItem)
-         (json-struct-out ConfigurationParams)
+(provide (json-type-out Pos)
+         (json-type-out Range)
+         (json-type-out TextEdit)
+         (json-type-out WorkspaceEdit)
+         (json-type-out CodeAction)
+         (json-type-out Diagnostic)
+         (json-type-out Location)
+         (json-type-out DocumentHighlight)
+         (json-type-out SymbolInformation)
+         (json-type-out Hover)
+         (json-type-out SignatureInformation)
+         (json-type-out SignatureHelp)
+         (json-type-out CompletionItem)
+         (json-type-out CompletionList)
+         (json-type-out ContentChangeEvent)
+         (json-type-out DocIdentifier)
+         (json-type-out DocItem)
+         (json-type-out InlayHint)
+         (json-type-out ConfigurationItem)
+         (json-type-out ConfigurationParams)
          FormattingOptions
          FormattingOptions-tab-size
          FormattingOptions-trim-trailing-whitespace
@@ -52,18 +48,18 @@
   [char exact-nonnegative-integer? #:json character])
 
 (define-json-struct Range
-  [start Pos?]
-  [end Pos?])
+  [start Pos]
+  [end Pos])
 
 (define-json-struct TextEdit
-  [range Range?]
+  [range Range]
   [newText string?])
 
 (define-json-struct WorkspaceEdit
-  [changes (hash/c symbol? (listof TextEdit?))])
+  [changes (hash/c symbol? (listof TextEdit))])
 
 (define-json-struct Diagnostic
-  [range Range?]
+  [range Range]
   [severity (or/c 1 2 3 4)]
   [source string?]
   [message string?])
@@ -71,39 +67,39 @@
 (define-json-struct CodeAction
   [title string?]
   [kind string?]
-  [diagnostics (listof Diagnostic?)]
+  [diagnostics (listof Diagnostic)]
   [isPreferred boolean?]
-  [edit WorkspaceEdit?])
+  [edit WorkspaceEdit])
 
 (define-json-struct Location
   [uri string?]
-  [range Range?])
+  [range Range])
 
 (define-json-struct DocumentHighlight
-  [range Range?])
+  [range Range])
 
 (define-json-struct SymbolInformation
   [name string?]
   [kind exact-positive-integer?]
-  [location Location?])
+  [location Location])
 
 (define-json-struct Hover
   [contents string?]
-  [range Range?])
+  [range Range])
 
 (define-json-struct SignatureInformation
   [label string?]
   [documentation string?])
 
 (define-json-struct SignatureHelp
-  [signatures (listof SignatureInformation?)])
+  [signatures (listof SignatureInformation)])
 
 (define-json-struct CompletionItem
   [label string?])
 
 (define-json-struct CompletionList
   [isIncomplete boolean?]
-  [items (listof CompletionItem?)])
+  [items (listof CompletionItem)])
 
 (define-json-struct ContentChangeEvent
   [range any/c]
@@ -131,17 +127,7 @@
   [section string?])
 
 (define-json-struct ConfigurationParams
-  [items (listof ConfigurationItem?)])
-
-;; optional arguments used by FormattingOptions
-(define undef-object (gensym 'undef))
-
-(define (undef? x)
-  (eq? x undef-object))
-
-(define (undef/c pred?)
-  (λ (x)
-    (or/c (undef? x) (pred? x))))
+  [items (listof ConfigurationItem)])
 
 (define uinteger-upper-limit (sub1 (expt 2 31)))
 
@@ -151,29 +137,10 @@
 (define-json-struct FormattingOptions
   [tab-size uinteger? #:json tabSize]
   [insert-spaces boolean? #:json insertSpaces]
-  [trim-trailing-whitespace (undef/c boolean?) #:json trimTrailingWhitespace]
-  [insert-final-newline (undef/c boolean?) #:json insertFinalNewline]
-  [trim-final-newlines (undef/c boolean?) #:json trimFinalNewlines]
-  [key (or/c false/c (undef/c hash?))])
-
-(define (jsexpr->FormattingOptions jsexpr)
-  (with-handlers ([exn:fail? (λ (_) #f)])
-    (FormattingOptions #:tab-size (hash-ref jsexpr 'tabSize)
-                       #:insert-spaces (hash-ref jsexpr 'insertSpaces)
-                       #:trim-trailing-whitespace (hash-ref jsexpr 'trimTrailingWhitespace undef-object)
-                       #:insert-final-newline (hash-ref jsexpr 'insertFinalNewline undef-object)
-                       #:trim-final-newlines (hash-ref jsexpr 'trimFinalNewlines undef-object)
-                       #:key (hash-ref jsexpr 'key undef-object))))
-
-;; usage:
-;; (match jsexpr
-;;   [(as-FormattingOptions opts) ...])
-(define-match-expander as-FormattingOptions
-  (lambda (stx)
-    (syntax-parse stx
-      [(_ name)
-       #'(and (? hash?)
-              (app jsexpr->FormattingOptions (and name (not #f))))])))
+  [trim-trailing-whitespace (maybe boolean?) #:json trimTrailingWhitespace]
+  [insert-final-newline (maybe boolean?) #:json insertFinalNewline]
+  [trim-final-newlines (maybe boolean?) #:json trimFinalNewlines]
+  [key (or/c false/c (maybe/c hash?))])
 
 (struct SemanticToken
   (start end type modifiers)
