@@ -13,28 +13,6 @@
          racket/contract
          syntax/parse)
 
-;; define-json-expander — generates a match expander for mutable hasheq.
-;; (Legacy: being replaced by define-json-struct)
-(define-syntax (define-json-expander stx)
-  (syntax-parse stx
-    [(_ name:id [key:id ctc:expr] ...+)
-     (with-syntax ([(key_ ...) (generate-temporaries #'(key ...))]
-                   [(keyword ...)
-                    (for/list ([k (syntax->datum #'(key ...))])
-                      (symbol->keyword k))]
-                   [~?-id (quote-syntax ~?)])
-       (syntax/loc stx
-         (define-match-expander name
-           (λ (stx)
-             (syntax-parse stx
-               [(_ (~optional (~seq keyword key_)) ...)
-                (quasisyntax/loc stx (hash-table (~?-id ['key (? ctc key_)]) ...))]))
-           (λ (stx)
-             (syntax-parse stx
-               [(_ (~optional (~seq keyword key_)) ...)
-                (syntax/loc stx
-                  (make-hasheq (list (cons 'key key_) ...)))])))))]))
-
 ;; jsexpr utilities — helpers for manipulating nested JS-expression hashes.
 (define (jsexpr-has-key? jsexpr keys)
   (cond [(null? keys) #t]
@@ -83,8 +61,152 @@
     [(list? v) (map ->jsexpr v)]
     [else v]))
 
-;; define-json-struct — generates a transparent struct with JSON support,
-;; keyword constructors, and split pattern matching.
+;; ============================================================================
+;; JSON type macros — reference
+;; ============================================================================
+;;
+;; Three macros for declaring protocol-facing data types with automatic
+;; JSON encoding, decoding, contracts, and pattern matching:
+;;
+;;   define-json-struct  — structured objects with named fields.
+;;   define-json-enum    — tagged enum: symbolic variants <-> jsexpr.
+;;   define-json-union   — untagged union: alias over alternative type specs.
+;;
+;; Enums are tagged: each value is wrapped in a `(Name 'variant)` struct with
+;; a stable symbolic tag.  Unions are untagged: no wrapper struct exists, and
+;; decoding tries each alternative in order until one succeeds.
+;;
+;; ----------------------------------------------------------------------------
+;; 1. Syntax
+;; ----------------------------------------------------------------------------
+;;
+;;   (define-json-struct Name
+;;     [field type-spec]
+;;     [field type-spec #:json json-key] ...)
+;;
+;;   (define-json-enum Name
+;;     [variant jsexpr] ...)
+;;
+;;   (define-json-union Name type-spec ...)
+;;
+;; ----------------------------------------------------------------------------
+;; 2. type-spec DSL
+;; ----------------------------------------------------------------------------
+;;
+;; Used in struct field declarations and union variant lists.
+;;
+;;   identifier          decodable type if jsexpr->T is bound; otherwise contract
+;;   (listof T)          homogeneous list, each element decoded via T
+;;   (optional T)        T | Nothing; omitted JSON keys map to Nothing
+;;   (hash/c K V)        hash map, K and V are type-specs (see above)
+;;   (or/c T1 T2 ...)    first successful decode wins
+;;   <expr>              arbitrary contract/predicate expression
+;;
+;; When an identifier Name has a jsexpr->Name decoder in scope, the macro
+;; uses it for recursive decoding and picks Name? as the runtime contract.
+;;
+;; ----------------------------------------------------------------------------
+;; 3. Generated bindings
+;; ----------------------------------------------------------------------------
+;;
+;; All three macros produce a Name-exports provide transformer so types can be
+;; exported with `(json-type-out Name ...)`.
+;;
+;; define-json-struct Name:
+;;   Name              constructor + struct match expander
+;;   Name?             runtime predicate
+;;   Name-field        public accessor for each field
+;;   Name-js           JSON-hash match expander
+;;   Name-js?          JSON-hash predicate
+;;   jsexpr->Name      strict decoder (raises on bad input)
+;;   as-Name           tolerant decode match expander (bad input → no match)
+;;   ^Name             shorthand: (as-Name (Name ...))
+;;
+;; define-json-enum Name:
+;;   Name / Name?      struct wrapper + predicate
+;;   Name-v            field accessor for the symbolic tag
+;;   Name-variant      pre-built alias constant per variant
+;;   Name-js / Name-js? / jsexpr->Name / as-Name / ^Name
+;;
+;; define-json-union Name:
+;;   Name?             runtime predicate
+;;   Name-js / Name-js? / jsexpr->Name / as-Name / ^Name
+;;
+;; ----------------------------------------------------------------------------
+;; 4. Match expanders
+;; ----------------------------------------------------------------------------
+;;
+;; Struct:
+;;   (Name v ...)             positional struct pattern or constructor
+;;   (Name #:f v ...)         keyword struct pattern or constructor
+;;   (Name-js ...)            JSON-hash shape match (keyword or positional)
+;;   (as-Name pat)            decode JSON hash, then match decoded struct
+;;   (^Name pat ...)          shorthand for (as-Name (Name pat ...))
+;;
+;; Name matches struct instances only.
+;; Name-js is a shallow shape match on raw JSON hashes. It checks that expected
+;;   keys are present but does not decode nested values.  Partial keyword matches
+;;   are allowed.
+;; as-Name decodes JSON into a struct first. All required fields must be present
+;;   and decodable or the pattern fails (no exception, just no match).
+;; ^Name combines as-Name + Name in one step for the common case.
+;;
+;; Constructors accept positional or keyword arguments; mixing both is an error.
+;; Duplicate or unknown keywords are rejected at compile time.
+;;
+;; Enum:
+;;   (Name 'variant)          constructor
+;;   Name-variant              alias constant
+;;   (Name-js pat)            decode JSON literal, match inner symbolic tag
+;;   (as-Name pat)            tolerant decode match
+;;   (^Name pat ...)          shorthand: (as-Name (Name pat ...))
+;;
+;; Union:
+;;   No constructor — unions are aliases.  Use Name?, jsexpr->Name, or the
+;;   match expanders (Name-js, as-Name, ^Name) to work with values.
+;;
+;; ----------------------------------------------------------------------------
+;; 5. Encoding
+;; ----------------------------------------------------------------------------
+;;
+;; Use ->jsexpr to convert any struct/enum/union value (or nested combination)
+;; into a JSON-compatible immutable hash.  Nothing values are omitted from the
+;; output hash (they represent absent optional fields).
+;;
+;; ----------------------------------------------------------------------------
+;; 6. Quick examples
+;; ----------------------------------------------------------------------------
+;;
+;;   ;; struct: define, construct, decode+match
+;;   (define-json-struct Pos
+;;     [line exact-nonnegative-integer?]
+;;     [char exact-nonnegative-integer? #:json character])
+;;   (Pos #:line 1 #:char 2)
+;;   (match (hasheq 'line 1 'character 2)
+;;     [(^Pos #:line l #:char c) (list l c)])
+;;
+;;   ;; enum: define, use alias, decode
+;;   (define-json-enum FileChangeType [created 1] [changed 2] [deleted 3])
+;;   FileChangeType-created              ; => (FileChangeType 'created)
+;;   (jsexpr->FileChangeType 2)          ; => (FileChangeType 'changed)
+;;
+;;   ;; union: define, predicate, match
+;;   (define-json-union DocContent string? Markup)
+;;   (DocContent? "hello")               ; => #t
+;;   (match json [(^DocContent v) v])
+;;
+;; ----------------------------------------------------------------------------
+;; 7. When to use which
+;; ----------------------------------------------------------------------------
+;;
+;;   Name-js             — matching raw JSON hashes.
+;;   as-Name / ^Name     — decoding untrusted JSON input before matching.
+;;   json-type-out       — exporting types and their generated bindings.
+;;
+;; For full usage examples see test files:
+;;   tests/json-struct-test.rkt
+;;   tests/json-enum-union-test.rkt
+;;
 (begin-for-syntax
   (define (symbol->keyword sym)
     (string->keyword (symbol->string sym)))
@@ -282,8 +404,6 @@
                ...))))
 
   ;; Generates jsexpr->Name decoder.
-  ;; Extracts each field from a JSON hash by its JSON key and constructs
-  ;; the struct via the keyword constructor.  The struct guard validates.
   (define (gen-json-decoder stx decoder-name keyword-constructor-id json-keys keywords decoders)
     (define input-id (datum->syntax stx 'js))
     (define field-values
@@ -302,10 +422,6 @@
           (keyword-constructor (~@ kw fv) ...))))
 
   ;; Generates as-Name / ^Name match expanders and helper decoder wrapper.
-  ;; as-Name matches JSON hashes and binds decoded structs.
-  ;; as-Name is strict, Name-js is loose: allow some fields not exists, while as-Name
-  ;; always build a Name struct instance.
-  ;; ^Name aliases (as-Name (Name ...)).
   (define (gen-as-match-expanders stx as-name decode-name try-decoder decoder-name name)
     (with-syntax ([as-name as-name]
                   [decode-name decode-name]
@@ -346,11 +462,7 @@
                 #'(combine-out name pred pub ... name-js name-js-pred decoder as-name decode-name)
                 modes))))))
 
-  ;; Generates the public match expander.
-  ;; 1. Patterns: matches internal struct.
-  ;; 2. Expressions: constructor with contract checks.
-
-  ;; keyword-argument constructor with contract enforcement.
+  ;; Generates keyword-argument constructor with contract enforcement.
   (define (gen-kw-constructor keyword-constructor-id iname fields keywords contracts struct-pred)
     (with-syntax ([keyword-constructor keyword-constructor-id]
                   [iname iname]
@@ -363,8 +475,6 @@
           (iname fld ...))))
 
   ;; Generates the match pattern for keyword-based matching.
-  ;; Supports both internal structs (via struct*) and hashes (via hash-table).
-  ;; Mode determines output: 'struct (struct pattern) or 'json (hash pattern).
   (define (gen-match-kw-pattern stx k-list v-list keywords fields json-keys iname mode)
     (ensure-no-duplicate-keywords 'define-json-struct k-list)
 
@@ -396,8 +506,6 @@
         #`(hash-table #,@h-pats)))
 
   ;; Generates the match pattern for positional matching.
-  ;; Enforces full arity.
-  ;; Mode determines output: 'struct (struct pattern) or 'json (hash pattern).
   (define (gen-match-pos-pattern stx v-list fields json-keys iname mode)
     (unless (= (length v-list) (length fields))
       (raise-syntax-error
@@ -415,7 +523,6 @@
              #'(hash-table ['jk v] ...)])))
 
   ;; Generates the public Name match/constructor wrapper.
-  ;; Pattern mode matches struct values; expression mode constructs structs.
   (define (gen-struct-match-expander stx name iname keyword-constructor-id keywords fields json-keys)
     (with-syntax ([iname iname]
                   [keyword-constructor keyword-constructor-id]
@@ -424,21 +531,16 @@
                   [(fld ...) fields]
                   [(jk ...) json-keys])
       #`(define-match-expander name
-          ;; Pattern transformer
           (λ (inner-stx)
             (syntax-parse inner-stx
-              ;; Keyword pattern: (Name #:field1 val1 ...)
               [(_ (~seq k:keyword v) (... ...+))
                (gen-match-kw-pattern inner-stx (syntax->list #'(k (... ...))) (syntax->list #'(v (... ...)))
                                      (list #'kw ...) (list #'fld ...) (list #'jk ...)
                                      #'iname 'struct)]
-              ;; Positional pattern: (Name val1 ...)
-              ;; Dispatch to internal struct for pattern matching
               [(_ v (... ...))
                (gen-match-pos-pattern inner-stx (syntax->list #'(v (... ...)))
                                       (list #'fld ...) (list #'jk ...)
                                       #'iname 'struct)]))
-          ;; Expression transformer (constructor)
           (λ (inner-stx)
             (syntax-parse inner-stx
               [(_ (~seq k:keyword v) (... ...+))
@@ -458,22 +560,19 @@
                "mixed positional and keyword arguments are not allowed"
                (syntax/loc inner-stx (iname a (... ...)))])))))
 
-  ;; Generates the Name-js match expander (matches JSON hashes only).
+  ;; Generates the Name-js match expander.
   (define (gen-json-match-expander stx name-js keywords fields json-keys)
     (with-syntax ([name-js name-js]
                   [(kw ...) keywords]
                   [(fld ...) fields]
                   [(jk ...) json-keys])
       #`(define-match-expander name-js
-          ;; Pattern transformer
           (λ (inner-stx)
             (syntax-parse inner-stx
-              ;; Keyword pattern: (Name-js #:field1 val1 ...)
               [(_ (~seq k:keyword v) (... ...+))
                (gen-match-kw-pattern inner-stx (syntax->list #'(k (... ...))) (syntax->list #'(v (... ...)))
                                      (list #'kw ...) (list #'fld ...) (list #'jk ...)
                                      #f 'json)]
-              ;; Positional pattern: (Name-js val1 ...)
               [(_ v (... ...))
                (gen-match-pos-pattern inner-stx (syntax->list #'(v (... ...)))
                                       (list #'fld ...) (list #'jk ...)
@@ -481,29 +580,6 @@
 
 
 ;; define-json-struct
-;;
-;; Defines a data type with:
-;; - an internal transparent struct (with field contracts),
-;; - a public constructor/match expander `Name`,
-;; - JSON helpers: `Name-js`, `Name-js?`, `jsexpr->Name`, `as-Name`, and `^Name`.
-;;
-;; Clause syntax:
-;;   (define-json-struct Name
-;;     [field type-spec]                  ; JSON key defaults to `field`
-;;     [field type-spec #:json json-key]) ; custom JSON key
-;;
-;; `Name` in expression position:
-;; - (Name v1 v2 ...)
-;; - (Name #:f1 v1 #:f2 v2 ...) ; keyword order independent
-;;
-;; `Name` in match position:
-;; - (Name p1 p2 ...)            ; full positional match
-;; - (Name #:f1 p1 ...)          ; partial keyword match
-;;
-;; `Name-js` matches JSON hash shapes; `Name` matches struct instances.
-;; `jsexpr->Name` is strict (raises on invalid input).
-;; `as-Name` is tolerant in match contexts (failed decode => `Nothing`).
-;; `^Name` aliases `(as-Name (Name ...))`.
 (define-syntax (define-json-struct stx)
   (syntax-parse stx
     [(_ name:id clause:json-struct-clause ...+)
@@ -565,20 +641,7 @@
              #'(combine-out export-macro-call ...)
              modes))]))))
 
-;; define-json-enum — Generates an enum type that maps Racket symbols to JSON values.
-;; Wraps symbols in a transparent struct with gen:jsexpr-struct encoding.
-;;
-;; Syntax:
-;;   (define-json-enum Name [sym json-val] ...)
-;;
-;; Generated:
-;;   Name          — struct (Name v), constructor & predicate
-;;   jsexpr->Name  — JSON value → Name struct
-;;   Name-js?      — JSON-side predicate
-;;   Name-js       — match expander for JSON values
-;;   as-Name       — tolerant match expander via decoder (failure => Nothing)
-;;   ^Name         — alias for `(as-Name (Name ...))`
-;;   Name-exports  — provide transformer
+;; define-json-enum
 (define-syntax (define-json-enum stx)
   (syntax-parse stx
     [(_ name:id [sym:id val:expr] ...+)
@@ -656,20 +719,7 @@
                    #'(combine-out name (struct-out name) alias ... name-js? jsexpr->name name-js as-name decode-name)
                    modes))))))]))
 
-;; define-json-union — Generates an untagged union type.
-;; No wrapper struct; this is a named alias around an `(or/c ...)` type-spec.
-;;
-;; Syntax:
-;;   (define-json-union Name type-spec ...)
-;;
-;; Generated:
-;;   Name?         — runtime predicate
-;;   jsexpr->Name  — JSON decoder (from combined `(or/c ...)` type-spec)
-;;   Name-js?      — JSON-side predicate
-;;   Name-js       — match expander for JSON values
-;;   as-Name       — tolerant match expander via decoder (failure => Nothing)
-;;   ^Name         — alias for `(as-Name ...)`
-;;   Name-exports  — provide transformer
+;; define-json-union
 (define-syntax (define-json-union stx)
   (syntax-parse stx
     [(_ name:id variant:type-spec ...+)
@@ -729,8 +779,7 @@
                       #'(combine-out pred js-pred js->name js-match as-name decode-name)
                       modes))))))])]))
 
-(provide define-json-expander
-         define-json-struct
+(provide define-json-struct
          define-json-enum
          define-json-union
          json-type-out

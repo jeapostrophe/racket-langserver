@@ -7,35 +7,17 @@
 (require compiler/module-suffix
          json)
 (require "json-util.rkt"
+         "interfaces.rkt"
          "safedoc.rkt"
          "doc.rkt"
          "scheduler.rkt"
          "settings.rkt")
 (require "open-docs.rkt")
 
-(define-json-expander FileRename
-  [oldUri string?]
-  [newUri string?])
-(define-json-expander RenameFilesParams
-  [files (listof hash?)])
-
-(define-json-expander WorkspaceFolder
-  [uri string?]
-  [name string?])
-(define-json-expander WorkspaceFoldersChangeEvent
-  [added (listof hash?)]
-  [removed (listof hash?)])
-
-(define-json-expander FileEvent
-  [uri string?]
-  [type exact-positive-integer?])
-(define-json-expander DidChangeWatchedFilesParams
-  [changes (listof hash?)])
-
 (define workspace-folders (mutable-set))
 
 (define (didRenameFiles params)
-  (match-define (RenameFilesParams #:files files) params)
+  (match-define (^RenameFilesParams #:files files) params)
   (for ([f files])
     (match-define (FileRename #:oldUri old-uri #:newUri new-uri) f)
 
@@ -54,7 +36,8 @@
         (hash-remove! open-docs (string->symbol old-uri)))))
 
 (define (didChangeWorkspaceFolders params)
-  (match-define (hash-table ['event (WorkspaceFoldersChangeEvent #:added added #:removed removed)]) params)
+  (match-define (^DidChangeWorkspaceFoldersParams #:event event) params)
+  (match-define (WorkspaceFoldersChangeEvent #:added added #:removed removed) event)
   (for ([f added])
     (match-define (WorkspaceFolder #:uri uri #:name _) f)
     (set-add! workspace-folders uri))
@@ -63,13 +46,13 @@
     (set-remove! workspace-folders uri)))
 
 (define (didChangeWatchedFiles params)
-  (match-define (DidChangeWatchedFilesParams #:changes changes) params)
+  (match-define (^DidChangeWatchedFilesParams #:changes changes) params)
   (for ([change changes])
     (match-define (FileEvent #:uri uri #:type type) change)
-    (match type
-      [1 (handle-file-created uri)]
-      [2 (handle-file-changed uri)]
-      [3 (handle-file-deleted uri)]
+    (match (FileChangeType-v type)
+      ['created (handle-file-created uri)]
+      ['changed (handle-file-changed uri)]
+      ['deleted (handle-file-deleted uri)]
       [_ (eprintf "Invalid file event type: ~a~n" type)])))
 (define (handle-file-created uri)
   (when (regexp-match (get-module-suffix-regexp) uri)

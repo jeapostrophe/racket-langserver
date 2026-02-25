@@ -38,6 +38,14 @@
          (json-type-out InlayHint)
          (json-type-out ConfigurationItem)
          (json-type-out ConfigurationParams)
+         (json-type-out FileRename)
+         (json-type-out RenameFilesParams)
+         (json-type-out WorkspaceFolder)
+         (json-type-out WorkspaceFoldersChangeEvent)
+         (json-type-out DidChangeWorkspaceFoldersParams)
+         (json-type-out FileChangeType)
+         (json-type-out FileEvent)
+         (json-type-out DidChangeWatchedFilesParams)
          (json-type-out FormattingOptions)
          (json-type-out SemanticTokenType)
          (json-type-out SemanticTokenModifier)
@@ -172,6 +180,36 @@
 
 (define-json-struct ConfigurationParams
   [items (listof ConfigurationItem)])
+
+(define-json-struct FileRename
+  [oldUri string?]
+  [newUri string?])
+
+(define-json-struct RenameFilesParams
+  [files (listof FileRename)])
+
+(define-json-struct WorkspaceFolder
+  [uri string?]
+  [name string?])
+
+(define-json-struct WorkspaceFoldersChangeEvent
+  [added (listof WorkspaceFolder)]
+  [removed (listof WorkspaceFolder)])
+
+(define-json-struct DidChangeWorkspaceFoldersParams
+  [event WorkspaceFoldersChangeEvent])
+
+(define-json-enum FileChangeType
+  [created 1]
+  [changed 2]
+  [deleted 3])
+
+(define-json-struct FileEvent
+  [uri string?]
+  [type FileChangeType])
+
+(define-json-struct DidChangeWatchedFilesParams
+  [changes (listof FileEvent)])
 
 (define uinteger-upper-limit (sub1 (expt 2 31)))
 
