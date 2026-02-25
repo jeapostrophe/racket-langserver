@@ -2,6 +2,7 @@
 (require json
          racket/match
          racket/list
+         racket/bool
          racket/contract
          "error-codes.rkt"
          "interfaces.rkt"
@@ -9,12 +10,13 @@
          "responses.rkt"
          "safedoc.rkt"
          "doc.rkt"
+         "semantic-token-lsp.rkt"
          "scheduler.rkt"
          "workspace.rkt")
 (require "open-docs.rkt")
 
 (define (success/enc id result)
-  (success-response id (->jsexpr result)))
+  (success-response id (if (false? result) (json-null) (->jsexpr result))))
 
 (define (fetch-configuration request-client uri)
   (request-client "workspace/configuration"
@@ -28,7 +30,7 @@
 ;;;;;;;;;;;;
 
 (define (did-open! request-client notify-client params)
-  (match-define (hash-table ['textDocument (DocItem-js #:uri uri #:version version #:text text)]) params)
+  (match-define (hash-table ['textDocument (^DocItem #:uri uri #:version version #:text text)]) params)
   (fetch-configuration request-client uri)
   (define safe-doc (new-safedoc uri text version))
   (hash-set! open-docs (string->symbol uri) safe-doc)
@@ -40,7 +42,7 @@
   (clear-old-queries/doc-close uri))
 
 (define (did-change! notify-client params)
-  (match-define (hash-table ['textDocument (DocIdentifier-js #:version version #:uri uri)]
+  (match-define (hash-table ['textDocument (^DocIdentifier #:version version #:uri uri)]
                             ['contentChanges content-changes]) params)
   (define safe-doc (hash-ref open-docs (string->symbol uri)))
   (define content-changes*
@@ -54,14 +56,9 @@
     (λ (doc)
       (for ([change (in-list content-changes*)])
         (match change
-          [(ContentChangeEvent-js #:range (Range-js #:start (Pos-js #:line st-ln #:char st-ch)
-                                                    #:end (Pos-js #:line ed-ln #:char ed-ch))
-                                  #:text text)
-           (doc-update! doc
-                        (Range #:start (Pos #:line st-ln #:char st-ch)
-                               #:end (Pos #:line ed-ln #:char ed-ch))
-                        text)]
-          [(ContentChangeEvent-js #:text text)
+          [(^ContentChangeEvent-Incremental #:range range #:text text)
+           (doc-apply-edit! doc range text)]
+          [(^ContentChangeEvent-Full #:text text)
            (doc-reset! doc text)]))
 
       (doc-update-version! doc version)))
@@ -74,9 +71,8 @@
 (define (hover id params)
   (match params
     [(hash-table ['textDocument (DocIdentifier-js #:uri uri)]
-                 ['position (Pos-js #:line line #:char ch)])
+                 ['position (as-Pos pos)])
      (define safe-doc (hash-ref open-docs (string->symbol uri)))
-     (define pos (Pos #:line line #:char ch))
      (define result
        (with-read-doc safe-doc
          (λ (doc)
@@ -89,8 +85,7 @@
 (define (code-action id params)
   (match params
     [(hash-table ['textDocument (DocIdentifier-js #:uri uri)]
-                 ['range (Range-js #:start (Pos-js #:line st-line #:char st-char)
-                                   #:end (Pos-js #:line ed-line #:char ed-char))]
+                 ['range (as-Range range)]
                  ; TODO: _ctx has three fields
                  ; 1. `diagnostics`
                  ; 2. `only: CodeActionKind[]` server should use this to filter out client-unwanted code action
@@ -101,10 +96,7 @@
      (define actions
        (with-read-doc safe-doc
          (λ (doc)
-           (doc-code-action
-             doc
-             (Range #:start (Pos #:line st-line #:char st-char)
-                    #:end (Pos #:line ed-line #:char ed-char))))))
+           (doc-code-action doc range))))
      (success/enc id actions)]
     [(hash-table ['textDocument (DocIdentifier-js #:uri uri)])
      (error-response id INVALID-PARAMS
@@ -115,9 +107,8 @@
 (define (signatureHelp id params)
   (match params
     [(hash-table ['textDocument (DocIdentifier-js #:uri uri)]
-                 ['position (Pos-js #:line line #:char ch)])
+                 ['position (as-Pos pos)])
      (define safe-doc (hash-ref open-docs (string->symbol uri)))
-     (define pos (Pos #:line line #:char ch))
      (define result
        (with-read-doc safe-doc
          (λ (doc)
@@ -130,9 +121,8 @@
 (define (completion id params)
   (match params
     [(hash-table ['textDocument (DocIdentifier-js #:uri uri)]
-                 ['position (Pos-js #:line line #:char ch)])
+                 ['position (as-Pos pos)])
      (define safe-doc (hash-ref open-docs (string->symbol uri)))
-     (define pos (Pos #:line line #:char ch))
      (define result
        (with-read-doc safe-doc
          (λ (doc) (doc-completion doc pos))))
@@ -145,9 +135,8 @@
 (define (definition id params)
   (match params
     [(hash-table ['textDocument (DocIdentifier-js #:uri uri)]
-                 ['position (Pos-js #:line line #:char char)])
+                 ['position (as-Pos pos)])
      (define safe-doc (hash-ref open-docs (string->symbol uri)))
-     (define pos (Pos #:line line #:char char))
      (define result
        (with-read-doc safe-doc
          (λ (doc) (doc-definition doc uri pos))))
@@ -159,10 +148,9 @@
 (define (references id params)
   (match params
     [(hash-table ['textDocument (DocIdentifier-js #:uri uri)]
-                 ['position (Pos-js #:line line #:char char)]
+                 ['position (as-Pos pos)]
                  ['context (hash-table ['includeDeclaration include-decl?])])
      (define safe-doc (hash-ref open-docs (string->symbol uri)))
-     (define pos (Pos #:line line #:char char))
      (define result
        (with-read-doc safe-doc
          (λ (doc) (doc-references doc uri pos include-decl?))))
@@ -174,9 +162,8 @@
 (define (document-highlight id params)
   (match params
     [(hash-table ['textDocument (DocIdentifier-js #:uri uri)]
-                 ['position (Pos-js #:line line #:char char)])
+                 ['position (as-Pos pos)])
      (define safe-doc (hash-ref open-docs (string->symbol uri)))
-     (define pos (Pos #:line line #:char char))
      (define result
        (with-read-doc safe-doc
          (λ (doc) (doc-highlights doc pos))))
@@ -188,10 +175,9 @@
 (define (_rename id params)
   (match params
     [(hash-table ['textDocument (DocIdentifier-js #:uri uri)]
-                 ['position (Pos-js #:line line #:char char)]
+                 ['position (as-Pos pos)]
                  ['newName new-name])
      (define safe-doc (hash-ref open-docs (string->symbol uri)))
-     (define pos (Pos #:line line #:char char))
      (define result
        (with-read-doc safe-doc
          (λ (doc) (doc-rename doc uri pos new-name))))
@@ -203,9 +189,8 @@
 (define (prepareRename id params)
   (match params
     [(hash-table ['textDocument (DocIdentifier-js #:uri uri)]
-                 ['position (Pos-js #:line line #:char char)])
+                 ['position (as-Pos pos)])
      (define safe-doc (hash-ref open-docs (string->symbol uri)))
-     (define pos (Pos #:line line #:char char))
      (define result
        (with-read-doc safe-doc
          (λ (doc) (doc-prepare-rename doc pos))))
@@ -229,7 +214,7 @@
 (define (inlay-hint id params)
   (match params
     [(hash-table ['textDocument (DocIdentifier-js #:uri uri)]
-                 ['range (Range-js #:start start #:end end)])
+                 ['range (^Range _ _)])
      (success/enc id '())]
     [_ (error-response id INVALID-PARAMS "textDocument/inlayHint failed")]))
 
@@ -256,18 +241,14 @@
 (define (range-formatting! id params)
   (match params
     [(hash-table ['textDocument (DocIdentifier-js #:uri uri)]
-                 ['range (Range-js #:start (Pos-js #:line st-ln #:char st-ch)
-                                   #:end (Pos-js #:line ed-ln #:char ed-ch))]
+                 ['range (as-Range range)]
                  ['options (as-FormattingOptions opts)])
      (define safe-doc (hash-ref open-docs (string->symbol uri)))
      (with-read-doc safe-doc
        (λ (doc)
          (success/enc
            id
-           (doc-format-edits doc
-                             (Range (Pos st-ln st-ch)
-                                    (Pos ed-ln ed-ch))
-                             #:formatting-options opts))))]
+           (doc-format-edits doc range #:formatting-options opts))))]
     [_
      (error-response id INVALID-PARAMS "textDocument/rangeFormatting failed")]))
 
@@ -278,14 +259,15 @@
                  ;; `position` is assumed to be the cursor position that after the edit.
                  ;; Therefore, `position - 1` is the position of `ch`.
                  ;; Also see issue https://github.com/jeapostrophe/racket-langserver/issues/111
-                 ['position (Pos-js #:line line #:char char)]
+                 ['position (as-Pos pos)]
                  ['ch ch]
                  ['options (as-FormattingOptions opts)])
      (define safe-doc (hash-ref open-docs (string->symbol uri)))
 
      (with-read-doc safe-doc
        (λ (doc)
-         (define ch-pos (- (doc-pos->abs-pos doc (Pos #:line line #:char char)) 1))
+         (define ch-pos (- (doc-pos->abs-pos doc pos) 1))
+         (define line (Pos-line pos))
          (define range
            (match ch
              ["\n"
@@ -294,7 +276,8 @@
               (Range start end)]
              [_
               (define start
-                (doc-abs-pos->pos doc (or (doc-find-containing-paren doc (max 0 (sub1 ch-pos))) 0)))
+                (let ([maybe-paren (doc-find-containing-paren doc (max 0 (sub1 ch-pos)))])
+                  (doc-abs-pos->pos doc (if (false? maybe-paren) 0 maybe-paren))))
               (define end (doc-abs-pos->pos doc ch-pos))
               (Range start end)]))
          (success/enc
@@ -320,10 +303,8 @@
 (define (range-semantic-tokens id params)
   (match params
     [(hash-table ['textDocument (DocIdentifier-js #:uri uri)]
-                 ['range (Range-js #:start (Pos-js #:line st-ln #:char st-ch)
-                                   #:end (Pos-js #:line ed-ln #:char ed-ch))])
+                 ['range (as-Range range)])
      (define safe-doc (hash-ref open-docs (string->symbol uri)))
-     (define range (Range (Pos st-ln st-ch) (Pos ed-ln ed-ch)))
      (semantic-tokens uri id safe-doc range)]
     [_ (error-response id INVALID-PARAMS "textDocument/semanticTokens/range failed")]))
 
@@ -332,14 +313,21 @@
     (with-read-doc safe-doc
       (λ (doc)
         (if (doc-trace-latest? doc)
-            (doc-range-tokens doc range)
+            (encode-semantic-tokens
+              (λ (pos) (doc-abs-pos->pos doc pos))
+              (doc-range-tokens doc range))
             #f))))
   (if tokens
       (success/enc id (hash 'data tokens))
       (async-query-wait
         uri
         (λ (_signal)
-          (define tokens (with-read-doc safe-doc (λ (doc) (doc-range-tokens doc range))))
+          (define tokens
+            (with-read-doc safe-doc
+              (λ (doc)
+                (encode-semantic-tokens
+                  (λ (pos) (doc-abs-pos->pos doc pos))
+                  (doc-range-tokens doc range)))))
           (success/enc id (hash 'data tokens))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;

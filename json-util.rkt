@@ -66,8 +66,8 @@
 (struct Nothing ()
   #:transparent)
 
-;; (maybe/c pred?) — contract that accepts Nothing or values satisfying pred?.
-(define (maybe/c pred?)
+;; (optional/c pred?) — contract that accepts Nothing or values satisfying pred?.
+(define (optional/c pred?)
   (or/c Nothing? pred?))
 
 ;; Recursively converts data (structs, hashes, lists) into JSON-compatible immutable hashes.
@@ -150,10 +150,10 @@
   ;; - ctc: contract for the generated struct field
   ;; - decoder: function to decode JSON values into Racket values
   ;; - json-pred: predicate used by the generated `*-js?` validator
-  ;; - optional?: whether the field can be omitted (for maybe ...)
+  ;; - optional?: whether the field can be omitted (for optional ...)
   (define-syntax-class type-spec
     #:attributes (ctc decoder json-pred optional?)
-    #:datum-literals (listof maybe hash/c or/c)
+    #:datum-literals (listof optional hash/c or/c)
     ;; Bare identifier type. If a matching decoder exists (jsexpr->T),
     ;; treat it as a decodable domain type; otherwise use the identifier
     ;; directly and leave decoding as identity.
@@ -171,13 +171,13 @@
                                        (andmap elem.json-pred xs)))
              #:attr optional? #f)
     ;; Optional values propagate Nothing unchanged and decode present values.
-    (pattern (maybe elem:type-spec)
-             #:with ctc #'(maybe/c elem.ctc)
+    (pattern (optional elem:type-spec)
+             #:with ctc #'(optional/c elem.ctc)
              #:with decoder #'(lambda (x)
                                 (if (Nothing? x)
                                     x
                                     (elem.decoder x)))
-             #:with json-pred #'(maybe/c elem.json-pred)
+             #:with json-pred #'(optional/c elem.json-pred)
              #:attr optional? #t)
     (pattern (hash/c key:type-spec val:type-spec)
              #:with ctc #'(hash/c key.ctc val.ctc)
@@ -303,6 +303,8 @@
 
   ;; Generates as-Name / ^Name match expanders and helper decoder wrapper.
   ;; as-Name matches JSON hashes and binds decoded structs.
+  ;; as-Name is strict, Name-js is loose: allow some fields not exists, while as-Name
+  ;; always build a Name struct instance.
   ;; ^Name aliases (as-Name (Name ...)).
   (define (gen-as-match-expanders stx as-name decode-name try-decoder decoder-name name)
     (with-syntax ([as-name as-name]
@@ -575,6 +577,7 @@
 ;;   Name-js?      — JSON-side predicate
 ;;   Name-js       — match expander for JSON values
 ;;   as-Name       — tolerant match expander via decoder (failure => Nothing)
+;;   ^Name         — alias for `(as-Name (Name ...))`
 ;;   Name-exports  — provide transformer
 (define-syntax (define-json-enum stx)
   (syntax-parse stx
@@ -584,25 +587,39 @@
      (define jsexpr->name (name->decoder-id #'name))
      (define name-js (name->js-match-id #'name))
      (define as-name (name->as-match-id #'name))
+     (define decode-name (name->decode-match-id #'name))
      (define try-decoder (name->try-decoder-id #'name))
+     (define symbols (syntax->list #'(sym ...)))
+     (define aliases
+       (for/list ([s (in-list symbols)])
+         (format-id #'name "~a-~a" #'name s)))
+     (define alias-defs
+       (for/list ([alias (in-list aliases)]
+                  [symbol-id (in-list symbols)])
+         #`(define #,alias (name '#,symbol-id))))
      (with-syntax ([name-js? name-js?]
                    [exports exports]
                    [jsexpr->name jsexpr->name]
                    [name-js name-js]
                    [as-name as-name]
-                   [try-decoder try-decoder])
+                   [decode-name decode-name]
+                   [try-decoder try-decoder]
+                   [(alias ...) aliases]
+                   [(alias-def ...) alias-defs])
        #'(begin
            (struct name (v)
              #:transparent
              #:guard
-             (λ (variant _struct-name)
-               (unless (or (eq? variant 'sym) ...)
-                 (error 'name "invalid ~a variant: ~v" 'name variant))
-               variant)
+             (λ (tag _struct-name)
+               (unless (or (eq? tag 'sym) ...)
+                 (error 'name "invalid ~a variant: ~v" 'name tag))
+               tag)
              #:methods gen:jsexpr-struct
              [(define (struct->jsexpr self)
                 (match self
                   [(name 'sym) val] ...))])
+
+           alias-def ...
 
            (define (name-js? x)
              (or (equal? x val) ...))
@@ -626,12 +643,17 @@
                (syntax-parse inner-stx
                  [(_ p)
                   #'(app try-decoder (and p (not (? Nothing?))))])))
+           (define-match-expander decode-name
+             (lambda (inner-stx)
+               (syntax-parse inner-stx
+                 [(_ p (... ...))
+                  #'(as-name (name p (... ...)))])))
 
            (define-syntax exports
              (make-provide-transformer
                (lambda (inner-stx modes)
                  (expand-export
-                   #'(combine-out name (struct-out name) name-js? jsexpr->name name-js as-name)
+                   #'(combine-out name (struct-out name) alias ... name-js? jsexpr->name name-js as-name decode-name)
                    modes))))))]))
 
 ;; define-json-union — Generates an untagged union type.
@@ -646,6 +668,7 @@
 ;;   Name-js?      — JSON-side predicate
 ;;   Name-js       — match expander for JSON values
 ;;   as-Name       — tolerant match expander via decoder (failure => Nothing)
+;;   ^Name         — alias for `(as-Name ...)`
 ;;   Name-exports  — provide transformer
 (define-syntax (define-json-union stx)
   (syntax-parse stx
@@ -656,6 +679,7 @@
      (define jsexpr->name (name->decoder-id #'name))
      (define name-js (name->js-match-id #'name))
      (define as-name (name->as-match-id #'name))
+     (define decode-name (name->decode-match-id #'name))
      (define try-decoder (name->try-decoder-id #'name))
 
      ;; Collapse the union variants into one `(or/c ...)` type-spec and reuse
@@ -668,6 +692,7 @@
                       [js->name jsexpr->name]
                       [js-match name-js]
                       [as-name as-name]
+                      [decode-name decode-name]
                       [try-decoder try-decoder]
                       [runtime-pred #'ts.ctc]
                       [decoder #'ts.decoder]
@@ -692,11 +717,16 @@
                   (syntax-parse inner-stx
                     [(_ p)
                      #'(app try-decoder (and p (not (? Nothing?))))])))
+              (define-match-expander decode-name
+                (lambda (inner-stx)
+                  (syntax-parse inner-stx
+                    [(_ p)
+                     #'(as-name p)])))
               (define-syntax exports
                 (make-provide-transformer
                   (lambda (inner-stx modes)
                     (expand-export
-                      #'(combine-out pred js-pred js->name js-match as-name)
+                      #'(combine-out pred js-pred js->name js-match as-name decode-name)
                       modes))))))])]))
 
 (provide define-json-expander
@@ -706,7 +736,7 @@
          json-type-out
          Nothing
          Nothing?
-         maybe/c
+         optional/c
          gen:jsexpr-struct
          jsexpr-struct?
          struct->jsexpr

@@ -9,19 +9,24 @@
     [constant 14])
 
   (test-case "enum: construction and predicate"
-    (check-true (SymbolKind? (SymbolKind 'constant)))
-    (check-equal? (SymbolKind-v (SymbolKind 'file)) 'file))
+    (check-true (SymbolKind? SymbolKind-constant))
+    (check-equal? (SymbolKind-v SymbolKind-file) 'file))
+
+  (test-case "enum: variant aliases"
+    (check-equal? SymbolKind-file (SymbolKind 'file))
+    (check-equal? SymbolKind-module (SymbolKind 'module))
+    (check-equal? SymbolKind-constant (SymbolKind 'constant)))
 
   (test-case "enum: encoding and json predicate"
-    (check-equal? (->jsexpr (SymbolKind 'constant)) 14)
-    (check-equal? (->jsexpr (SymbolKind 'file)) 1)
+    (check-equal? (->jsexpr SymbolKind-constant) 14)
+    (check-equal? (->jsexpr SymbolKind-file) 1)
     (check-true (SymbolKind-js? 14))
     (check-true (SymbolKind-js? 1))
     (check-false (SymbolKind-js? 999)))
 
   (test-case "enum: decode and json matcher"
-    (check-equal? (jsexpr->SymbolKind 1) (SymbolKind 'file))
-    (check-equal? (jsexpr->SymbolKind 14) (SymbolKind 'constant))
+    (check-equal? (jsexpr->SymbolKind 1) SymbolKind-file)
+    (check-equal? (jsexpr->SymbolKind 14) SymbolKind-constant)
     (check-exn exn:fail? (lambda () (jsexpr->SymbolKind 999))))
 
   (test-case "enum: jsexpr match styles"
@@ -31,6 +36,10 @@
   (test-case "enum: as-Name"
     (check-equal? (match 1 [(as-SymbolKind k) (SymbolKind-v k)] [_ #f]) 'file)
     (check-false (match 999 [(as-SymbolKind _) #t] [_ #f])))
+
+  (test-case "enum: ^Name alias"
+    (check-equal? (match 1 [(^SymbolKind 'file) 'ok] [_ #f]) 'ok)
+    (check-false (match 999 [(^SymbolKind _) #t] [_ #f])))
 
   ;; define-json-union
   (define-json-struct Markup
@@ -69,6 +78,13 @@
                            [(as-DocContent v) v]
                            [_ #f])))
     (check-false (match 42 [(as-DocContent _) #t] [_ #f])))
+
+  (test-case "union: ^Name alias"
+    (check-equal? (match "ok" [(^DocContent v) v] [_ #f]) "ok")
+    (check-true (Markup? (match (hasheq 'kind "md" 'value "x")
+                           [(^DocContent v) v]
+                           [_ #f])))
+    (check-false (match 42 [(^DocContent _) #t] [_ #f])))
 
   (test-case "union: decode pattern with as-Name"
     (check-equal?

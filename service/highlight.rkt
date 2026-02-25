@@ -101,17 +101,25 @@
 ;; `tags` might contains multiple valid types.
 ;; This function selects a proper type based on some rules.
 (define (select-type tags)
-  (define valid-types (filter (λ (t) (memq t *semantic-token-types*)) tags))
+  (define valid-types
+    (filter (λ (t) (memq t '(function variable string number regexp))) tags))
   (cond [(null? valid-types)
          #f]
         [(memq 'function valid-types)
-         'function]
+         SemanticTokenType-function]
         [(memq 'variable valid-types)
-         'variable]
-        [else (first valid-types)]))
+         SemanticTokenType-variable]
+        [(memq 'string valid-types)
+         SemanticTokenType-string]
+        [(memq 'number valid-types)
+         SemanticTokenType-number]
+        [else
+         SemanticTokenType-regexp]))
 
 (define (get-valid-modifiers tags)
-  (filter (λ (t) (memq t *semantic-token-modifiers*)) tags))
+  (if (memq 'definition tags)
+      (list SemanticTokenModifier-definition)
+      '()))
 
 (define (walk-orig-stx stx)
   (syntax-parse stx

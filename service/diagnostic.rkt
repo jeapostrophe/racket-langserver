@@ -10,7 +10,6 @@
          setup/path-to-relative
          data/interval-map
          "../interfaces.rkt"
-         "../responses.rkt"
          "../path-util.rkt"
          "../settings.rkt"
          drracket/check-syntax
@@ -46,7 +45,7 @@
         (add-diag!
           (Diagnostic #:range (Range #:start (Pos #:line 0 #:char 0)
                                      #:end (Pos #:line 0 #:char 0))
-                      #:severity Diag-Error
+                      #:severity DiagnosticSeverity-Error
                       #:source "Racket"
                       #:message "Missing or invalid #lang line")))
       (when (exn? stx)
@@ -74,7 +73,7 @@
         (define diag
           (Diagnostic #:range (Range #:start (abs-pos->Pos doc-text start)
                                      #:end (abs-pos->Pos doc-text finish))
-                      #:severity Diag-Information
+                      #:severity DiagnosticSeverity-Information
                       #:source (path->uri src-obj)
                       #:message "unused variable"))
 
@@ -97,7 +96,7 @@
     (define/override (syncheck:add-unused-require _src left right)
       (define diag (Diagnostic #:range (Range #:start (abs-pos->Pos doc-text left)
                                               #:end (abs-pos->Pos doc-text right))
-                               #:severity Diag-Information
+                               #:severity DiagnosticSeverity-Information
                                #:source "Racket"
                                #:message "unused require"))
       (add-diag! diag))))
@@ -110,7 +109,7 @@
     [(exn:fail:resource? exn)
      (list (Diagnostic #:range (Range #:start (Pos #:line 0 #:char 0)
                                       #:end (Pos #:line 0 #:char 0))
-                       #:severity Diag-Hint
+                       #:severity DiagnosticSeverity-Hint
                        #:source "Expander"
                        #:message "the expand time has exceeded the 90s limit.\
                         Check if your macro is infinitely expanding"))]
@@ -148,7 +147,7 @@
      ;; stub range -- see the comments in exn:missing-module?
      (list (Diagnostic #:range (Range #:start (Pos #:line 0 #:char 0)
                                       #:end (Pos #:line 0 #:char 0))
-                       #:severity Diag-Error
+                       #:severity DiagnosticSeverity-Error
                        #:source "Racket"
                        #:message expanded-msg))]
     [(exn:srclocs? exn)
@@ -158,7 +157,7 @@
        (if (and (number? line) (number? col) (number? span))
            (Diagnostic #:range (Range #:start (Pos #:line (sub1 line) #:char col)
                                       #:end (Pos #:line (sub1 line) #:char (+ col span)))
-                       #:severity Diag-Error
+                       #:severity DiagnosticSeverity-Error
                        #:source "Racket"
                        #:message msg)
            ;; Some reader exceptions don't report a position
@@ -166,7 +165,7 @@
            (let ([end-of-file (abs-pos->Pos doc-text (send doc-text end-pos))])
              (Diagnostic #:range (Range #:start end-of-file
                                         #:end end-of-file)
-                         #:severity Diag-Error
+                         #:severity DiagnosticSeverity-Error
                          #:source "Racket"
                          #:message msg))))]
     [(exn:missing-module? exn)
@@ -179,7 +178,7 @@
      (define silly-range
        (Range #:start (Pos #:line 0 #:char 0) #:end (Pos #:line 0 #:char 0)))
      (list (Diagnostic #:range silly-range
-                       #:severity Diag-Error
+                       #:severity DiagnosticSeverity-Error
                        #:source "Racket"
                        #:message msg))]
     [else (error 'error-diagnostics "unexpected failure: ~a" exn)]))
@@ -198,7 +197,7 @@
           [else (values #f #f #f)]))
       (when (string? msg)
         (list (Diagnostic #:range (Range #:start (abs-pos->Pos doc-text start) #:end (abs-pos->Pos doc-text end))
-                          #:severity Diag-Error
+                          #:severity DiagnosticSeverity-Error
                           #:source "Typed Racket"
                           #:message msg))))))
 

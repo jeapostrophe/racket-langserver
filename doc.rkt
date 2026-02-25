@@ -10,7 +10,6 @@
          "path-util.rkt"
          "doc-trace.rkt"
          "internal-types.rkt"
-         "symbol-kinds.rkt"
          racket/match
          racket/contract
          racket/class
@@ -29,8 +28,12 @@
          drracket/check-syntax
          racket/format)
 
-(struct Doc
-  (uri text trace version trace-version)
+(struct/contract Doc
+  ([uri string?]
+   [text (is-a?/c lsp-editor%)]
+   [trace (is-a?/c build-trace%)]
+   [version exact-nonnegative-integer?]
+   [trace-version (or/c false/c exact-nonnegative-integer?)])
   #:mutable)
 
 (define/contract (make-doc uri text [version 0])
@@ -60,7 +63,7 @@
   (send doc-trace reset)
   (send doc-text insert new-text 0))
 
-(define/contract (doc-update! doc range text)
+(define/contract (doc-apply-edit! doc range text)
   (-> Doc? Range? string? void?)
   (define doc-text (Doc-text doc))
   (define doc-trace (Doc-trace doc))
@@ -91,7 +94,7 @@
                 (> a-start b-start)))))
   (doc-check-non-overlapping-edits! doc edits-descending-by-start)
   (for ([edit (in-list edits-descending-by-start)])
-    (doc-update! doc (TextEdit-range edit) (TextEdit-newText edit))))
+    (doc-apply-edit! doc (TextEdit-range edit) (TextEdit-newText edit))))
 
 (define (doc-check-non-overlapping-edits! doc edits-descending-by-start)
   (for ([later-start-edit (in-list edits-descending-by-start)]
@@ -136,13 +139,12 @@
 
 (define/contract (doc-pos->abs-pos doc pos)
   (-> Doc? Pos? exact-nonnegative-integer?)
-  (match-define (Pos #:line line #:char char) pos)
-  (send (Doc-text doc) line/char->pos line char))
+  (send (Doc-text doc) line/char->pos (Pos-line pos) (Pos-char pos)))
 
 (define/contract (doc-abs-pos->pos doc pos)
   (-> Doc? exact-nonnegative-integer? Pos?)
   (match-define (list line char) (send (Doc-text doc) pos->line/char pos))
-  (Pos #:line line #:char char))
+  (Pos line char))
 
 (define/contract (doc-line-start-abs-pos doc line)
   (-> Doc? exact-nonnegative-integer? exact-nonnegative-integer?)
@@ -159,6 +161,10 @@
 (define/contract (doc-get-text doc)
   (-> Doc? string?)
   (send (Doc-text doc) get-text))
+
+(define/contract (doc-diagnostics doc)
+  (-> Doc? (listof Diagnostic?))
+  (set->list (send (Doc-trace doc) get-warn-diags)))
 
 (define/contract (doc-copy-text-buffer doc)
   (-> Doc? (is-a?/c lsp-editor%))
@@ -190,7 +196,12 @@
   (for ([lst (in-port (lexer-wrap lexer) in)]
         #:when (set-member? '(constant string symbol) (second lst)))
     (match-define (list text type _paren? start end) lst)
-    (interval-map-set! symbols start end (list text type)))
+    (define kind
+      (match type
+        ['constant SymbolKind-Constant]
+        ['string SymbolKind-String]
+        ['symbol SymbolKind-Variable]))
+    (interval-map-set! symbols start end (list text kind)))
   symbols)
 
 ;; Wrapper for in-port, returns a list or EOF.
@@ -224,7 +235,7 @@
     [else racket-lexer]))
 
 (define symbol-entry/c
-  (list/c string? (or/c 'constant 'string 'symbol)))
+  (list/c string? SymbolKind?))
 
 ;; TODO: Lexer positions start at 1.
 ;; Convert them to start at 0 so they match the rest of this file.
@@ -248,7 +259,8 @@
   (expand-source path in collector)
   (send collector get id))
 
-(define (doc-get-definition-by-id path id)
+(define/contract (doc-get-definition-by-id path id)
+  (-> path-string? symbol? Range?)
   (define doc-text (new lsp-editor%))
   (send doc-text load-file path)
   (match-define (cons start end) (get-def path doc-text id))
@@ -260,9 +272,12 @@
 ;; formatting ;;
 
 ;; Shared path for all formatting requests
-(define (doc-format-edits doc fmt-range
-                          #:on-type? [on-type? #f]
-                          #:formatting-options opts)
+(define/contract (doc-format-edits doc fmt-range
+                                   #:formatting-options opts
+                                   #:on-type? [on-type? #f])
+  (->* (Doc? Range? #:formatting-options FormattingOptions?)
+       (#:on-type? boolean?)
+       (or/c (listof TextEdit?) #f))
   (define doc-text (Doc-text doc))
   (define doc-trace (Doc-trace doc))
 
@@ -338,8 +353,8 @@
      (define from (string-length (string-trim line-text #px"\\s+" #:left? #f)))
      (define to (string-length line-text))
      (send doc-text replace-in-line "" line from to)
-     (TextEdit #:range (Range #:start (Pos #:line line #:char from)
-                              #:end (Pos #:line line #:char to))
+     (TextEdit #:range (Range (Pos line from)
+                              (Pos line to))
                #:newText "")]
     [else #f]))
 
@@ -364,77 +379,22 @@
         [else
          (define new-text (make-string expect-indent #\space))
          (send doc-text replace-in-line new-text line 0 really-indent)
-         (TextEdit #:range (Range #:start (Pos #:line line #:char 0)
-                                  #:end (Pos #:line line #:char really-indent))
+         (TextEdit #:range (Range (Pos line 0)
+                                  (Pos line really-indent))
                    #:newText new-text)]))
-
-(define (token-type-encoding token)
-  (index-of *semantic-token-types* (SemanticToken-type token)))
-
-(define (token-modifier-encoding token)
-  (define indexes (indexes-where *semantic-token-modifiers*
-                                 (λ (m) (memq m (SemanticToken-modifiers token)))))
-  ;; build a bit flag of the modifiers of `token`.
-  ;;
-  ;; equivalent to C family pseudocode
-  ;;
-  ;; uint32_t flag = 0
-  ;; for index in indexes:
-  ;;   flag = flag | (1 << index)
-  ;; return flag
-  ;;
-  ;; But the integer bit width is ignored here, because
-  ;; the *semantic-token-modifiers* is very small.
-  (for/sum ([index indexes])
-    (expt 2 index)))
-
-;; encode `token` using relative encoding
-;;
-;; each token is encoded as five integers (copied from lsp specificatioin 3.17):
-;; * deltaLine: token line number, relative to the start of the previous token
-;; * deltaStart: token start character, relative to the start of the previous token
-;;               (relative to 0 or the previous token’s start if they are on the same line)
-;; * length: the length of the token.
-;; * tokenType: will be looked up in SemanticTokensLegend.tokenTypes.
-;;              We currently ask that tokenType < 65536.
-;; * tokenModifiers: each set bit will be looked up in SemanticTokensLegend.tokenModifiers
-;;
-;; for the first token, its previous token is defined as a zero length fake token which
-;; has line number 0 and character position 0.
-(define (token-encoding doc token prev-pos)
-  (match-define (list line ch) (send (Doc-text doc) pos->line/char (SemanticToken-start token)))
-  (match-define (list prev-line prev-ch) (send (Doc-text doc) pos->line/char prev-pos))
-  (define delta-line (- line prev-line))
-  (define delta-start
-    (if (= line prev-line)
-        (- ch prev-ch)
-        ch))
-  (define len (- (SemanticToken-end token) (SemanticToken-start token)))
-  (define type (token-type-encoding token))
-  (define modifier (token-modifier-encoding token))
-  (values delta-line delta-start len type modifier))
 
 ;; get the tokens whose range are contained in interval [pos-start, pos-end)
 ;; the tokens whose range intersects the given range is included.
 ;; the previous token of the first token in the result is defined as a zero length fake token which
 ;; has line number 0 and character position 0.
 (define/contract (doc-range-tokens doc range)
-  (-> Doc? Range? (listof exact-nonnegative-integer?))
+  (-> Doc? Range? (listof SemanticToken?))
   (define tokens (send (Doc-trace doc) get-semantic-tokens))
   (define pos-start (doc-pos->abs-pos doc (Range-start range)))
   (define pos-end (doc-pos->abs-pos doc (Range-end range)))
-  (define tokens-in-range
-    (filter-not (λ (tok) (or (<= (SemanticToken-end tok) pos-start)
-                             (>= (SemanticToken-start tok) pos-end)))
-                tokens))
-  (for/fold ([result '()]
-             [prev-pos 0]
-             #:result (flatten (reverse result)))
-            ([token tokens-in-range])
-    (define-values (delta-line delta-start len type modifier)
-      (token-encoding doc token prev-pos))
-    (values (cons (list delta-line delta-start len type modifier) result)
-            (SemanticToken-start token))))
+  (filter-not (λ (tok) (or (<= (SemanticToken-end tok) pos-start)
+                           (>= (SemanticToken-start tok) pos-end)))
+              tokens))
 
 (define (-doc-find-token text pos)
   (define ch (string-ref text pos))
@@ -447,8 +407,8 @@
   (-> Doc? exact-nonnegative-integer? string?)
   (list->string (reverse (-doc-find-token (send (Doc-text doc) get-text) pos))))
 
-(define (start/end->range doc start end)
-  (Range #:start (doc-abs-pos->pos doc start) #:end (doc-abs-pos->pos doc end)))
+(define (abs-range->range doc start end)
+  (Range (doc-abs-pos->pos doc start) (doc-abs-pos->pos doc end)))
 
 (define/contract (doc-hover doc pos)
   (-> Doc? Pos? (or/c Hover? #f))
@@ -493,7 +453,7 @@
                                         ""))
                                 text))
            (Hover #:contents contents
-                  #:range (start/end->range doc start end))]
+                  #:range (abs-range->range doc start end))]
           [else #f]))
   result)
 
@@ -558,13 +518,14 @@
   (if maybe-decl
       (values start end maybe-decl)
       (if maybe-bindings
-          (values bind-start
-                  bind-end
-                  (interval-map-ref doc-bindings (car (set-first maybe-bindings)) #f))
+          (let ([decl (interval-map-ref doc-bindings (car (set-first maybe-bindings)) #f)])
+            (if decl
+                (values bind-start bind-end decl)
+                (values #f #f #f)))
           (values #f #f #f))))
 
 ;; Get binding ranges for a declaration.
-;; Returns a list of Range hashes.
+;; Returns a list of Range values.
 (define/contract (doc-get-bindings doc decl)
   (-> Doc? Decl? (listof Range?))
   (define doc-trace (Doc-trace doc))
@@ -574,7 +535,7 @@
     (interval-map-ref/bounds doc-decls left #f))
   (if bindings
       (for/list ([range (in-set bindings)])
-        (start/end->range doc (car range) (cdr range)))
+        (abs-range->range doc (car range) (cdr range)))
       empty))
 
 ;; Completion: returns a CompletionList.
@@ -591,7 +552,7 @@
   (CompletionList #:isIncomplete #t
                   #:items result))
 
-;; Definition: returns a Location, or #f.
+;; Definition: returns a Location or #f.
 (define/contract (doc-definition doc uri pos)
   (-> Doc? string? Pos? (or/c Location? #f))
   (define-values (start end decl) (doc-get-decl doc pos))
@@ -599,12 +560,12 @@
     [#f #f]
     [(Decl #f id start end)
      (Location #:uri uri
-               #:range (start/end->range doc start end))]
+               #:range (abs-range->range doc start end))]
     [(Decl path id 0 0)
      (Location #:uri (path->uri path)
                #:range (doc-get-definition-by-id path id))]))
 
-;; References: returns a list of Locations, or #f.
+;; References: returns a list of Locations or #f.
 (define/contract (doc-references doc uri pos include-decl?)
   (-> Doc? string? Pos? boolean? (or/c (listof Location?) #f))
   (define-values (start end decl) (doc-get-decl doc pos))
@@ -612,14 +573,14 @@
     [(Decl req? id left right)
      (define ranges
        (if req?
-           (list (start/end->range doc start end)
-                 (start/end->range doc left right))
+           (list (abs-range->range doc start end)
+                 (abs-range->range doc left right))
            (or (doc-get-bindings doc decl))))
      (for/list ([range (in-list ranges)])
        (Location #:uri uri #:range range))]
     [#f #f]))
 
-;; Document Highlight: returns a list of DocumentHighlights, or #f.
+;; Document Highlight: returns a list of DocumentHighlights or #f.
 (define/contract (doc-highlights doc pos)
   (-> Doc? Pos? (or/c (listof DocumentHighlight?) #f))
   (define-values (start end decl) (doc-get-decl doc pos))
@@ -627,15 +588,15 @@
     [(Decl filename id left right)
      (define ranges
        (if filename
-           (list (start/end->range doc start end)
-                 (start/end->range doc left right))
+           (list (abs-range->range doc start end)
+                 (abs-range->range doc left right))
            (or (append (doc-get-bindings doc decl)
-                       (list (start/end->range doc left right))))))
+                       (list (abs-range->range doc left right))))))
      (for/list ([range (in-list ranges)])
        (DocumentHighlight #:range range))]
     [#f #f]))
 
-;; Rename: returns a WorkspaceEdit, or #f.
+;; Rename: returns a WorkspaceEdit or #f.
 (define/contract (doc-rename doc uri pos new-name)
   (-> Doc? string? Pos? string? (or/c WorkspaceEdit? #f))
   (define-values (start end decl) (doc-get-decl doc pos))
@@ -643,7 +604,7 @@
     [(Decl req? id left right)
      (cond [req? #f]
            [else
-            (define ranges (cons (start/end->range doc left right)
+            (define ranges (cons (abs-range->range doc left right)
                                  (doc-get-bindings doc decl)))
             (WorkspaceEdit
               #:changes
@@ -652,12 +613,12 @@
                         (TextEdit #:range range #:newText new-name))))])]
     [#f #f]))
 
-;; Prepare Rename: returns a Range, or #f.
+;; Prepare Rename: returns a Range or #f.
 (define/contract (doc-prepare-rename doc pos)
   (-> Doc? Pos? (or/c Range? #f))
   (define-values (start end decl) (doc-get-decl doc pos))
   (if (and decl (not (Decl-filename decl)))
-      (start/end->range doc start end)
+      (abs-range->range doc start end)
       #f))
 
 ;; Document Symbols: returns a list of SymbolInformation.
@@ -666,25 +627,18 @@
   (dict-map (doc-get-symbols doc)
             (λ (key value)
               (match-define (cons start end) key)
-              (match-define (list text type) value)
-              (define kind (match type
-                             ['constant SymbolKind-Constant]
-                             ['string SymbolKind-String]
-                             ['symbol SymbolKind-Variable]))
-              (define range
-                (Range #:start (doc-abs-pos->pos doc start)
-                       #:end (doc-abs-pos->pos doc end)))
+              (match-define (list text kind) value)
               (SymbolInformation
                 #:name text
                 #:kind kind
                 #:location (Location #:uri uri
-                                     #:range range)))))
+                                     #:range (abs-range->range doc start end))))))
 
 (provide Doc?
          Doc-version
          Doc-uri
          make-doc
-         doc-update!
+         doc-apply-edit!
          doc-apply-edits!
          doc-reset!
          doc-update-version!
@@ -692,6 +646,7 @@
          doc-pos->abs-pos
          doc-end-abs-pos
          doc-get-text
+         doc-diagnostics
          doc-copy-text-buffer
          doc-abs-pos->pos
          doc-line-start-abs-pos

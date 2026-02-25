@@ -5,7 +5,6 @@
            "../../doc.rkt"
            "../../internal-types.rkt"
            "../../interfaces.rkt"
-           "../../json-util.rkt"
            racket/class
            racket/file
            data/interval-map)
@@ -24,16 +23,16 @@
     ;; "hello world"
     ;; 01234567890
     ;; world starts at 6, len 5.
-    (doc-update! d
-                 (Range (Pos 0 6) (Pos 0 11))
-                 "racket")
+    (doc-apply-edit! d
+                     (Range (Pos 0 6) (Pos 0 11))
+                     "racket")
     (check-equal? (doc-get-text d) "hello racket")
 
     ;; Insert "!" at end
     ;; "hello racket" length is 12
-    (doc-update! d
-                 (Range (Pos 0 12) (Pos 0 12))
-                 "!")
+    (doc-apply-edit! d
+                     (Range (Pos 0 12) (Pos 0 12))
+                     "!")
     (check-equal? (doc-get-text d) "hello racket!"))
 
   (test-case
@@ -43,21 +42,21 @@
     ;; Delete "234" (indices 1 to 4)
     ;; "12345"
     ;;  01234
-    (doc-update! d
-                 (Range (Pos 0 1) (Pos 0 4))
-                 "")
+    (doc-apply-edit! d
+                     (Range (Pos 0 1) (Pos 0 4))
+                     "")
     (check-equal? (doc-get-text d) "15")
 
     ;; Prepend "0"
-    (doc-update! d
-                 (Range (Pos 0 0) (Pos 0 0))
-                 "0")
+    (doc-apply-edit! d
+                     (Range (Pos 0 0) (Pos 0 0))
+                     "0")
     (check-equal? (doc-get-text d) "015")
 
     ;; Replace everything
-    (doc-update! d
-                 (Range (Pos 0 0) (Pos 0 3))
-                 "cleaned")
+    (doc-apply-edit! d
+                     (Range (Pos 0 0) (Pos 0 3))
+                     "cleaned")
     (check-equal? (doc-get-text d) "cleaned"))
 
   (test-case
@@ -84,9 +83,9 @@
     (define syms (doc-get-symbols d))
     ;; lexer positions are 1-based in this symbol map:
     ;; define: 15..21, x: 22..23, 1: 24..25
-    (check-equal? (interval-map-ref syms 15 #f) (list "define" 'symbol))
-    (check-equal? (interval-map-ref syms 22 #f) (list "x" 'symbol))
-    (check-equal? (interval-map-ref syms 24 #f) (list "1" 'constant))
+    (check-equal? (interval-map-ref syms 15 #f) (list "define" SymbolKind-Variable))
+    (check-equal? (interval-map-ref syms 22 #f) (list "x" SymbolKind-Variable))
+    (check-equal? (interval-map-ref syms 24 #f) (list "1" SymbolKind-Constant))
     (check-false (interval-map-ref syms 21 #f) "space should not be a symbol"))
 
   (test-case
@@ -132,7 +131,7 @@
     ;; Unmatched close
     (define d4 (make-doc "file:///test.rkt" " ) ("))
     ;; 0123
-    (check-equal? (doc-find-containing-paren d4 1) #f))
+    (check-false (doc-find-containing-paren d4 1)))
 
   (test-case
     "Document meta updates"
@@ -190,9 +189,7 @@
     (define after-expand (doc-range-tokens d (Range (Pos 0 0) (Pos 1 11))))
     (check-false (empty? after-expand) "tokens should exist after doc-expand!")
 
-    ;; Encoded semantic tokens are a flat list of integers in groups of 5.
-    (check-equal? (modulo (length after-expand) 5) 0)
-    (check-true (andmap exact-nonnegative-integer? after-expand)))
+    (check-true (andmap SemanticToken? after-expand)))
 
   (test-case
     "Formatting"
@@ -438,14 +435,14 @@ END
     ;; Note: lexer positions are 1-based but get-symbols uses them directly.
     ;; Exact results depend on the lexer, but we can check structure and known entries.
     (check-equal? (length result) 4)
-    ;; Check that "define" symbol is present with kind=SymbolKind-Variable (13)
+    ;; Check that "define" symbol is present with kind=SymbolKind-Variable
     (define define-sym (findf (λ (s) (equal? (SymbolInformation-name s) "define")) result))
     (check-not-false define-sym)
-    (check-equal? (SymbolInformation-kind define-sym) 13)
-    ;; Check that "1" is present with kind=SymbolKind-Constant (14)
+    (check-equal? (SymbolInformation-kind define-sym) SymbolKind-Variable)
+    ;; Check that "1" is present with kind=SymbolKind-Constant
     (define one-sym (findf (λ (s) (equal? (SymbolInformation-name s) "1")) result))
     (check-not-false one-sym)
-    (check-equal? (SymbolInformation-kind one-sym) 14))
+    (check-equal? (SymbolInformation-kind one-sym) SymbolKind-Constant))
 
   (test-case
     "Document hover"

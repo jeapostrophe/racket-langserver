@@ -19,28 +19,31 @@
          (json-type-out TextEdit)
          (json-type-out WorkspaceEdit)
          (json-type-out CodeAction)
+         (json-type-out DiagnosticSeverity)
          (json-type-out Diagnostic)
          (json-type-out Location)
          (json-type-out DocumentHighlight)
+         (json-type-out SymbolKind)
          (json-type-out SymbolInformation)
          (json-type-out Hover)
          (json-type-out SignatureInformation)
          (json-type-out SignatureHelp)
          (json-type-out CompletionItem)
          (json-type-out CompletionList)
+         (json-type-out ContentChangeEvent-Incremental)
+         (json-type-out ContentChangeEvent-Full)
          (json-type-out ContentChangeEvent)
          (json-type-out DocIdentifier)
          (json-type-out DocItem)
          (json-type-out InlayHint)
          (json-type-out ConfigurationItem)
          (json-type-out ConfigurationParams)
-         FormattingOptions
-         FormattingOptions-tab-size
-         FormattingOptions-trim-trailing-whitespace
-         as-FormattingOptions
+         (json-type-out FormattingOptions)
+         (json-type-out SemanticTokenType)
+         (json-type-out SemanticTokenModifier)
          (struct-out SemanticToken)
-         *semantic-token-types*
-         *semantic-token-modifiers*
+         semantic-token-types
+         semantic-token-modifiers
          abs-pos->Pos)
 
 (define-json-struct Pos
@@ -58,9 +61,15 @@
 (define-json-struct WorkspaceEdit
   [changes (hash/c symbol? (listof TextEdit))])
 
+(define-json-enum DiagnosticSeverity
+  [Error 1]
+  [Warning 2]
+  [Information 3]
+  [Hint 4])
+
 (define-json-struct Diagnostic
   [range Range]
-  [severity (or/c 1 2 3 4)]
+  [severity DiagnosticSeverity]
   [source string?]
   [message string?])
 
@@ -78,9 +87,37 @@
 (define-json-struct DocumentHighlight
   [range Range])
 
+(define-json-enum SymbolKind
+  [File 1]
+  [Module 2]
+  [Namespace 3]
+  [Package 4]
+  [Class 5]
+  [Method 6]
+  [Property 7]
+  [Field 8]
+  [Constructor 9]
+  [Enum 10]
+  [Interface 11]
+  [Function 12]
+  [Variable 13]
+  [Constant 14]
+  [String 15]
+  [Number 16]
+  [Boolean 17]
+  [Array 18]
+  [Object 19]
+  [Key 20]
+  [Null 21]
+  [EnumMember 22]
+  [Struct 23]
+  [Event 24]
+  [Operator 25]
+  [TypeParameter 26])
+
 (define-json-struct SymbolInformation
   [name string?]
-  [kind exact-positive-integer?]
+  [kind SymbolKind]
   [location Location])
 
 (define-json-struct Hover
@@ -101,10 +138,17 @@
   [isIncomplete boolean?]
   [items (listof CompletionItem)])
 
-(define-json-struct ContentChangeEvent
-  [range any/c]
-  [rangeLength exact-nonnegative-integer?]
+(define-json-struct ContentChangeEvent-Incremental
+  [range Range]
+  [rangeLength (optional exact-nonnegative-integer?)]
   [text string?])
+
+(define-json-struct ContentChangeEvent-Full
+  [text string?])
+
+(define-json-union ContentChangeEvent
+  ContentChangeEvent-Incremental
+  ContentChangeEvent-Full)
 
 ;; VersionedTextDocumentIdentifier
 (define-json-struct DocIdentifier
@@ -119,7 +163,7 @@
   [text string?])
 
 (define-json-struct InlayHint
-  [position any/c]
+  [position Pos]
   [label string?])
 
 (define-json-struct ConfigurationItem
@@ -137,10 +181,20 @@
 (define-json-struct FormattingOptions
   [tab-size uinteger? #:json tabSize]
   [insert-spaces boolean? #:json insertSpaces]
-  [trim-trailing-whitespace (maybe boolean?) #:json trimTrailingWhitespace]
-  [insert-final-newline (maybe boolean?) #:json insertFinalNewline]
-  [trim-final-newlines (maybe boolean?) #:json trimFinalNewlines]
-  [key (or/c false/c (maybe/c hash?))])
+  [trim-trailing-whitespace (optional boolean?) #:json trimTrailingWhitespace]
+  [insert-final-newline (optional boolean?) #:json insertFinalNewline]
+  [trim-final-newlines (optional boolean?) #:json trimFinalNewlines]
+  [key (or/c false/c (optional/c hash?))])
+
+(define-json-enum SemanticTokenType
+  [variable "variable"]
+  [function "function"]
+  [string "string"]
+  [number "number"]
+  [regexp "regexp"])
+
+(define-json-enum SemanticTokenModifier
+  [definition "definition"])
 
 (struct SemanticToken
   (start end type modifiers)
@@ -152,16 +206,16 @@
 ;; Different order produces different encoding results of semantic tokens,
 ;; but does not affect client and server behavior.
 ;; To change the order, simply change it here, don't need to change other code.
-(define *semantic-token-types*
-  '(variable
-     function
-     string
-     number
-     regexp))
+(define semantic-token-types
+  (list SemanticTokenType-variable
+        SemanticTokenType-function
+        SemanticTokenType-string
+        SemanticTokenType-number
+        SemanticTokenType-regexp))
 
-;; The order of this list is irrelevant, similar to *semantic-token-types*.
-(define *semantic-token-modifiers*
-  '(definition))
+;; The order of this list is irrelevant, similar to semantic-token-types.
+(define semantic-token-modifiers
+  (list SemanticTokenModifier-definition))
 
 (define (abs-pos->Pos editor pos)
   (match-define (list line char) (send editor pos->line/char pos))

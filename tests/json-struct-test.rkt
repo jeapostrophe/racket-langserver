@@ -15,7 +15,7 @@
     [end Pos])
 
   (define-json-struct MaybePosHolder
-    [pos (maybe Pos)])
+    [pos (optional Pos)])
 
   (define-json-struct PosListHolder
     [items (listof Pos)])
@@ -27,7 +27,7 @@
     [item (or/c string? Pos)])
 
   (define-json-struct MaybeOrPosHolder
-    [item (maybe (or/c string? Pos))])
+    [item (optional (or/c string? Pos))])
 
   (define-json-struct OrPosListHolder
     [items (listof (or/c string? Pos))])
@@ -142,7 +142,7 @@
     (check-false (Range-js? (hasheq 'start p1 'end p2)))
     (check-false (Range-js? (hasheq 'start p-hash))))
 
-  (test-case "decoding: maybe field can be absent"
+  (test-case "decoding: optional field can be absent"
     (define holder (jsexpr->MaybePosHolder (hasheq)))
     (check-true (Nothing? (MaybePosHolder-pos holder)))
     (define holder2 (jsexpr->MaybePosHolder (hasheq 'pos p-hash)))
@@ -172,7 +172,7 @@
     (check-true (OrPosHolder-js? (hasheq 'item p-hash)))
     (check-false (OrPosHolder-js? (hasheq 'item 42))))
 
-  (test-case "decoding: maybe with or/c"
+  (test-case "decoding: optional with or/c"
     (define missing (jsexpr->MaybeOrPosHolder (hasheq)))
     (check-true (Nothing? (MaybeOrPosHolder-item missing)))
     (define from-str (jsexpr->MaybeOrPosHolder (hasheq 'item "ok")))

@@ -146,13 +146,50 @@ from @tt{racket-langserver/json-util}. Nested struct values are encoded recursiv
   call site, usually one entry per overload.
 }
 
+@defthing[SymbolKind? flat-contract?]{
+  Predicate for the @tt{SymbolKind} JSON enum.
+  Each variant maps a symbolic name to an LSP integer code:
+
+  @tabular[#:sep @hspace[2]
+    (list (list @bold{Name}         @bold{Code})
+          (list @tt{File}           @racket[1])
+          (list @tt{Module}         @racket[2])
+          (list @tt{Namespace}      @racket[3])
+          (list @tt{Package}        @racket[4])
+          (list @tt{Class}          @racket[5])
+          (list @tt{Method}         @racket[6])
+          (list @tt{Property}       @racket[7])
+          (list @tt{Field}          @racket[8])
+          (list @tt{Constructor}    @racket[9])
+          (list @tt{Enum}           @racket[10])
+          (list @tt{Interface}      @racket[11])
+          (list @tt{Function}       @racket[12])
+          (list @tt{Variable}       @racket[13])
+          (list @tt{Constant}       @racket[14])
+          (list @tt{String}         @racket[15])
+          (list @tt{Number}         @racket[16])
+          (list @tt{Boolean}        @racket[17])
+          (list @tt{Array}          @racket[18])
+          (list @tt{Object}         @racket[19])
+          (list @tt{Key}            @racket[20])
+          (list @tt{Null}           @racket[21])
+          (list @tt{EnumMember}     @racket[22])
+          (list @tt{Struct}         @racket[23])
+          (list @tt{Event}          @racket[24])
+          (list @tt{Operator}       @racket[25])
+          (list @tt{TypeParameter}  @racket[26]))]
+
+  Access named constants via @tt{SymbolKind-Constant}, @tt{SymbolKind-String},
+  @tt{SymbolKind-Variable}, etc.
+}
+
 @defstruct*[SymbolInformation ([name string?]
-                               [kind exact-positive-integer?]
+                               [kind SymbolKind?]
                                [location Location?])
             #:transparent]{
   One symbol entry in document/workspace symbol results.
   The @tt{name} field is the symbol display name.
-  The @tt{kind} field is the LSP symbol kind code.
+  The @tt{kind} field is a @tt{SymbolKind} enum value (an LSP symbol kind integer code).
   The @tt{location} field gives the symbol's source location.
 }
 
@@ -170,14 +207,29 @@ from @tt{racket-langserver/json-util}. Nested struct values are encoded recursiv
   The @tt{edit} field is the workspace edit to apply when the action is chosen.
 }
 
+@defthing[DiagnosticSeverity? flat-contract?]{
+  Predicate for the @tt{DiagnosticSeverity} JSON enum.
+
+  @tabular[#:sep @hspace[2]
+    (list (list @bold{Name}          @bold{Code})
+          (list @tt{Error}           @racket[1])
+          (list @tt{Warning}         @racket[2])
+          (list @tt{Information}     @racket[3])
+          (list @tt{Hint}            @racket[4]))]
+
+  Access named constants via @tt{DiagnosticSeverity-Error},
+  @tt{DiagnosticSeverity-Warning}, etc.
+}
+
 @defstruct*[Diagnostic ([range Range?]
-                        [severity (or/c 1 2 3 4)]
+                        [severity DiagnosticSeverity?]
                         [source string?]
                         [message string?])
             #:transparent]{
   One diagnostic reported to the editor.
   The @tt{range} field identifies the affected source span.
-  @tt{severity} values: @racket[1] = error, @racket[2] = warning,
+  The @tt{severity} field is a @tt{DiagnosticSeverity} enum value:
+  @racket[1] = error, @racket[2] = warning,
   @racket[3] = information, @racket[4] = hint.
   The @tt{source} field names the producer (for example @tt{racket-langserver}).
   The @tt{message} field is the user-facing diagnostic text.
@@ -206,6 +258,41 @@ from @tt{racket-langserver/json-util}. Nested struct values are encoded recursiv
 
   Not all generated accessors are exported. Public callers should rely on
   @racket[FormattingOptions-tab-size] and @racket[FormattingOptions-trim-trailing-whitespace].
+}
+
+@subsection{Semantic Tokens}
+
+@defstruct*[SemanticToken ([start exact-nonnegative-integer?]
+                           [end exact-nonnegative-integer?]
+                           [type SemanticTokenType?]
+                           [modifiers SemanticTokenModifier?])
+            #:transparent]{
+  One semantic token with absolute character offsets.
+  The @tt{start} and @tt{end} fields are zero-based character positions.
+  The @tt{type} field is a @tt{SemanticTokenType} enum value.
+  The @tt{modifiers} field is a @tt{SemanticTokenModifier} enum value.
+  Returned by @racket[doc-range-tokens]; the caller encodes these into
+  the LSP 3.17 relative-delta wire format.
+}
+
+@defthing[SemanticTokenType? flat-contract?]{
+  Predicate for the @tt{SemanticTokenType} JSON enum.
+
+  @tabular[#:sep @hspace[2]
+    (list (list @bold{Name}       @bold{Value})
+          (list @tt{variable}     @racket["variable"])
+          (list @tt{function}     @racket["function"])
+          (list @tt{string}       @racket["string"])
+          (list @tt{number}       @racket["number"])
+          (list @tt{regexp}       @racket["regexp"]))]
+}
+
+@defthing[SemanticTokenModifier? flat-contract?]{
+  Predicate for the @tt{SemanticTokenModifier} JSON enum.
+
+  @tabular[#:sep @hspace[2]
+    (list (list @bold{Name}       @bold{Value})
+          (list @tt{definition}   @racket["definition"]))]
 }
 
 @section{Doc Library}
@@ -254,6 +341,16 @@ without touching the network or a thread scheduler, making them suitable for dir
   Edits are sorted and applied in descending start-position order so earlier edits do not shift
   the offsets of later ones. Raises an error if any two edits overlap.
   The output of @racket[doc-format-edits] can be passed directly to this function if not @racket[#f].
+}
+
+@defproc[(doc-apply-edit! [doc Doc?]
+                          [range Range?]
+                          [text string?])
+         void?]{
+  Applies a single text replacement to @tt{doc}: replaces the content covered by
+  @tt{range} with @tt{text} and adjusts the internal trace offsets accordingly.
+  Prefer @racket[doc-apply-edits!] when applying multiple edits so that offset
+  ordering is handled automatically.
 }
 
 @defproc[(doc-reset! [doc Doc?]
@@ -322,16 +419,18 @@ indices into the document text) as well as LSP @racket[Pos] structs (line/charac
   This is a character-level heuristic, not a full parse.
 }
 
-@subsection{Trace and Semantic Operations}
+@subsection{Trace and Expansion}
 
-These functions wrap check-syntax expansion and analysis.
+These functions manage check-syntax expansion and the resulting trace.
 
 @defproc[(doc-expand! [doc Doc?]) boolean?]{
-  Convenience wrapper: expands the document in-place, updates its trace to the newest
-  version, and walks the expanded text. Returns @racket[#t] on success,
+  Expands the document in-place, updates its trace to the current version,
+  and walks the expanded text. Returns @racket[#t] on success,
   @racket[#f] if check-syntax expansion failed (e.g., the file has syntax errors).
-  Query results from functions below are fully functional only when this returns @racket[#t].
-  The query functions probably return useful results without expand.
+  Trace-dependent query functions return fully accurate results only after a
+  successful expansion. Lexer-only queries (such as @racket[doc-symbols] and
+  @racket[doc-get-symbols]) still work without expansion, but hover, definition,
+  and reference queries will be stale or empty.
 }
 
 @defproc[(doc-update-trace! [doc Doc?]
@@ -354,32 +453,30 @@ These functions wrap check-syntax expansion and analysis.
   Called automatically by @racket[doc-expand!].
 }
 
+@subsection{Token and Symbol Utilities}
+
+Lexer-derived token and symbol helpers. These do not require an up-to-date
+trace except where noted.
+
 @defproc[(doc-get-symbols [doc Doc?])
-         (interval-map-of (list/c string? (or/c 'constant 'string 'symbol)))]{
+         (interval-map-of (list/c string? SymbolKind?))]{
   Returns a lexer-derived interval map of symbol, string, and constant token intervals
   for the current document. Each entry maps a @tt{[start, end)} range to a
-  @racket[(list text type)] pair where @tt{text} is the token's string representation
-  and @tt{type} is one of @racket['constant], @racket['string], or @racket['symbol].
+  @racket[(list text kind)] pair where @tt{text} is the token's string representation
+  and @tt{kind} is a @tt{SymbolKind} enum value (@tt{SymbolKind-Constant},
+  @tt{SymbolKind-String}, or @tt{SymbolKind-Variable}).
   Positions are absolute character offsets. Does not require an up-to-date trace.
 }
 
 @defproc[(doc-range-tokens [doc Doc?]
                            [range Range?])
-         (listof exact-nonnegative-integer?)]{
-  Returns LSP semantic token data for tokens that intersect @tt{range}.
-  The result is a flat integer list in repeated 5-value groups:
-  @racketblock[(deltaLine deltaStart length tokenType tokenModifiers)].
-  So the full shape is:
-
-  @racketblock[
-    (list deltaLine deltaStart length tokenType tokenModifiers
-          deltaLine deltaStart length tokenType tokenModifiers
-          ...)
-  ]
-
-  Encodings follow LSP 3.17:
-  @tt{deltaLine} and @tt{deltaStart} are relative to the previous token,
-  @tt{length} is token character length.
+         (listof SemanticToken?)]{
+  Returns semantic tokens that intersect @tt{range}.
+  Each @tt{SemanticToken} struct has fields @tt{start}, @tt{end}, @tt{type},
+  and @tt{modifiers} (all absolute character offsets or enum values).
+  The caller is responsible for encoding these into the LSP 3.17 delta format
+  before sending them on the wire.
+  Requires an up-to-date trace.
 }
 
 @defproc[(doc-guess-token [doc Doc?]
@@ -393,8 +490,9 @@ These functions wrap check-syntax expansion and analysis.
 
 @subsection{Query Functions}
 
-These return structured LSP responses. They all require an up-to-date trace;
+These return structured LSP responses. Most require an up-to-date trace;
 call @racket[doc-expand!] first or check @racket[doc-trace-latest?].
+Exceptions are noted in individual entries.
 
 @defproc[(doc-hover [doc Doc?]
                     [pos Pos?])
@@ -471,12 +569,18 @@ call @racket[doc-expand!] first or check @racket[doc-trace-latest?].
   Returns an empty list when no actions are available.
 }
 
+@defproc[(doc-diagnostics [doc Doc?])
+         (listof Diagnostic?)]{
+  Returns the list of diagnostics (errors, warnings) collected in the document's
+  current trace. The result reflects the most recent @racket[doc-expand!] run.
+}
+
 @defproc[(doc-symbols [doc Doc?]
                       [uri string?])
          (listof SymbolInformation?)]{
   Returns all lexer-visible symbol, string, and constant occurrences in the document
   as @racket[SymbolInformation] values with their source locations.
-  Does not require an up-to-date trace; it runs the lexer directly over the current text.
+  Does not require an up-to-date trace; runs the lexer directly over the current text.
 }
 
 
@@ -484,18 +588,17 @@ call @racket[doc-expand!] first or check @racket[doc-trace-latest?].
 
 @defproc[(doc-format-edits [doc Doc?]
                       [fmt-range Range?]
-                      [#:on-type? on-type? boolean? #f]
-                      [#:formatting-options opts FormattingOptions?])
+                      [#:formatting-options opts FormattingOptions?]
+                      [#:on-type? on-type? boolean? #f])
          (or/c (listof TextEdit?) #f)]{
   Computes formatting edits for the lines covered by @tt{fmt-range}.
   Returns a list of @racket[TextEdit] values to apply, or @racket[#f] if no
   indenter is available (e.g., the document lacks a @tt{#lang} line).
 
-  When @tt{on-type?} is @racket[#t], blank lines are indented too. This mode is used for
-  on-type formatting triggered by pressing Enter.
+  When @tt{on-type?} is @racket[#t], blank lines are indented too. This mode is
+  intended for on-type formatting triggered by pressing Enter.
 
-  The result list can be applied directly with @racket[doc-apply-edits!].
-  The formatting is performed on an internal copy of the document, so the doc is not
-  mutated by this call; mutation only happens when the caller passes the result to
-  @racket[doc-apply-edits!].
+  Formatting is performed on an internal copy of the document; the doc is not
+  mutated by this call. Pass the result to @racket[doc-apply-edits!] to apply
+  the edits.
 }

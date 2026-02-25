@@ -21,16 +21,7 @@
           'id id
           'error err*))
 
-(define Diag-Error 1)
-(define Diag-Warning 2)
-(define Diag-Information 3)
-(define Diag-Hint 4)
-
 (provide
-  Diag-Error
-  Diag-Warning
-  Diag-Information
-  Diag-Hint
   (contract-out
     [success-response
      ((or/c number? string?) jsexpr? . -> . jsexpr?)]
