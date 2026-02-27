@@ -10,6 +10,7 @@
          "interfaces.rkt"
          "json-util.rkt"
          "responses.rkt"
+         "path-util.rkt"
          (prefix-in workspace/ "workspace.rkt")
          (prefix-in text-document/ "text-document.rkt"))
 
@@ -213,7 +214,9 @@
 (define (initialize id params)
   (match params
     [(hash-table ['processId (? (or/c number? (json-null)) process-id)]
-                 ['capabilities (? jsexpr? capabilities)])
+                 ['capabilities (? jsexpr? capabilities)]
+                 ['rootUri (? (or/c string? (json-null)) root-uri)]
+                 ['rootPath (? (or/c string? (json-null)) root-path)])
      (define sync-options
        (hasheq 'openClose #t
                'change TextDocSync-Incremental
@@ -236,6 +239,15 @@
        (if (jsexpr-has-key? capabilities '(workspace configuration))
            (jsexpr-ref capabilities '(workspace configuration))
            #f))
+
+     ;; If both `rootPath` and `rootUri` are set, then `rootUri` wins.
+     ;; null is there are no folder is open.
+     (cond
+       [(not (equal? root-uri (json-null)))
+        (workspace/add-workspace-folder! (uri->path root-uri))]
+       [(not (equal? root-path (json-null)))
+        (workspace/add-workspace-folder! root-path)]
+       [else (void)])
 
      (define server-capabilities
        (hasheq 'textDocumentSync sync-options
