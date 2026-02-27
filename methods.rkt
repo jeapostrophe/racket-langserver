@@ -10,7 +10,6 @@
          "interfaces.rkt"
          "json-util.rkt"
          "responses.rkt"
-         "struct.rkt"
          (prefix-in workspace/ "workspace.rkt")
          (prefix-in text-document/ "text-document.rkt"))
 
