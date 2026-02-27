@@ -9,6 +9,7 @@
          "error-codes.rkt"
          "responses.rkt"
          "struct.rkt"
+         "json-util.rkt"
          (prefix-in workspace/ "workspace.rkt")
          (prefix-in text-document/ "text-document.rkt"))
 
@@ -230,6 +231,12 @@
                                'tokenModifiers (map symbol->string *semantic-token-modifiers*))
                'full #t
                'range #t))
+
+     (text-document/client-capability-workspace/configuration?
+       (if (jsexpr-has-key? capabilities '(workspace configuration))
+           (jsexpr-ref capabilities '(workspace configuration))
+           #f))
+
      (define server-capabilities
        (hasheq 'textDocumentSync sync-options
                'hoverProvider #t
