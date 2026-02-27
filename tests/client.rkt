@@ -13,6 +13,7 @@
 (require racket/os
          racket/async-channel
          racket/match
+         racket/runtime-path
          json
          "../methods.rkt")
 
@@ -24,6 +25,8 @@
 (define request-channel (make-parameter #f))
 (define response-channel (make-parameter #f))
 (define notification-channel (make-parameter #f))
+
+(define-runtime-path rootFolder "./")
 
 (define/contract (with-racket-lsp proc)
   (-> (-> any/c any/c) void?)
@@ -59,8 +62,8 @@
       (make-request lsp "initialize"
                     (hasheq 'processId (getpid)
                             'capabilities (hasheq)
-                            'rootPath "/home/conor/racket-langserver/"
-                            'rootUri "file:///home/conor/racket-langserver/")))
+                            'rootPath (path->string (normalize-path rootFolder))
+                            'rootUri (string-append "file://" (path->string (normalize-path rootFolder))))))
     (client-send lsp init-req)
     (client-wait-response init-req)
 
