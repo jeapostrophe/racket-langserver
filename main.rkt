@@ -60,9 +60,9 @@
 (define (main-loop)
   (define resp-ch (make-async-channel))
   (define server (new server%
-                      [response-channel resp-ch]
-                      [request-channel resp-ch]
-                      [notification-channel resp-ch]))
+                   [response-channel resp-ch]
+                   [request-channel resp-ch]
+                   [notification-channel resp-ch]))
 
   (define q (queue))
   (define (consume)
