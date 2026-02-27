@@ -14,17 +14,20 @@
          racket/match
          racket/class)
 
-;; SafeDoc has two eliminator:
+;; SafeDoc has two eliminators:
 ;; with-read-doc: access Doc within a reader lock.
 ;; with-write-doc: access Doc within a writer lock.
 ;; Access its fields without protection should not be allowed.
 (struct SafeDoc
-  (doc rwlock)
+  (doc rwlock token)
   #:transparent)
 
 (define (new-safedoc uri text version)
   (define doc (make-doc uri text version))
-  (SafeDoc doc (make-rwlock)))
+  ;; Token identifies this opened document instance in scheduler/query state.
+  (define token (gensym 'doc-token))
+  (scheduler-register-doc! token)
+  (SafeDoc doc (make-rwlock) token))
 
 (define (with-read-doc safe-doc proc)
   (call-with-read-lock
@@ -39,47 +42,49 @@
 ;; TODO: add uri to each Diagnostic struct when make them, and remove uri here
 ;; Currently it uses the `uri` of the document that triggers
 ;; the check-syntax. But some diagnostics may come from other files.
-;; In this case, it send them with wrong uri.
+;; In this case, it sends them with a wrong uri.
 (define (send-diagnostics notify-client uri diag-lst)
   (notify-client "textDocument/publishDiagnostics"
                  (hasheq 'uri uri
                          'diagnostics (->jsexpr (set->list diag-lst)))))
 
-;; the only place where really run check-syntax
+;; The only place that actually runs check-syntax.
 (define (safedoc-run-check-syntax! notify-client safe-doc)
-  (match-define (list uri old-version doc-text)
+  (match-define (list uri old-version doc-text token)
     (with-read-doc safe-doc
       (λ (doc)
-        (list (Doc-uri doc) (Doc-version doc) (doc-copy-text-buffer doc)))))
+        (list (Doc-uri doc)
+              (Doc-version doc)
+              (doc-copy-text-buffer doc)
+              (SafeDoc-token safe-doc)))))
 
   (define (check-syntax-task)
     (define result (doc-expand uri doc-text))
-    ;; make a new thread to write doc because this task will be executed by
-    ;; the scheduler and may be cancelled at any time.
-    (thread
-      (λ ()
-        (with-write-doc safe-doc
-          (λ (doc)
-            (define cur-version (Doc-version doc))
-            (define trace (CSResult-trace result))
-            (define diags (set->list (send trace get-warn-diags)))
-            (send-diagnostics notify-client uri diags)
+    (with-write-doc safe-doc
+      (λ (doc)
+        (define cur-version (Doc-version doc))
+        (define trace (CSResult-trace result))
+        (define diags (set->list (send trace get-warn-diags)))
+        (send-diagnostics notify-client uri diags)
 
-            (when (and (CSResult-succeed? result) (equal? old-version cur-version))
-              (doc-update-trace! doc trace cur-version)
+        (when (and (CSResult-succeed? result)
+                   (equal? old-version cur-version))
+          (doc-update-trace! doc trace cur-version)
 
-              (define (walk-text-task)
-                (doc-walk-text trace (CSResult-text result))
-                (define new-diags (set->list (send trace get-warn-diags)))
-                (when (not (set=? diags new-diags))
-                  (send-diagnostics notify-client uri new-diags)))
+          (define (walk-text-task)
+            (doc-walk-text trace (CSResult-text result))
+            (define new-diags (set->list (send trace get-warn-diags)))
+            (when (not (set=? diags new-diags))
+              (send-diagnostics notify-client uri new-diags)))
 
-              (scheduler-push-task! uri 'walk-text walk-text-task))))
-        (clear-old-queries/new-trace uri))))
+          (scheduler-push-task! token 'walk-text walk-text-task))))
+    (clear-old-queries/new-trace token))
 
-  (scheduler-push-task! uri 'check-syntax check-syntax-task))
+  (scheduler-stop-all-tasks! token)
+  (scheduler-push-task! token 'check-syntax check-syntax-task))
 
-(provide (struct-out SafeDoc)
+(provide SafeDoc-token
+         SafeDoc?
          new-safedoc
          safedoc-run-check-syntax!
          with-read-doc

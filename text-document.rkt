@@ -12,8 +12,8 @@
          "doc.rkt"
          "semantic-token-lsp.rkt"
          "scheduler.rkt"
+         "lsp.rkt"
          "workspace.rkt")
-(require "open-docs.rkt")
 
 (define (success/enc id result)
   (success-response id (if (false? result) (json-null) (->jsexpr result))))
@@ -32,25 +32,24 @@
 (define (did-open! request-client notify-client params)
   (match-define (hash-table ['textDocument (^DocItem #:uri uri #:version version #:text text)]) params)
   (fetch-configuration request-client uri)
-  (define safe-doc (new-safedoc uri text version))
-  (hash-set! open-docs (string->symbol uri) safe-doc)
+  (define safe-doc (lsp-open-doc! uri text version))
   (safedoc-run-check-syntax! notify-client safe-doc))
 
 (define (did-close! params)
   (match-define (hash-table ['textDocument (DocItem-js #:uri uri)]) params)
-  (hash-remove! open-docs (string->symbol uri))
-  (clear-old-queries/doc-close uri))
+  (lsp-close-doc! uri))
 
 (define (did-change! notify-client params)
   (match-define (hash-table ['textDocument (^DocIdentifier #:version version #:uri uri)]
                             ['contentChanges content-changes]) params)
-  (define safe-doc (hash-ref open-docs (string->symbol uri)))
+  (define safe-doc (lsp-get-doc uri))
+  (define token (SafeDoc-token safe-doc))
   (define content-changes*
     (cond [(eq? (json-null) content-changes) empty]
           [(list? content-changes) content-changes]
           [else (list content-changes)]))
 
-  (clear-old-queries/doc-change uri)
+  (clear-old-queries/doc-change token)
 
   (with-write-doc safe-doc
     (λ (doc)
@@ -72,7 +71,7 @@
   (match params
     [(hash-table ['textDocument (DocIdentifier-js #:uri uri)]
                  ['position (as-Pos pos)])
-     (define safe-doc (hash-ref open-docs (string->symbol uri)))
+     (define safe-doc (lsp-get-doc uri))
      (define result
        (with-read-doc safe-doc
          (λ (doc)
@@ -91,7 +90,7 @@
                  ; 2. `only: CodeActionKind[]` server should use this to filter out client-unwanted code action
                  ; 3. `triggerKind?: CodeActionTriggerKind` the reason why code action were requested
                  ['context _ctx])
-     (define safe-doc (hash-ref open-docs (string->symbol uri)))
+     (define safe-doc (lsp-get-doc uri))
 
      (define actions
        (with-read-doc safe-doc
@@ -108,7 +107,7 @@
   (match params
     [(hash-table ['textDocument (DocIdentifier-js #:uri uri)]
                  ['position (as-Pos pos)])
-     (define safe-doc (hash-ref open-docs (string->symbol uri)))
+     (define safe-doc (lsp-get-doc uri))
      (define result
        (with-read-doc safe-doc
          (λ (doc)
@@ -122,7 +121,7 @@
   (match params
     [(hash-table ['textDocument (DocIdentifier-js #:uri uri)]
                  ['position (as-Pos pos)])
-     (define safe-doc (hash-ref open-docs (string->symbol uri)))
+     (define safe-doc (lsp-get-doc uri))
      (define result
        (with-read-doc safe-doc
          (λ (doc) (doc-completion doc pos))))
@@ -136,7 +135,7 @@
   (match params
     [(hash-table ['textDocument (DocIdentifier-js #:uri uri)]
                  ['position (as-Pos pos)])
-     (define safe-doc (hash-ref open-docs (string->symbol uri)))
+     (define safe-doc (lsp-get-doc uri))
      (define result
        (with-read-doc safe-doc
          (λ (doc) (doc-definition doc uri pos))))
@@ -150,7 +149,7 @@
     [(hash-table ['textDocument (DocIdentifier-js #:uri uri)]
                  ['position (as-Pos pos)]
                  ['context (hash-table ['includeDeclaration include-decl?])])
-     (define safe-doc (hash-ref open-docs (string->symbol uri)))
+     (define safe-doc (lsp-get-doc uri))
      (define result
        (with-read-doc safe-doc
          (λ (doc) (doc-references doc uri pos include-decl?))))
@@ -163,7 +162,7 @@
   (match params
     [(hash-table ['textDocument (DocIdentifier-js #:uri uri)]
                  ['position (as-Pos pos)])
-     (define safe-doc (hash-ref open-docs (string->symbol uri)))
+     (define safe-doc (lsp-get-doc uri))
      (define result
        (with-read-doc safe-doc
          (λ (doc) (doc-highlights doc pos))))
@@ -177,7 +176,7 @@
     [(hash-table ['textDocument (DocIdentifier-js #:uri uri)]
                  ['position (as-Pos pos)]
                  ['newName new-name])
-     (define safe-doc (hash-ref open-docs (string->symbol uri)))
+     (define safe-doc (lsp-get-doc uri))
      (define result
        (with-read-doc safe-doc
          (λ (doc) (doc-rename doc uri pos new-name))))
@@ -190,7 +189,7 @@
   (match params
     [(hash-table ['textDocument (DocIdentifier-js #:uri uri)]
                  ['position (as-Pos pos)])
-     (define safe-doc (hash-ref open-docs (string->symbol uri)))
+     (define safe-doc (lsp-get-doc uri))
      (define result
        (with-read-doc safe-doc
          (λ (doc) (doc-prepare-rename doc pos))))
@@ -202,7 +201,7 @@
 (define (document-symbol id params)
   (match params
     [(hash-table ['textDocument (DocIdentifier-js #:uri uri)])
-     (define safe-doc (hash-ref open-docs (string->symbol uri)))
+     (define safe-doc (lsp-get-doc uri))
      (define results
        (with-read-doc safe-doc
          (λ (doc) (doc-symbols doc uri))))
@@ -224,7 +223,7 @@
     [(hash-table ['textDocument (DocIdentifier-js #:uri uri)]
                  ['options (as-FormattingOptions opts)])
 
-     (define safe-doc (hash-ref open-docs (string->symbol uri)))
+     (define safe-doc (lsp-get-doc uri))
      (with-read-doc safe-doc
        (λ (doc)
          (define start (doc-abs-pos->pos doc 0))
@@ -243,7 +242,7 @@
     [(hash-table ['textDocument (DocIdentifier-js #:uri uri)]
                  ['range (as-Range range)]
                  ['options (as-FormattingOptions opts)])
-     (define safe-doc (hash-ref open-docs (string->symbol uri)))
+     (define safe-doc (lsp-get-doc uri))
      (with-read-doc safe-doc
        (λ (doc)
          (success/enc
@@ -262,7 +261,7 @@
                  ['position (as-Pos pos)]
                  ['ch ch]
                  ['options (as-FormattingOptions opts)])
-     (define safe-doc (hash-ref open-docs (string->symbol uri)))
+     (define safe-doc (lsp-get-doc uri))
 
      (with-read-doc safe-doc
        (λ (doc)
@@ -291,7 +290,7 @@
 (define (full-semantic-tokens id params)
   (match params
     [(hash-table ['textDocument (DocIdentifier-js #:uri uri)])
-     (define safe-doc (hash-ref open-docs (string->symbol uri)))
+     (define safe-doc (lsp-get-doc uri))
      (define full-range
        (with-read-doc safe-doc
          (λ (doc)
@@ -304,7 +303,7 @@
   (match params
     [(hash-table ['textDocument (DocIdentifier-js #:uri uri)]
                  ['range (as-Range range)])
-     (define safe-doc (hash-ref open-docs (string->symbol uri)))
+     (define safe-doc (lsp-get-doc uri))
      (semantic-tokens uri id safe-doc range)]
     [_ (error-response id INVALID-PARAMS "textDocument/semanticTokens/range failed")]))
 
@@ -320,7 +319,7 @@
   (if tokens
       (success/enc id (hash 'data tokens))
       (async-query-wait
-        uri
+        (SafeDoc-token safe-doc)
         (λ (_signal)
           (define tokens
             (with-read-doc safe-doc
