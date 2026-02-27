@@ -31,9 +31,9 @@
                  [request-channel (make-async-channel)]
                  [notification-channel (make-async-channel)])
     (define lsp (new server%
-                     [response-channel (response-channel)]
-                     [request-channel (request-channel)]
-                     [notification-channel (notification-channel)]))
+                  [response-channel (response-channel)]
+                  [request-channel (request-channel)]
+                  [notification-channel (notification-channel)]))
 
     (define (handle-request)
       ;; Server request - handle immediately and send response
