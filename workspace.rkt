@@ -3,7 +3,8 @@
          didChangeWorkspaceFolders
          didChangeWatchedFiles
          didChangeConfiguration
-         update-configuration)
+         update-configuration
+         add-workspace-folder!)
 (require compiler/module-suffix
          json)
 (require "json-util.rkt"
@@ -32,6 +33,8 @@
   [changes (listof hash?)])
 
 (define workspace-folders (mutable-set))
+(define (add-workspace-folder! path)
+  (set-add! workspace-folders path))
 
 (define (didRenameFiles params)
   (match-define (RenameFilesParams #:files files) params)

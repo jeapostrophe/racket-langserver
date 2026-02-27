@@ -58,7 +58,9 @@
     (define init-req
       (make-request lsp "initialize"
                     (hasheq 'processId (getpid)
-                            'capabilities (hasheq))))
+                            'capabilities (hasheq)
+                            'rootPath "/home/conor/racket-langserver/"
+                            'rootUri "file:///home/conor/racket-langserver/")))
     (client-send lsp init-req)
     (client-wait-response init-req)
 
