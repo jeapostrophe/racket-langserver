@@ -24,7 +24,8 @@
 
 (define (timeout-task time-sec task)
   (λ ()
-    (with-limits time-sec #f (task))))
+    (with-handlers ([exn:fail:resource? (λ (_e) (void))])
+      (with-limits time-sec #f (task)))))
 
 ;; Scheduler
 
