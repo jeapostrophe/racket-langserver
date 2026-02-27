@@ -18,12 +18,14 @@
 (define (success/enc id result)
   (success-response id (if (false? result) (json-null) (->jsexpr result))))
 
+(define client-capability-workspace/configuration? (make-parameter #f))
 (define (fetch-configuration request-client uri)
-  (request-client "workspace/configuration"
-                  (->jsexpr
-                    (ConfigurationParams
-                      #:items (list (ConfigurationItem #:scopeUri uri #:section "racket-langserver"))))
-                  update-configuration))
+  (when (client-capability-workspace/configuration?)
+    (request-client "workspace/configuration"
+                    (->jsexpr
+                      (ConfigurationParams
+                        #:items (list (ConfigurationItem #:scopeUri uri #:section "racket-langserver"))))
+                    update-configuration)))
 
 ;;
 ;; Methods
@@ -351,5 +353,7 @@
     [range-formatting! (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]
     [on-type-formatting! (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]
     [full-semantic-tokens (exact-nonnegative-integer? jsexpr? . -> . (or/c jsexpr? (-> jsexpr?)))]
-    [range-semantic-tokens (exact-nonnegative-integer? jsexpr? . -> . (or/c jsexpr? (-> jsexpr?)))]))
+    [range-semantic-tokens (exact-nonnegative-integer? jsexpr? . -> . (or/c jsexpr? (-> jsexpr?)))])
+
+  client-capability-workspace/configuration?)
 
