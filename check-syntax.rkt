@@ -77,16 +77,13 @@
   (define in (open-input-string text))
   (define er (expand-source path in new-trace))
 
-  (define pre-stx (ExpandResult-pre-syntax er))
-  (define post-stx (ExpandResult-post-syntax er))
-
   (send new-trace walk-stx er)
   (send new-trace walk-log (ExpandResult-logs er))
-  (CSResult new-trace text (and pre-stx post-stx)))
+  (CSResult new-trace text (ExpandResult-all-succeed? er)))
 
 (provide
   (struct-out CSResult)
   (contract-out
     [expand-source (-> path? input-port? (is-a?/c syncheck-annotations<%>) ExpandResult?)]
-    [check-syntax (-> any/c (is-a?/c lsp-editor%) CSResult?)]))
+    [check-syntax (-> string? (is-a?/c lsp-editor%) CSResult?)]))
 

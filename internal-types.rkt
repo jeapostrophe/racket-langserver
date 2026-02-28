@@ -25,7 +25,8 @@
   ExpandResult-pre-syntax
   ExpandResult-post-syntax
   ExpandResult-pre-exn
-  ExpandResult-post-exn)
+  ExpandResult-post-exn
+  ExpandResult-all-succeed?)
 
 ;; Struct to hold the result of an expansion.
 ;; pre-stx: the syntax before expansion, result of `read-syntax`
@@ -58,6 +59,12 @@
 (define/contract (ExpandResult-post-exn er)
   (-> ExpandResult? (or/c exn? #f))
   (maybe-exn (ExpandResult-post-stx er)))
+
+(define/contract (ExpandResult-all-succeed? er)
+  (-> ExpandResult? boolean?)
+  (and (ExpandResult-pre-syntax er)
+       (ExpandResult-post-syntax er)
+       #t))
 
 (struct/contract Decl
   ([filepath (or/c path-string? #f)]
