@@ -5,11 +5,11 @@
          "interfaces.rkt")
 
 (define (token-type-encoding token)
-  (index-of semantic-token-types (SemanticToken-type token)))
+  (index-of *semantic-token-types* (SemanticToken-type token)))
 
 (define (token-modifier-encoding token)
   (define indexes
-    (indexes-where semantic-token-modifiers
+    (indexes-where *semantic-token-modifiers*
                    (λ (modifier)
                      (member modifier (SemanticToken-modifiers token)))))
   ;; build a bit flag of the modifiers of `token`.
@@ -22,7 +22,7 @@
   ;; return flag
   ;;
   ;; But the integer bit width is ignored here, because
-  ;; semantic-token-modifiers is currently very small.
+  ;; *semantic-token-modifiers* is currently very small.
   (for/sum ([index indexes])
     (expt 2 index)))
 

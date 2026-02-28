@@ -230,8 +230,8 @@
           (hasheq 'prepareProvider #t)]
          [_ #t]))
      (define semantic-provider
-       (hasheq 'legend (hasheq 'tokenTypes (map ->jsexpr semantic-token-types)
-                               'tokenModifiers (map ->jsexpr semantic-token-modifiers))
+       (hasheq 'legend (hasheq 'tokenTypes (map ->jsexpr *semantic-token-types*)
+                               'tokenModifiers (map ->jsexpr *semantic-token-modifiers*))
                'full #t
                'range #t))
 

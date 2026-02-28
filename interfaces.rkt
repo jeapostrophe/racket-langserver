@@ -50,8 +50,8 @@
          (json-type-out SemanticTokenType)
          (json-type-out SemanticTokenModifier)
          (struct-out SemanticToken)
-         semantic-token-types
-         semantic-token-modifiers
+         *semantic-token-types*
+         *semantic-token-modifiers*
          abs-pos->Pos)
 
 (define-json-struct Pos
@@ -244,15 +244,15 @@
 ;; Different order produces different encoding results of semantic tokens,
 ;; but does not affect client and server behavior.
 ;; To change the order, simply change it here, don't need to change other code.
-(define semantic-token-types
+(define *semantic-token-types*
   (list SemanticTokenType-variable
         SemanticTokenType-function
         SemanticTokenType-string
         SemanticTokenType-number
         SemanticTokenType-regexp))
 
-;; The order of this list is irrelevant, similar to semantic-token-types.
-(define semantic-token-modifiers
+;; The order of this list is irrelevant, similar to *semantic-token-types*.
+(define *semantic-token-modifiers*
   (list SemanticTokenModifier-definition))
 
 (define (abs-pos->Pos editor pos)
