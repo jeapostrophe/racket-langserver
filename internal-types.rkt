@@ -17,9 +17,15 @@
          data/interval-map)
 
 (provide
-  (struct-out ExpandResult)
+  ExpandResult
+  ExpandResult?
+  ExpandResult-logs
   (struct-out Decl)
-  interval-map-of)
+  interval-map-of
+  ExpandResult-pre-syntax
+  ExpandResult-post-syntax
+  ExpandResult-pre-exn
+  ExpandResult-post-exn)
 
 ;; Struct to hold the result of an expansion.
 ;; pre-stx: the syntax before expansion, result of `read-syntax`
@@ -30,6 +36,28 @@
    [post-stx (or/c syntax? exn? #f)]
    [logs (listof (vector/c log-level/c string? any/c (or/c symbol? #f)))])
   #:transparent)
+
+(define (maybe-syntax x)
+  (and (syntax? x) x))
+
+(define (maybe-exn x)
+  (and (exn? x) x))
+
+(define/contract (ExpandResult-pre-syntax er)
+  (-> ExpandResult? (or/c syntax? #f))
+  (maybe-syntax (ExpandResult-pre-stx er)))
+
+(define/contract (ExpandResult-post-syntax er)
+  (-> ExpandResult? (or/c syntax? #f))
+  (maybe-syntax (ExpandResult-post-stx er)))
+
+(define/contract (ExpandResult-pre-exn er)
+  (-> ExpandResult? (or/c exn? #f))
+  (maybe-exn (ExpandResult-pre-stx er)))
+
+(define/contract (ExpandResult-post-exn er)
+  (-> ExpandResult? (or/c exn? #f))
+  (maybe-exn (ExpandResult-post-stx er)))
 
 (struct/contract Decl
   ([filepath (or/c path-string? #f)]

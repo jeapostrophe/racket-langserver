@@ -77,15 +77,14 @@
   (define in (open-input-string text))
   (define er (expand-source path in new-trace))
 
-  (define pre-stx (ExpandResult-pre-stx er))
-  (define post-stx (ExpandResult-post-stx er))
+  (define pre-stx (ExpandResult-pre-syntax er))
+  (define post-stx (ExpandResult-post-syntax er))
 
   (send new-trace walk-stx er)
   (send new-trace walk-log (ExpandResult-logs er))
-  (CSResult new-trace text (and (syntax? pre-stx) (syntax? post-stx))))
+  (CSResult new-trace text (and pre-stx post-stx)))
 
 (provide
-  (struct-out ExpandResult)
   (struct-out CSResult)
   (contract-out
     [expand-source (-> path? input-port? (is-a?/c syncheck-annotations<%>) ExpandResult?)]

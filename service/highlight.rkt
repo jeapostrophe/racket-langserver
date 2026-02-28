@@ -43,9 +43,9 @@
         (set! styles (cons (Token start finish SemanticTokenModifier-definition) styles))))
 
     (define/override (walk-stx expand-result)
-      (define stx (ExpandResult-pre-stx expand-result))
-      (define expanded (ExpandResult-post-stx expand-result))
-      (when (and (syntax? stx) (syntax? expanded))
+      (define stx (ExpandResult-pre-syntax expand-result))
+      (define expanded (ExpandResult-post-syntax expand-result))
+      (when (and stx expanded)
         (set! token-map (token-list->interval-map (collect-tokens stx expanded styles src doc-text)))))
 
     (define (token-list->interval-map lst)

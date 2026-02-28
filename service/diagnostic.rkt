@@ -42,8 +42,8 @@
       (set! quickfixs (make-interval-map)))
 
     (define/override (walk-stx expand-result)
-      (define stx (ExpandResult-pre-stx expand-result))
-      (define expanded-stx (ExpandResult-post-stx expand-result))
+      (define pre-exn (ExpandResult-pre-exn expand-result))
+      (define post-exn (ExpandResult-post-exn expand-result))
       (when (eq? indenter 'missing)
         (add-diag!
           (Diagnostic #:range (Range #:start (Pos #:line 0 #:char 0)
@@ -51,10 +51,10 @@
                       #:severity DiagnosticSeverity-Error
                       #:source "Racket"
                       #:message "Missing or invalid #lang line")))
-      (when (exn? stx)
-        (add-diags! (error-diagnostics doc-text stx)))
-      (when (exn? expanded-stx)
-        (add-diags! (error-diagnostics doc-text expanded-stx))))
+      (when pre-exn
+        (add-diags! (error-diagnostics doc-text pre-exn)))
+      (when post-exn
+        (add-diags! (error-diagnostics doc-text post-exn))))
 
     (define/override (walk-log logs)
       (for ([log (in-list logs)])

@@ -23,8 +23,8 @@
       (void))
 
     (define/override (walk-stx expand-result)
-      (define expanded-stx (ExpandResult-post-stx expand-result))
-      (when (syntax? expanded-stx)
+      (define expanded-stx (ExpandResult-post-syntax expand-result))
+      (when expanded-stx
         (set! completions (walk expanded-stx))))
 
     (define/public (get-online-completions str-before-cursor)
