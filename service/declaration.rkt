@@ -47,7 +47,7 @@
                                         [(Decl? decl-set)
                                          (define d-range (cons (Decl-left decl-set) (Decl-right decl-set)))
                                          (if (> (car d-range) after)
-                                             (Decl (Decl-filename decl-set) #f (+ (car d-range) amt) (+ (cdr d-range) amt))
+                                             (Decl (Decl-filepath decl-set) #f (+ (car d-range) amt) (+ (cdr d-range) amt))
                                              #f)]
                                         [else
                                          (list->set (set-map decl-set (lambda (d-range)

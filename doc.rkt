@@ -585,9 +585,9 @@
   (-> Doc? Pos? (or/c (listof DocumentHighlight?) #f))
   (define-values (start end decl) (doc-get-decl doc pos))
   (match decl
-    [(Decl filename id left right)
+    [(Decl filepath id left right)
      (define ranges
-       (if filename
+       (if filepath
            (list (abs-range->range doc start end)
                  (abs-range->range doc left right))
            (or (append (doc-get-bindings doc decl)
@@ -617,7 +617,7 @@
 (define/contract (doc-prepare-rename doc pos)
   (-> Doc? Pos? (or/c Range? #f))
   (define-values (start end decl) (doc-get-decl doc pos))
-  (if (and decl (not (Decl-filename decl)))
+  (if (and decl (not (Decl-filepath decl)))
       (abs-range->range doc start end)
       #f))
 

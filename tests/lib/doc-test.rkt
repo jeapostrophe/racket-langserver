@@ -287,7 +287,7 @@ END
     (define-values (start end decl) (doc-get-decl d (Pos 2 0)))
     (check-equal? start 26 "usage start pos")
     (check-equal? end 27 "usage end pos")
-    (check-false (Decl-filename decl) "local binding has no filename")
+    (check-false (Decl-filepath decl) "local binding has no filepath")
     (check-equal? (Decl-left decl) 21 "declaration left pos")
     (check-equal? (Decl-right decl) 22 "declaration right pos"))
 
@@ -298,7 +298,7 @@ END
     (define-values (start end decl) (doc-get-decl d (Pos 1 8)))
     (check-equal? start 21 "definition start pos")
     (check-equal? end 22 "definition end pos")
-    (check-false (Decl-filename decl) "local binding has no filename")
+    (check-false (Decl-filepath decl) "local binding has no filepath")
     (check-equal? (Decl-left decl) 21)
     (check-equal? (Decl-right decl) 22))
 
@@ -309,7 +309,7 @@ END
     (define-values (start end decl) (doc-get-decl d (Pos 1 1)))
     (check-equal? start 14 "imported define start pos")
     (check-equal? end 20 "imported define end pos")
-    (check-not-false (Decl-filename decl) "imported binding has a filename")
+    (check-not-false (Decl-filepath decl) "imported binding has a filepath")
     ;; Imported symbols have left=0, right=0
     (check-equal? (Decl-left decl) 0)
     (check-equal? (Decl-right decl) 0))
