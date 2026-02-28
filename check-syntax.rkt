@@ -1,14 +1,14 @@
 #lang racket/base
 (require drracket/check-syntax
          racket/class
-         racket/contract/base
+         racket/contract
          racket/logging
          syntax/modread
-         racket/contract/region
          racket/port
          "editor.rkt"
          "doc-trace.rkt"
-         "path-util.rkt")
+         "path-util.rkt"
+         "internal-types.rkt")
 
 (define (get-indenter text)
   (define lang-info
@@ -26,16 +26,6 @@
          ; (https://github.com/jeapostrophe/racket-langserver/issues/86)
          'missing)]
     [else #f]))
-
-; Struct to hold the result of an expansion.
-; pre-stx: the syntax before expansion, result of `read-syntax`
-; post-stx: the syntax after expansion, result of `expand`
-; logs: the log collected during expansion
-(struct/contract ExpandResult
-  ([pre-stx (or/c syntax? exn? eof-object?)]
-   [post-stx (or/c syntax? exn? #f)]
-   [logs (listof (vector/c log-level/c string? any/c (or/c symbol? #f)))])
-  #:transparent)
 
 ;; TODO: cache the namespace with some strategy
 (define (expand-source path in collector)
@@ -90,7 +80,7 @@
   (define pre-stx (ExpandResult-pre-stx er))
   (define post-stx (ExpandResult-post-stx er))
 
-  (send new-trace walk-stx pre-stx post-stx)
+  (send new-trace walk-stx er)
   (send new-trace walk-log (ExpandResult-logs er))
   (CSResult new-trace text (and (syntax? pre-stx) (syntax? post-stx))))
 

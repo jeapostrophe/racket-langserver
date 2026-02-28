@@ -9,17 +9,31 @@
 ;;   `interfaces.rkt` as `define-json-struct` types.
 
 (require racket/contract
+         racket/class
          racket/match
          racket/dict
+         racket/logging
+         drracket/check-syntax
          data/interval-map)
 
 (provide
+  (struct-out ExpandResult)
   (contract-out
     [struct Decl ([filename any/c]
                   [id any/c]
                   [left exact-nonnegative-integer?]
                   [right exact-nonnegative-integer?])])
   interval-map-of)
+
+;; Struct to hold the result of an expansion.
+;; pre-stx: the syntax before expansion, result of `read-syntax`
+;; post-stx: the syntax after expansion, result of `expand`
+;; logs: the log collected during expansion
+(struct/contract ExpandResult
+  ([pre-stx (or/c syntax? exn? eof-object?)]
+   [post-stx (or/c syntax? exn? #f)]
+   [logs (listof (vector/c log-level/c string? any/c (or/c symbol? #f)))])
+  #:transparent)
 
 (struct Decl (filename id left right) #:transparent)
 

@@ -45,9 +45,9 @@
       (for ([s services])
         (send s contract start end)))
 
-    (define/public (walk-stx stx expanded-stx)
+    (define/public (walk-stx expand-result)
       (for ([s services])
-        (send s walk-stx stx expanded-stx)))
+        (send s walk-stx expand-result)))
 
     (define/public (walk-text text)
       (for ([s services])

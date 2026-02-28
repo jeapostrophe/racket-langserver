@@ -10,6 +10,7 @@
          setup/path-to-relative
          data/interval-map
          "../interfaces.rkt"
+         "../internal-types.rkt"
          "../path-util.rkt"
          "../settings.rkt"
          drracket/check-syntax
@@ -40,7 +41,9 @@
       (set-clear! diags)
       (set! quickfixs (make-interval-map)))
 
-    (define/override (walk-stx stx expanded-stx)
+    (define/override (walk-stx expand-result)
+      (define stx (ExpandResult-pre-stx expand-result))
+      (define expanded-stx (ExpandResult-post-stx expand-result))
       (when (eq? indenter 'missing)
         (add-diag!
           (Diagnostic #:range (Range #:start (Pos #:line 0 #:char 0)

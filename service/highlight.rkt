@@ -3,6 +3,7 @@
 (require drracket/check-syntax
          syntax/parse
          "../interfaces.rkt"
+         "../internal-types.rkt"
          racket/class
          racket/list
          racket/bool
@@ -41,7 +42,9 @@
       (when (< start finish)
         (set! styles (cons (Token start finish SemanticTokenModifier-definition) styles))))
 
-    (define/override (walk-stx stx expanded)
+    (define/override (walk-stx expand-result)
+      (define stx (ExpandResult-pre-stx expand-result))
+      (define expanded (ExpandResult-post-stx expand-result))
       (when (and (syntax? stx) (syntax? expanded))
         (set! token-map (token-list->interval-map (collect-tokens stx expanded styles src doc-text)))))
 

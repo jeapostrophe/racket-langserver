@@ -1,7 +1,8 @@
 #lang racket/base
 
 (require racket/class
-         drracket/check-syntax)
+         drracket/check-syntax
+         "../internal-types.rkt")
 
 (provide service<%>
          base-service%)
@@ -38,8 +39,8 @@
     (define/public (reset)
       (void))
 
-    ;; walk original syntax and expanded syntax
-    (define/public (walk-stx stx expanded-stx)
+    ;; walk syntax expansion result
+    (define/public (walk-stx expand-result)
       (void))
 
     (define/public (walk-text text)
