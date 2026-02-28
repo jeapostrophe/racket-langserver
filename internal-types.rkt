@@ -9,11 +9,8 @@
 ;;   `interfaces.rkt` as `define-json-struct` types.
 
 (require racket/contract
-         racket/class
-         racket/match
          racket/dict
          racket/logging
-         drracket/check-syntax
          data/interval-map)
 
 (provide

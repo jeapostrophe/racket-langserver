@@ -21,7 +21,6 @@
          data/interval-map
          syntax-color/module-lexer
          syntax-color/racket-lexer
-         json
          "check-syntax.rkt"
          "docs-helpers.rkt"
          "documentation-parser.rkt"

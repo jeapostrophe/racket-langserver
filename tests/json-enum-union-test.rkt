@@ -1,7 +1,8 @@
 #lang racket
-(require "../json-util.rkt" rackunit)
 
 (module+ test
+  (require rackunit
+           "../json-util.rkt")
   ;; define-json-enum
   (define-json-enum SymbolKind
     [file 1]

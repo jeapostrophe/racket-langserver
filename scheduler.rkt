@@ -3,8 +3,7 @@
 (require racket/async-channel
          racket/match
          racket/set
-         racket/sandbox
-         "version.rkt")
+         racket/sandbox)
 
 (struct PushTask
   (token type task)

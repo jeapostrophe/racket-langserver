@@ -1,8 +1,7 @@
 #lang racket/base
 
 (require racket/class
-         drracket/check-syntax
-         "../internal-types.rkt")
+         drracket/check-syntax)
 
 (provide service<%>
          base-service%)

@@ -1,10 +1,5 @@
 #lang racket/base
-(require json
-         compiler/module-suffix
-         racket/os
-         "../../msg-io.rkt"
-         "../../json-util.rkt"
-         "../../interfaces.rkt")
+(require racket/os)
 
 (define init-req
   (hasheq 'jsonrpc "2.0"
@@ -29,7 +24,12 @@
     (displayln str (current-error-port))))
 
 (module+ test
-  (require rackunit)
+  (require rackunit
+           json
+           compiler/module-suffix
+           "../../msg-io.rkt"
+           "../../json-util.rkt"
+           "../../interfaces.rkt")
 
   (define racket-path (find-executable-path "racket"))
   (define-values (sp stdout stdin stderr)
