@@ -532,6 +532,7 @@
   (match-define (Decl req? id left right) decl)
   (define-values (bind-start bind-end bindings)
     (interval-map-ref/bounds doc-decls left #f))
+
   (if bindings
       (for/list ([range (in-set bindings)])
         (abs-range->range doc (car range) (cdr range)))
@@ -575,8 +576,19 @@
            (list (abs-range->range doc start end)
                  (abs-range->range doc left right))
            (or (doc-get-bindings doc decl))))
-     (for/list ([range (in-list ranges)])
-       (Location #:uri uri #:range range))]
+     (define local-locations
+       (for/list ([range (in-list ranges)])
+         (Location #:uri uri #:range range)))
+     ;; id can be #f. Use position range to get its name
+     (define ws-id
+       (or id
+           (for/or ([(sym def) (in-hash (send (Doc-trace doc) get-definitions))])
+             (and (= (Decl-left def) left) (= (Decl-right def) right) sym))))
+     (define workspace-locations
+       (if ws-id
+           (send (Doc-trace doc) get-workspace-bindings (Doc-uri doc) ws-id)
+           '()))
+     (append local-locations workspace-locations)]
     [#f #f]))
 
 ;; Document Highlight: returns a list of DocumentHighlights or #f.
