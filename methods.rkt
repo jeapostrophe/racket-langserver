@@ -7,9 +7,9 @@
          racket/class
          racket/async-channel
          "error-codes.rkt"
-         "responses.rkt"
-         "struct.rkt"
+         "interfaces.rkt"
          "json-util.rkt"
+         "responses.rkt"
          "path-util.rkt"
          (prefix-in workspace/ "workspace.rkt")
          (prefix-in text-document/ "text-document.rkt"))
@@ -230,8 +230,8 @@
           (hasheq 'prepareProvider #t)]
          [_ #t]))
      (define semantic-provider
-       (hasheq 'legend (hasheq 'tokenTypes (map symbol->string *semantic-token-types*)
-                               'tokenModifiers (map symbol->string *semantic-token-modifiers*))
+       (hasheq 'legend (hasheq 'tokenTypes (map ->jsexpr *semantic-token-types*)
+                               'tokenModifiers (map ->jsexpr *semantic-token-modifiers*))
                'full #t
                'range #t))
 

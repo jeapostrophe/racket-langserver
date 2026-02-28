@@ -15,7 +15,8 @@
 (define (walk stx)
   (append
     (set->list (user-defined:walk stx))
-    (set->list (required:walk-module stx))))
+    (with-handlers ([(λ (_exn) #t) (λ (_) '())])
+      (set->list (required:walk-module stx)))))
 
 ;; Get completions that will be computed for every text change.
 ;; String -> (Listof Symbol)

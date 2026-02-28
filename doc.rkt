@@ -1,89 +1,60 @@
 #lang racket/base
 
-(require "check-syntax.rkt"
-         "msg-io.rkt"
-         "responses.rkt"
-         "interfaces.rkt"
-         "scheduler.rkt"
+;; This module provides a library for representing a document. It is designed
+;; to be easy to use and single-threaded, containing only document-related logic
+;; functions. For use in a multi-threaded LSP environment, it should be wrapped
+;; by a structure that provides thread safety, such as `SafeDoc`.
+
+(require "interfaces.rkt"
          "editor.rkt"
          "path-util.rkt"
          "doc-trace.rkt"
-         "struct.rkt"
+         "internal-types.rkt"
          racket/match
+         racket/contract
          racket/class
          racket/set
          racket/list
          racket/string
          racket/bool
+         racket/dict
          data/interval-map
          syntax-color/module-lexer
          syntax-color/racket-lexer
-         json
+         "check-syntax.rkt"
+         "docs-helpers.rkt"
+         "documentation-parser.rkt"
          drracket/check-syntax
-         syntax/modread
-         "base/rwlock.rkt")
+         racket/format)
 
-;; SafeDoc has two eliminator:
-;; with-read-doc: access Doc within a reader lock.
-;; with-write-doc: access Doc within a writer lock.
-;; Access its fields without protection should not be allowed.
-(struct SafeDoc
-  (doc rwlock)
-  #:transparent)
-
-(struct Doc
-  (uri text trace version trace-version)
+(struct/contract Doc
+  ([uri string?]
+   [text (is-a?/c lsp-editor%)]
+   [trace (is-a?/c build-trace%)]
+   [version exact-nonnegative-integer?]
+   [trace-version (or/c false/c exact-nonnegative-integer?)])
   #:mutable)
 
-;; the only place where really run check-syntax
-(define (doc-run-check-syntax! notify-client safe-doc)
-  (match-define (list uri old-version text)
-    (with-read-doc safe-doc
-      (λ (doc)
-        (list (Doc-uri doc) (Doc-version doc) (send (Doc-text doc) copy)))))
-
-  (define (task)
-    (define new-trace (check-syntax notify-client uri text))
-    ;; make a new thread to write doc because this task will be executed by
-    ;; the scheduler and can be killed at any time.
-    (thread
-      (λ ()
-        (with-write-doc safe-doc
-          (λ (doc)
-            (when (and (equal? old-version (Doc-version doc))
-                       new-trace)
-              (set-Doc-trace-version! doc old-version)
-              (set-Doc-trace! doc new-trace))))
-        (clear-old-queries/new-trace uri))))
-
-  (scheduler-push-task! (with-read-doc safe-doc (λ (doc) (Doc-uri doc))) 'check-syntax task))
-
-(define (new-doc uri text version)
+(define/contract (make-doc uri text [version 0])
+  (->* (string? string?)
+       (exact-nonnegative-integer?)
+       Doc?)
   (define doc-text (new lsp-editor%))
   (send doc-text insert text 0)
   ;; the init trace should not be #f
   (define doc-trace (new build-trace% [src (uri->path uri)] [doc-text doc-text] [indenter #f]))
-  (define doc (Doc uri doc-text doc-trace version #f))
-  (define safe-doc (SafeDoc doc (make-rwlock)))
-  safe-doc)
+  (Doc uri doc-text doc-trace version #f))
 
-(define (doc-update-version! doc new-ver)
+(define/contract (doc-update-version! doc new-ver)
+  (-> Doc? exact-nonnegative-integer? void?)
   (set-Doc-version! doc new-ver))
 
-(define (doc-update-uri! doc new-uri)
+(define/contract (doc-update-uri! doc new-uri)
+  (-> Doc? string? void?)
   (set-Doc-uri! doc new-uri))
 
-(define (with-read-doc safe-doc proc)
-  (call-with-read-lock
-    (SafeDoc-rwlock safe-doc)
-    (λ () (proc (SafeDoc-doc safe-doc)))))
-
-(define (with-write-doc safe-doc proc)
-  (call-with-write-lock
-    (SafeDoc-rwlock safe-doc)
-    (λ () (proc (SafeDoc-doc safe-doc)))))
-
-(define (doc-reset! doc new-text)
+(define/contract (doc-reset! doc new-text)
+  (-> Doc? string? void?)
   (define doc-text (Doc-text doc))
   (define doc-trace (Doc-trace doc))
 
@@ -91,12 +62,13 @@
   (send doc-trace reset)
   (send doc-text insert new-text 0))
 
-(define (doc-update! doc st-ln st-ch ed-ln ed-ch text)
+(define/contract (doc-apply-edit! doc range text)
+  (-> Doc? Range? string? void?)
   (define doc-text (Doc-text doc))
   (define doc-trace (Doc-trace doc))
 
-  (define st-pos (doc-pos doc st-ln st-ch))
-  (define end-pos (doc-pos doc ed-ln ed-ch))
+  (define st-pos (doc-pos->abs-pos doc (Range-start range)))
+  (define end-pos (doc-pos->abs-pos doc (Range-end range)))
   (define old-len (- end-pos st-pos))
   (define new-len (string-length text))
 
@@ -106,23 +78,100 @@
         [(< new-len old-len) (send doc-trace contract (+ st-pos new-len) end-pos)])
   (send doc-text replace text st-pos end-pos))
 
-(define (doc-pos doc line ch)
-  (send (Doc-text doc) line/char->pos line ch))
+(define/contract (doc-apply-edits! doc edits)
+  (-> Doc? (listof TextEdit?) void?)
+  ;; Apply from the end of the document so earlier edits do not shift
+  ;; the positions of later edits.
+  (define edits-descending-by-start
+    (sort edits
+          (λ (a b)
+            (define a-start (doc-pos->abs-pos doc (Range-start (TextEdit-range a))))
+            (define b-start (doc-pos->abs-pos doc (Range-start (TextEdit-range b))))
+            (if (= a-start b-start)
+                (> (doc-pos->abs-pos doc (Range-end (TextEdit-range a)))
+                   (doc-pos->abs-pos doc (Range-end (TextEdit-range b))))
+                (> a-start b-start)))))
+  (doc-check-non-overlapping-edits! doc edits-descending-by-start)
+  (for ([edit (in-list edits-descending-by-start)])
+    (doc-apply-edit! doc (TextEdit-range edit) (TextEdit-newText edit))))
 
-(define (doc-line/ch doc pos)
+(define (doc-check-non-overlapping-edits! doc edits-descending-by-start)
+  (for ([later-start-edit (in-list edits-descending-by-start)]
+        [earlier-start-edit (in-list (rest edits-descending-by-start))])
+    (define later-start (doc-pos->abs-pos doc (Range-start (TextEdit-range later-start-edit))))
+    (define earlier-start (doc-pos->abs-pos doc (Range-start (TextEdit-range earlier-start-edit))))
+    (define earlier-end (doc-pos->abs-pos doc (Range-end (TextEdit-range earlier-start-edit))))
+    (when (> earlier-end later-start)
+      (error 'doc-apply-edits!
+             "overlapping edits: ~a..~a, next starts at ~a"
+             earlier-start
+             earlier-end
+             earlier-start))))
+
+(define/contract (doc-expand uri doc-text)
+  (-> string? (is-a?/c lsp-editor%) CSResult?)
+  (check-syntax uri doc-text))
+
+(define/contract (doc-update-trace! doc new-trace new-version)
+  (-> Doc? (is-a?/c build-trace%) exact-nonnegative-integer? void?)
+  (set-Doc-trace! doc new-trace)
+  (set-Doc-trace-version! doc new-version))
+
+(define/contract (doc-trace-latest? doc)
+  (-> Doc? boolean?)
+  (equal? (Doc-version doc) (Doc-trace-version doc)))
+
+(define/contract (doc-walk-text trace text)
+  (-> (is-a?/c build-trace%) string? void?)
+  (send trace walk-text text))
+
+(define/contract (doc-expand! doc)
+  (-> Doc? boolean?)
+  (define result (doc-expand (Doc-uri doc) (Doc-text doc)))
+  (define new-trace (CSResult-trace result))
+  (cond [(CSResult-succeed? result)
+         (define text (CSResult-text result))
+         (doc-update-trace! doc new-trace (Doc-version doc))
+         (doc-walk-text new-trace text)
+         #t]
+        [else #f]))
+
+(define/contract (doc-pos->abs-pos doc pos)
+  (-> Doc? Pos? exact-nonnegative-integer?)
+  (send (Doc-text doc) line/char->pos (Pos-line pos) (Pos-char pos)))
+
+(define/contract (doc-abs-pos->pos doc pos)
+  (-> Doc? exact-nonnegative-integer? Pos?)
   (match-define (list line char) (send (Doc-text doc) pos->line/char pos))
-  (values line char))
+  (Pos line char))
 
-(define (doc-line-start-pos doc line)
+(define/contract (doc-line-start-abs-pos doc line)
+  (-> Doc? exact-nonnegative-integer? exact-nonnegative-integer?)
   (send (Doc-text doc) line-start-pos line))
 
-(define (doc-line-end-pos doc line)
+(define/contract (doc-line-end-abs-pos doc line)
+  (-> Doc? exact-nonnegative-integer? exact-nonnegative-integer?)
   (send (Doc-text doc) line-end-pos line))
 
-(define (doc-endpos doc)
+(define/contract (doc-end-abs-pos doc)
+  (-> Doc? exact-nonnegative-integer?)
   (send (Doc-text doc) end-pos))
 
-(define (doc-find-containing-paren doc pos)
+(define/contract (doc-get-text doc)
+  (-> Doc? string?)
+  (send (Doc-text doc) get-text))
+
+(define/contract (doc-diagnostics doc)
+  (-> Doc? (listof Diagnostic?))
+  (set->list (send (Doc-trace doc) get-warn-diags)))
+
+(define/contract (doc-copy-text-buffer doc)
+  (-> Doc? (is-a?/c lsp-editor%))
+  (send (Doc-text doc) copy))
+
+;; TODO: Use lexer/token info here instead of scanning raw characters.
+(define/contract (doc-find-containing-paren doc pos)
+  (-> Doc? exact-nonnegative-integer? (or/c exact-nonnegative-integer? #f))
   (define text (send (Doc-text doc) get-text))
   (define l (string-length text))
   (cond
@@ -146,7 +195,12 @@
   (for ([lst (in-port (lexer-wrap lexer) in)]
         #:when (set-member? '(constant string symbol) (second lst)))
     (match-define (list text type _paren? start end) lst)
-    (interval-map-set! symbols start end (list text type)))
+    (define kind
+      (match type
+        ['constant SymbolKind-Constant]
+        ['string SymbolKind-String]
+        ['symbol SymbolKind-Variable]))
+    (interval-map-set! symbols start end (list text kind)))
   symbols)
 
 ;; Wrapper for in-port, returns a list or EOF.
@@ -179,7 +233,13 @@
     [(eq? lexer 'before-lang-line) racket-lexer]
     [else racket-lexer]))
 
-(define (doc-get-symbols doc)
+(define symbol-entry/c
+  (list/c string? SymbolKind?))
+
+;; TODO: Lexer positions start at 1.
+;; Convert them to start at 0 so they match the rest of this file.
+(define/contract (doc-get-symbols doc)
+  (-> Doc? (interval-map-of symbol-entry/c))
   (get-symbols (Doc-text doc)))
 
 ;; definition BEG ;;
@@ -192,45 +252,40 @@
            (define/override (syncheck:add-definition-target source-obj start end id mods)
              (hash-set! defs id (cons start end)))
            (super-new))))
-  (define-values (src-dir _file _dir?)
-    (split-path path))
   (define in (open-input-string (send doc-text get-text)))
 
-  (define ns (make-base-namespace))
-  (define-values (add-syntax done)
-    (make-traversal ns src-dir))
-  (parameterize ([current-annotations collector]
-                 [current-namespace ns]
-                 [current-load-relative-directory src-dir])
-    (define stx (expand (with-module-reading-parameterization
-                          (λ () (read-syntax path in)))))
-    (add-syntax stx))
+  ;; expand-source handles traversal and adding syntax to collector
+  (expand-source path in collector)
   (send collector get id))
 
-(define (get-definition-by-id path id)
+(define/contract (doc-get-definition-by-id path id)
+  (-> path-string? symbol? Range?)
   (define doc-text (new lsp-editor%))
   (send doc-text load-file path)
   (match-define (cons start end) (get-def path doc-text id))
-  (match-define (list st-ln st-ch) (send doc-text pos->line/char start))
-  (match-define (list ed-ln ed-ch) (send doc-text pos->line/char end))
-  (make-Range #:start (make-Position #:line st-ln #:character st-ch)
-              #:end (make-Position #:line ed-ln #:character ed-ch)))
+  (Range (abs-pos->Pos doc-text start)
+         (abs-pos->Pos doc-text end)))
 
 ;; definition END ;;
 
 ;; formatting ;;
 
 ;; Shared path for all formatting requests
-(define (format! doc st-ln st-ch ed-ln ed-ch
-                 #:on-type? [on-type? #f]
-                 #:formatting-options opts)
+(define/contract (doc-format-edits doc fmt-range
+                                   #:formatting-options opts
+                                   #:on-type? [on-type? #f])
+  (->* (Doc? Range? #:formatting-options FormattingOptions?)
+       (#:on-type? boolean?)
+       (or/c (listof TextEdit?) #f))
   (define doc-text (Doc-text doc))
   (define doc-trace (Doc-trace doc))
 
   (define indenter (send doc-trace get-indenter))
-  (define start-pos (doc-pos doc st-ln st-ch))
+  (define start-pos (doc-pos->abs-pos doc (Range-start fmt-range)))
   ;; Adjust for line endings (#92)
-  (define end-pos (max start-pos (sub1 (doc-pos doc ed-ln ed-ch))))
+  (define end-pos
+    (max start-pos
+         (sub1 (doc-pos->abs-pos doc (Range-end fmt-range)))))
   (define start-line (send doc-text at-line start-pos))
   (define end-line (send doc-text at-line end-pos))
 
@@ -245,7 +300,7 @@
   (define indenter-wp (indenter-wrapper indenter mut-doc-text on-type?))
   (define skip-this-line? #f)
 
-  (if (eq? indenter 'missing) (json-null)
+  (if (eq? indenter 'missing) #f
       (let loop ([line start-line])
         (define line-start (send mut-doc-text line-start-pos line))
         (define line-end (send mut-doc-text line-end-pos line))
@@ -297,8 +352,8 @@
      (define from (string-length (string-trim line-text #px"\\s+" #:left? #f)))
      (define to (string-length line-text))
      (send doc-text replace-in-line "" line from to)
-     (TextEdit #:range (Range #:start (Pos #:line line #:char from)
-                              #:end (Pos #:line line #:char to))
+     (TextEdit #:range (Range (Pos line from)
+                              (Pos line to))
                #:newText "")]
     [else #f]))
 
@@ -323,74 +378,22 @@
         [else
          (define new-text (make-string expect-indent #\space))
          (send doc-text replace-in-line new-text line 0 really-indent)
-         (TextEdit #:range (Range #:start (Pos #:line line #:char 0)
-                                  #:end (Pos #:line line #:char really-indent))
+         (TextEdit #:range (Range (Pos line 0)
+                                  (Pos line really-indent))
                    #:newText new-text)]))
-
-(define (token-type-encoding token)
-  (index-of *semantic-token-types* (SemanticToken-type token)))
-
-(define (token-modifier-encoding token)
-  (define indexes (indexes-where *semantic-token-modifiers*
-                                 (λ (m) (memq m (SemanticToken-modifiers token)))))
-  ;; build a bit flag of the modifiers of `token`.
-  ;;
-  ;; equivalent to C family pseudocode
-  ;;
-  ;; uint32_t flag = 0
-  ;; for index in indexes:
-  ;;   flag = flag | (1 << index)
-  ;; return flag
-  ;;
-  ;; But the integer bit width is ignored here, because
-  ;; the *semantic-token-modifiers* is very small.
-  (for/sum ([index indexes])
-    (expt 2 index)))
-
-;; encode `token` using relative encoding
-;;
-;; each token is encoded as five integers (copied from lsp specificatioin 3.17):
-;; * deltaLine: token line number, relative to the start of the previous token
-;; * deltaStart: token start character, relative to the start of the previous token
-;;               (relative to 0 or the previous token’s start if they are on the same line)
-;; * length: the length of the token.
-;; * tokenType: will be looked up in SemanticTokensLegend.tokenTypes.
-;;              We currently ask that tokenType < 65536.
-;; * tokenModifiers: each set bit will be looked up in SemanticTokensLegend.tokenModifiers
-;;
-;; for the first token, its previous token is defined as a zero length fake token which
-;; has line number 0 and character position 0.
-(define (token-encoding doc token prev-pos)
-  (match-define (list line ch) (send (Doc-text doc) pos->line/char (SemanticToken-start token)))
-  (match-define (list prev-line prev-ch) (send (Doc-text doc) pos->line/char prev-pos))
-  (define delta-line (- line prev-line))
-  (define delta-start
-    (if (= line prev-line)
-        (- ch prev-ch)
-        ch))
-  (define len (- (SemanticToken-end token) (SemanticToken-start token)))
-  (define type (token-type-encoding token))
-  (define modifier (token-modifier-encoding token))
-  (values delta-line delta-start len type modifier))
 
 ;; get the tokens whose range are contained in interval [pos-start, pos-end)
 ;; the tokens whose range intersects the given range is included.
 ;; the previous token of the first token in the result is defined as a zero length fake token which
 ;; has line number 0 and character position 0.
-(define (doc-range-tokens doc pos-start pos-end)
+(define/contract (doc-range-tokens doc range)
+  (-> Doc? Range? (listof SemanticToken?))
   (define tokens (send (Doc-trace doc) get-semantic-tokens))
-  (define tokens-in-range
-    (filter-not (λ (tok) (or (<= (SemanticToken-end tok) pos-start)
-                             (>= (SemanticToken-start tok) pos-end)))
-                tokens))
-  (for/fold ([result '()]
-             [prev-pos 0]
-             #:result (flatten (reverse result)))
-            ([token tokens-in-range])
-    (define-values (delta-line delta-start len type modifier)
-      (token-encoding doc token prev-pos))
-    (values (cons (list delta-line delta-start len type modifier) result)
-            (SemanticToken-start token))))
+  (define pos-start (doc-pos->abs-pos doc (Range-start range)))
+  (define pos-end (doc-pos->abs-pos doc (Range-end range)))
+  (filter-not (λ (tok) (or (<= (SemanticToken-end tok) pos-start)
+                           (>= (SemanticToken-start tok) pos-end)))
+              tokens))
 
 (define (-doc-find-token text pos)
   (define ch (string-ref text pos))
@@ -398,27 +401,277 @@
         [(or (char=? ch #\") (char-whitespace? ch)) '()]
         [else (cons ch (-doc-find-token text (sub1 pos)))]))
 
-(define (doc-guess-token doc pos)
+;; TODO: Use lexer/token data here instead of manual character scanning.
+(define/contract (doc-guess-token doc pos)
+  (-> Doc? exact-nonnegative-integer? string?)
   (list->string (reverse (-doc-find-token (send (Doc-text doc) get-text) pos))))
 
-(provide with-read-doc
-         with-write-doc
-         (struct-out Doc)
-         new-doc
-         doc-update!
+(define (abs-range->range doc start end)
+  (Range (doc-abs-pos->pos doc start) (doc-abs-pos->pos doc end)))
+
+(define/contract (doc-hover doc pos)
+  (-> Doc? Pos? (or/c Hover? #f))
+  (define doc-trace (Doc-trace doc))
+  (define hovers (send doc-trace get-hovers))
+  (define pos* (doc-pos->abs-pos doc pos))
+  (define-values (start end text)
+    (interval-map-ref/bounds hovers pos* #f))
+  (match-define (list link tag)
+    (interval-map-ref (send doc-trace get-docs) pos* (list #f #f)))
+  (define result
+    (cond [text
+           ;; We want signatures from `scribble/blueboxes` as they have better indentation,
+           ;; but in some super rare cases blueboxes aren't accessible, thus we try to use the
+           ;; parsed signature instead
+           (match-define (list sigs args-descr)
+             (if tag
+                 (get-docs-for-tag tag)
+                 (list #f #f)))
+           (define maybe-signature
+             (and sigs
+                  (~a "```\n"
+                      (string-join sigs "\n")
+                      (if args-descr
+                          (~a "\n" args-descr)
+                          "")
+                      "\n```\n---\n")))
+           (define documentation-text
+             (if link
+                 (~a (or maybe-signature "")
+                     (or (extract-documentation-for-selected-element
+                           link #:include-signature? (not maybe-signature))
+                         ""))
+                 ""))
+           (define contents (if link
+                                (~a text
+                                    " - [online docs]("
+                                    (make-proper-url-for-online-documentation link)
+                                    ")\n"
+                                    (if (non-empty-string? documentation-text)
+                                        (~a "\n---\n" documentation-text)
+                                        ""))
+                                text))
+           (Hover #:contents contents
+                  #:range (abs-range->range doc start end))]
+          [else #f]))
+  result)
+
+(define/contract (doc-code-action doc range)
+  (-> Doc? Range? (listof CodeAction?))
+  (define doc-trace (Doc-trace doc))
+  (define act
+    (interval-map-ref (send doc-trace get-quickfixs)
+                      (doc-pos->abs-pos doc (Range-start range))
+                      #f))
+  (if act (list act) (list)))
+
+(define/contract (doc-signature-help doc pos)
+  (-> Doc? Pos? (or/c SignatureHelp? #f))
+  (define doc-trace (Doc-trace doc))
+
+  (define pos* (doc-pos->abs-pos doc pos))
+  (define new-pos (doc-find-containing-paren doc (- pos* 1)))
+  (define result
+    (cond [new-pos
+           (define maybe-tag (interval-map-ref (send doc-trace get-docs) (+ new-pos 1) #f))
+           (define tag
+             (cond [maybe-tag (last maybe-tag)]
+                   [else
+                    (define symbols (doc-get-symbols doc))
+                    (define-values (start end symbol)
+                      (interval-map-ref/bounds symbols (+ new-pos 2) #f))
+                    (cond [symbol
+                           (id-to-tag (first symbol) doc-trace)]
+                          [else #f])]))
+           (cond [tag
+                  (match-define (list sigs docs) (get-docs-for-tag tag))
+                  (if sigs
+                      (SignatureHelp
+                        #:signatures
+                        (map (lambda (sig)
+                               (SignatureInformation
+                                 #:label sig
+                                 #:documentation (or docs "")))
+                             sigs))
+                      #f)]
+                 [else #f])]
+          [else #f]))
+  result)
+
+;; Get the declaration at a given position in the document.
+;; Returns (values start end decl) where decl is a Decl or #f.
+(define/contract (doc-get-decl doc pos)
+  (-> Doc?
+      Pos?
+      (values (or/c exact-nonnegative-integer? #f)
+              (or/c exact-nonnegative-integer? #f)
+              (or/c Decl? #f)))
+  (define doc-trace (Doc-trace doc))
+  (define pos* (doc-pos->abs-pos doc pos))
+  (define doc-decls (send doc-trace get-sym-decls))
+  (define doc-bindings (send doc-trace get-sym-bindings))
+  (define-values (start end maybe-decl)
+    (interval-map-ref/bounds doc-bindings pos* #f))
+  (define-values (bind-start bind-end maybe-bindings)
+    (interval-map-ref/bounds doc-decls pos* #f))
+  (if maybe-decl
+      (values start end maybe-decl)
+      (if maybe-bindings
+          (let ([decl (interval-map-ref doc-bindings (car (set-first maybe-bindings)) #f)])
+            (if decl
+                (values bind-start bind-end decl)
+                (values #f #f #f)))
+          (values #f #f #f))))
+
+;; Get binding ranges for a declaration.
+;; Returns a list of Range values.
+(define/contract (doc-get-bindings doc decl)
+  (-> Doc? Decl? (listof Range?))
+  (define doc-trace (Doc-trace doc))
+  (define doc-decls (send doc-trace get-sym-decls))
+  (match-define (Decl req? id left right) decl)
+  (define-values (bind-start bind-end bindings)
+    (interval-map-ref/bounds doc-decls left #f))
+  (if bindings
+      (for/list ([range (in-set bindings)])
+        (abs-range->range doc (car range) (cdr range)))
+      empty))
+
+;; Completion: returns a CompletionList.
+(define/contract (doc-completion doc pos)
+  (-> Doc? Pos? CompletionList?)
+  (define doc-trace (Doc-trace doc))
+  (define pos* (sub1 (doc-pos->abs-pos doc pos)))
+  (define completions
+    (append (send doc-trace get-completions)
+            (send doc-trace get-online-completions (doc-guess-token doc pos*))))
+  (define result
+    (for/list ([completion (in-list completions)])
+      (CompletionItem #:label (symbol->string completion))))
+  (CompletionList #:isIncomplete #t
+                  #:items result))
+
+;; Definition: returns a Location or #f.
+(define/contract (doc-definition doc uri pos)
+  (-> Doc? string? Pos? (or/c Location? #f))
+  (define-values (start end decl) (doc-get-decl doc pos))
+  (match decl
+    [#f #f]
+    [(Decl #f id start end)
+     (Location #:uri uri
+               #:range (abs-range->range doc start end))]
+    [(Decl path id 0 0)
+     (Location #:uri (path->uri path)
+               #:range (doc-get-definition-by-id path id))]))
+
+;; References: returns a list of Locations or #f.
+(define/contract (doc-references doc uri pos include-decl?)
+  (-> Doc? string? Pos? boolean? (or/c (listof Location?) #f))
+  (define-values (start end decl) (doc-get-decl doc pos))
+  (match decl
+    [(Decl req? id left right)
+     (define ranges
+       (if req?
+           (list (abs-range->range doc start end)
+                 (abs-range->range doc left right))
+           (or (doc-get-bindings doc decl))))
+     (for/list ([range (in-list ranges)])
+       (Location #:uri uri #:range range))]
+    [#f #f]))
+
+;; Document Highlight: returns a list of DocumentHighlights or #f.
+(define/contract (doc-highlights doc pos)
+  (-> Doc? Pos? (or/c (listof DocumentHighlight?) #f))
+  (define-values (start end decl) (doc-get-decl doc pos))
+  (match decl
+    [(Decl filepath id left right)
+     (define ranges
+       (if filepath
+           (list (abs-range->range doc start end)
+                 (abs-range->range doc left right))
+           (or (append (doc-get-bindings doc decl)
+                       (list (abs-range->range doc left right))))))
+     (for/list ([range (in-list ranges)])
+       (DocumentHighlight #:range range))]
+    [#f #f]))
+
+;; Rename: returns a WorkspaceEdit or #f.
+(define/contract (doc-rename doc uri pos new-name)
+  (-> Doc? string? Pos? string? (or/c WorkspaceEdit? #f))
+  (define-values (start end decl) (doc-get-decl doc pos))
+  (match decl
+    [(Decl req? id left right)
+     (cond [req? #f]
+           [else
+            (define ranges (cons (abs-range->range doc left right)
+                                 (doc-get-bindings doc decl)))
+            (WorkspaceEdit
+              #:changes
+              (hasheq (string->symbol uri)
+                      (for/list ([range (in-list ranges)])
+                        (TextEdit #:range range #:newText new-name))))])]
+    [#f #f]))
+
+;; Prepare Rename: returns a Range or #f.
+(define/contract (doc-prepare-rename doc pos)
+  (-> Doc? Pos? (or/c Range? #f))
+  (define-values (start end decl) (doc-get-decl doc pos))
+  (if (and decl (not (Decl-filepath decl)))
+      (abs-range->range doc start end)
+      #f))
+
+;; Document Symbols: returns a list of SymbolInformation.
+(define/contract (doc-symbols doc uri)
+  (-> Doc? string? (listof SymbolInformation?))
+  (dict-map (doc-get-symbols doc)
+            (λ (key value)
+              (match-define (cons start end) key)
+              (match-define (list text kind) value)
+              (SymbolInformation
+                #:name text
+                #:kind kind
+                #:location (Location #:uri uri
+                                     #:range (abs-range->range doc start end))))))
+
+(provide Doc?
+         Doc-version
+         Doc-uri
+         make-doc
+         doc-apply-edit!
+         doc-apply-edits!
          doc-reset!
          doc-update-version!
          doc-update-uri!
-         doc-run-check-syntax!
-         doc-pos
-         doc-endpos
-         doc-line/ch
-         doc-line-start-pos
-         doc-line-end-pos
+         doc-pos->abs-pos
+         doc-end-abs-pos
+         doc-get-text
+         doc-diagnostics
+         doc-copy-text-buffer
+         doc-abs-pos->pos
+         doc-line-start-abs-pos
+         doc-line-end-abs-pos
          doc-find-containing-paren
          doc-get-symbols
-         get-definition-by-id
-         format!
+         doc-get-definition-by-id
+         doc-format-edits
          doc-range-tokens
-         doc-guess-token)
+         doc-guess-token
+         doc-expand
+         doc-update-trace!
+         doc-trace-latest?
+         doc-expand!
+         doc-walk-text
+         doc-hover
+         doc-code-action
+         doc-signature-help
+         doc-get-decl
+         doc-get-bindings
+         doc-completion
+         doc-definition
+         doc-references
+         doc-highlights
+         doc-rename
+         doc-prepare-rename
+         doc-symbols
+         )
 

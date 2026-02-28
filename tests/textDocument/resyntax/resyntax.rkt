@@ -1,8 +1,6 @@
 #lang racket
 
-(require "../with-document.rkt"
-         "../../../service/dynamic-import.rkt"
-         "../../../json-util.rkt")
+(require "../../../service/dynamic-import.rkt")
 
 (define uri "file:///test.rkt")
 
@@ -22,7 +20,9 @@ END
 
 (module+ test
   (require rackunit
-           json)
+           json
+           "../with-document.rkt"
+           "../../../json-util.rkt")
 
   (when has-resyntax?
     (with-document uri code

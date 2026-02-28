@@ -1,12 +1,11 @@
 #lang racket/base
 
-(require "../client.rkt"
-         "../../json-util.rkt")
-
 (module+ test
   (require rackunit
            json
-           racket/port)
+           racket/port
+           "../client.rkt"
+           "../../json-util.rkt")
 
   (with-racket-lsp
     (λ (lsp)

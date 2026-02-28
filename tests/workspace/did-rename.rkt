@@ -1,7 +1,7 @@
 #lang racket
-(require "../client.rkt")
 
 (module+ test
+  (require "../client.rkt")
   (with-racket-lsp
     (λ (lsp)
       (define did-rename-notification

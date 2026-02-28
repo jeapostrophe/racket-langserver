@@ -1,88 +1,30 @@
 #lang racket/base
-(require data/interval-map
-         json
+(require json
          racket/match
          racket/list
+         racket/bool
          racket/contract
-         racket/class
-         racket/format
-         racket/string
-         racket/set
-         racket/dict
          "error-codes.rkt"
          "interfaces.rkt"
          "json-util.rkt"
-         "path-util.rkt"
          "responses.rkt"
-         "symbol-kinds.rkt"
-         "docs-helpers.rkt"
-         "documentation-parser.rkt"
+         "safedoc.rkt"
          "doc.rkt"
-         "struct.rkt"
+         "semantic-token-lsp.rkt"
          "scheduler.rkt"
+         "lsp.rkt"
          "workspace.rkt")
-(require "open-docs.rkt")
 
-;;
-;; Match Expanders
-;;;;;;;;;;;;;;;;;;;;
-
-(define-json-expander Location
-  [uri string?]
-  [range any/c])
-
-(define-json-expander ContentChangeEvent
-  [range any/c]
-  [rangeLength exact-nonnegative-integer?]
-  [text string?])
-
-;; VersionedTextDocumentIdentifier
-(define-json-expander DocIdentifier
-  [version exact-nonnegative-integer?]
-  [uri string?])
-
-;; TextDocumentItem
-(define-json-expander DocItem
-  [uri string?]
-  [languageId string?]
-  [version exact-nonnegative-integer?]
-  [text string?])
-
-(define-json-expander DocHighlight
-  [range any/c])
-
-(define-json-expander SymbolInfo
-  [name string?]
-  [kind exact-positive-integer?]
-  [location any/c])
-
-(define-json-expander InlayHint
-  ; must a position `Pos`, defined in interfaces.rkt
-  [position any/c]
-  ; should be `string | InlayHintLabelPart[]`
-  ; but let's stay in simple case for now
-  [label string?])
-
-(define (pos->abs-pos doc pos)
-  (match-define (Pos #:line line #:char char) pos)
-  (doc-pos doc line char))
-
-(define (abs-pos->pos doc pos)
-  (define-values (line char) (doc-line/ch doc pos))
-  (Pos #:line line #:char char))
-
-(define (start/end->range doc start end)
-  (Range #:start (abs-pos->pos doc start) #:end (abs-pos->pos doc end)))
-
-(define-json-expander ConfigurationItem
-  [scopeUri string?]
-  [section string?])
+(define (success/enc id result)
+  (success-response id (if (false? result) (json-null) (->jsexpr result))))
 
 (define client-capability-workspace/configuration? (make-parameter #f))
 (define (fetch-configuration request-client uri)
   (when (client-capability-workspace/configuration?)
     (request-client "workspace/configuration"
-                    (hasheq 'items (list (ConfigurationItem #:scopeUri uri #:section "racket-langserver")))
+                    (->jsexpr
+                      (ConfigurationParams
+                        #:items (list (ConfigurationItem #:scopeUri uri #:section "racket-langserver"))))
                     update-configuration)))
 
 ;;
@@ -90,123 +32,74 @@
 ;;;;;;;;;;;;
 
 (define (did-open! request-client notify-client params)
-  (match-define (hash-table ['textDocument (DocItem #:uri uri #:version version #:text text)]) params)
+  (match-define (hash-table ['textDocument (^DocItem #:uri uri #:version version #:text text)]) params)
   (fetch-configuration request-client uri)
-  (define safe-doc (new-doc uri text version))
-  (hash-set! open-docs (string->symbol uri) safe-doc)
-  (doc-run-check-syntax! notify-client safe-doc))
+  (define safe-doc (lsp-open-doc! uri text version))
+  (safedoc-run-check-syntax! notify-client safe-doc))
 
 (define (did-close! params)
-  (match-define (hash-table ['textDocument (DocItem #:uri uri)]) params)
-  (hash-remove! open-docs (string->symbol uri))
-  (clear-old-queries/doc-close uri))
+  (match-define (hash-table ['textDocument (DocItem-js #:uri uri)]) params)
+  (lsp-close-doc! uri))
 
 (define (did-change! notify-client params)
-  (match-define (hash-table ['textDocument (DocIdentifier #:version version #:uri uri)]
+  (match-define (hash-table ['textDocument (^DocIdentifier #:version version #:uri uri)]
                             ['contentChanges content-changes]) params)
-  (define safe-doc (hash-ref open-docs (string->symbol uri)))
+  (define safe-doc (lsp-get-doc uri))
+  (define token (SafeDoc-token safe-doc))
   (define content-changes*
     (cond [(eq? (json-null) content-changes) empty]
           [(list? content-changes) content-changes]
           [else (list content-changes)]))
 
-  (clear-old-queries/doc-change uri)
+  (clear-old-queries/doc-change token)
 
   (with-write-doc safe-doc
     (λ (doc)
       (for ([change (in-list content-changes*)])
         (match change
-          [(ContentChangeEvent #:range (Range #:start (Pos #:line st-ln #:char st-ch)
-                                              #:end (Pos #:line ed-ln #:char ed-ch))
-                               #:text text)
-           (doc-update! doc st-ln st-ch ed-ln ed-ch text)]
-          [(ContentChangeEvent #:text text)
+          [(^ContentChangeEvent-Incremental #:range range #:text text)
+           (doc-apply-edit! doc range text)]
+          [(^ContentChangeEvent-Full #:text text)
            (doc-reset! doc text)]))
 
       (doc-update-version! doc version)))
 
-  (doc-run-check-syntax! notify-client safe-doc))
+  (safedoc-run-check-syntax! notify-client safe-doc))
 
 ;; Hover request
 ;; Returns an object conforming to the Hover interface, to
 ;; be used as the result of the response message.
 (define (hover id params)
   (match params
-    [(hash-table ['textDocument (DocIdentifier #:uri uri)]
-                 ['position (Pos #:line line #:char ch)])
-     (define safe-doc (hash-ref open-docs (string->symbol uri)))
-     (with-read-doc safe-doc
-       (λ (doc)
-         (define doc-trace (Doc-trace doc))
-         (define hovers (send doc-trace get-hovers))
-         (define pos (doc-pos doc line ch))
-         (define-values (start end text)
-           (interval-map-ref/bounds hovers pos #f))
-         (match-define (list link tag)
-           (interval-map-ref (send doc-trace get-docs) pos (list #f #f)))
-         (define result
-           (cond [text
-                  ;; We want signatures from `scribble/blueboxes` as they have better indentation,
-                  ;; but in some super rare cases blueboxes aren't accessible, thus we try to use the
-                  ;; parsed signature instead
-                  (match-define (list sigs args-descr)
-                    (if tag
-                        (get-docs-for-tag tag)
-                        (list #f #f)))
-                  (define maybe-signature
-                    (and sigs
-                         (~a "```\n"
-                             (string-join sigs "\n")
-                             (if args-descr
-                                 (~a "\n" args-descr)
-                                 "")
-                             "\n```\n---\n")))
-                  (define documentation-text
-                    (if link
-                        (~a (or maybe-signature "")
-                            (or (extract-documentation-for-selected-element
-                                  link #:include-signature? (not maybe-signature))
-                                ""))
-                        ""))
-                  (define contents (if link
-                                       (~a text
-                                           " - [online docs]("
-                                           (make-proper-url-for-online-documentation link)
-                                           ")\n"
-                                           (if (non-empty-string? documentation-text)
-                                               (~a "\n---\n" documentation-text)
-                                               ""))
-                                       text))
-                  (hasheq 'contents contents
-                          'range (start/end->range doc start end))]
-                 [else (hasheq 'contents "")]))
-         (success-response id result)))]
+    [(hash-table ['textDocument (DocIdentifier-js #:uri uri)]
+                 ['position (as-Pos pos)])
+     (define safe-doc (lsp-get-doc uri))
+     (define result
+       (with-read-doc safe-doc
+         (λ (doc)
+           (doc-hover doc pos))))
+     (success/enc id result)]
     [_
      (error-response id INVALID-PARAMS "textDocument/hover failed")]))
 
 ;; Code Action request
 (define (code-action id params)
   (match params
-    [(hash-table ['textDocument (DocIdentifier #:uri uri)]
-                 ['range (Range #:start start #:end _end)]
+    [(hash-table ['textDocument (DocIdentifier-js #:uri uri)]
+                 ['range (as-Range range)]
                  ; TODO: _ctx has three fields
                  ; 1. `diagnostics`
                  ; 2. `only: CodeActionKind[]` server should use this to filter out client-unwanted code action
                  ; 3. `triggerKind?: CodeActionTriggerKind` the reason why code action were requested
                  ['context _ctx])
-     (define safe-doc (hash-ref open-docs (string->symbol uri)))
+     (define safe-doc (lsp-get-doc uri))
 
-     (define act
+     (define actions
        (with-read-doc safe-doc
          (λ (doc)
-           (define doc-trace (Doc-trace doc))
-           (interval-map-ref (send doc-trace get-quickfixs)
-                             (pos->abs-pos doc start)
-                             #f))))
-     (if act
-         (success-response id (list act))
-         (success-response id (list)))]
-    [(hash-table ['textDocument (DocIdentifier #:uri uri)])
+           (doc-code-action doc range))))
+     (success/enc id actions)]
+    [(hash-table ['textDocument (DocIdentifier-js #:uri uri)])
      (error-response id INVALID-PARAMS
                      (format "textDocument/codeAction failed uri is not a path ~a" uri))]
     [_ (error-response id INVALID-PARAMS "textDocument/codeAction failed")]))
@@ -214,60 +107,27 @@
 ;; Signature Help request
 (define (signatureHelp id params)
   (match params
-    [(hash-table ['textDocument (DocIdentifier #:uri uri)]
-                 ['position (Pos #:line line #:char ch)])
-     (define safe-doc (hash-ref open-docs (string->symbol uri)))
-     (with-read-doc safe-doc
-       (λ (doc)
-         (define doc-trace (Doc-trace doc))
-
-         (define pos (doc-pos doc line ch))
-         (define new-pos (doc-find-containing-paren doc (- pos 1)))
-         (define result
-           (cond [new-pos
-                  (define maybe-tag (interval-map-ref (send doc-trace get-docs) (+ new-pos 1) #f))
-                  (define tag
-                    (cond [maybe-tag (last maybe-tag)]
-                          [else
-                           (define symbols (doc-get-symbols doc))
-                           (define-values (start end symbol)
-                             (interval-map-ref/bounds symbols (+ new-pos 2) #f))
-                           (cond [symbol
-                                  (id-to-tag (first symbol) doc-trace)]
-                                 [else #f])]))
-                  (cond [tag
-                         (match-define (list sigs docs) (get-docs-for-tag tag))
-                         (if sigs
-                             (hasheq 'signatures (map (lambda (sig)
-                                                        (hasheq 'label sig
-                                                                'documentation (or docs (json-null))))
-                                                      sigs))
-                             (json-null))]
-                        [else (json-null)])]
-                 [else (json-null)]))
-         (success-response id result)))]
+    [(hash-table ['textDocument (DocIdentifier-js #:uri uri)]
+                 ['position (as-Pos pos)])
+     (define safe-doc (lsp-get-doc uri))
+     (define result
+       (with-read-doc safe-doc
+         (λ (doc)
+           (doc-signature-help doc pos))))
+     (success/enc id result)]
     [_
      (error-response id INVALID-PARAMS "textDocument/signatureHelp failed")]))
 
 ;; Completion Request
 (define (completion id params)
   (match params
-    [(hash-table ['textDocument (DocIdentifier #:uri uri)]
-                 ['position (Pos #:line line #:char ch)])
-     (define safe-doc (hash-ref open-docs (string->symbol uri)))
-     (with-read-doc safe-doc
-       (λ (doc)
-         (define doc-trace (Doc-trace doc))
-         (define pos (sub1 (doc-pos doc line ch)))
-         (define completions
-           (append (send doc-trace get-completions)
-                   (send doc-trace get-online-completions (doc-guess-token doc pos))))
-         (define result
-           (for/list ([completion (in-list completions)])
-             (hasheq 'label (symbol->string completion))))
-         (success-response id
-                           (hash 'isIncomplete #t
-                                 'items result))))]
+    [(hash-table ['textDocument (DocIdentifier-js #:uri uri)]
+                 ['position (as-Pos pos)])
+     (define safe-doc (lsp-get-doc uri))
+     (define result
+       (with-read-doc safe-doc
+         (λ (doc) (doc-completion doc pos))))
+     (success/enc id result)]
     [_
      (error-response id INVALID-PARAMS "textDocument/completion failed")]))
 
@@ -275,297 +135,201 @@
 
 (define (definition id params)
   (match params
-    [(hash-table ['textDocument (DocIdentifier #:uri uri)]
-                 ['position (Pos #:line line #:char char)])
-     (define-values (start end decl) (get-decl uri line char))
-
-     (define safe-doc (hash-ref open-docs (string->symbol uri)))
-
+    [(hash-table ['textDocument (DocIdentifier-js #:uri uri)]
+                 ['position (as-Pos pos)])
+     (define safe-doc (lsp-get-doc uri))
      (define result
        (with-read-doc safe-doc
-         (λ (doc)
-           (match decl
-             [#f (json-null)]
-             [(Decl #f id start end)
-              (Location #:uri uri
-                        #:range (start/end->range doc start end))]
-             [(Decl path id 0 0)
-              (Location #:uri (path->uri path)
-                        #:range (Range->hash (get-definition-by-id path id)))]))))
-     (success-response id result)]
+         (λ (doc) (doc-definition doc uri pos))))
+     (success/enc id result)]
     [_
      (error-response id INVALID-PARAMS "textDocument/definition failed")]))
 
 ;; Reference request
 (define (references id params)
   (match params
-    [(hash-table ['textDocument (DocIdentifier #:uri uri)]
-                 ['position (Pos #:line line #:char char)]
+    [(hash-table ['textDocument (DocIdentifier-js #:uri uri)]
+                 ['position (as-Pos pos)]
                  ['context (hash-table ['includeDeclaration include-decl?])])
-     (define-values (start end decl) (get-decl uri line char))
-
-     (define safe-doc (hash-ref open-docs (string->symbol uri)))
-
+     (define safe-doc (lsp-get-doc uri))
      (define result
        (with-read-doc safe-doc
-         (λ (doc)
-           (match decl
-             [(Decl req? id left right)
-              (define ranges
-                (if req?
-                    (list (start/end->range doc start end)
-                          (start/end->range doc left right))
-                    (or (get-bindings uri decl))))
-              (for/list ([range (in-list ranges)])
-                (hasheq 'uri uri 'range range))]
-             [#f (json-null)]))))
-     (success-response id result)]
+         (λ (doc) (doc-references doc uri pos include-decl?))))
+     (success/enc id result)]
     [_
      (error-response id INVALID-PARAMS "textDocument/references failed")]))
 
 ;; Document Highlight request
 (define (document-highlight id params)
   (match params
-    [(hash-table ['textDocument (DocIdentifier #:uri uri)]
-                 ['position (Pos #:line line #:char char)])
-
-     (define safe-doc (hash-ref open-docs (string->symbol uri)))
-
-     (define-values (start end decl) (get-decl uri line char))
+    [(hash-table ['textDocument (DocIdentifier-js #:uri uri)]
+                 ['position (as-Pos pos)])
+     (define safe-doc (lsp-get-doc uri))
      (define result
        (with-read-doc safe-doc
-         (λ (doc)
-           (match decl
-             [(Decl filename id left right)
-              (define ranges
-                (if filename
-                    (list (start/end->range doc start end)
-                          (start/end->range doc left right))
-                    (or (append (get-bindings uri decl)
-                                (list (start/end->range doc left right))))))
-              (for/list ([range (in-list ranges)])
-                (hasheq 'range range))]
-             [#f (json-null)]))))
-     (success-response id result)]
+         (λ (doc) (doc-highlights doc pos))))
+     (success/enc id result)]
     [_
      (error-response id INVALID-PARAMS "textDocument/documentHighlight failed")]))
 
 ;; Rename request
 (define (_rename id params)
   (match params
-    [(hash-table ['textDocument (DocIdentifier #:uri uri)]
-                 ['position (Pos #:line line #:char char)]
+    [(hash-table ['textDocument (DocIdentifier-js #:uri uri)]
+                 ['position (as-Pos pos)]
                  ['newName new-name])
-     (define-values (start end decl) (get-decl uri line char))
-
-     (define this-doc (hash-ref open-docs (string->symbol uri)))
-
+     (define safe-doc (lsp-get-doc uri))
      (define result
-       (with-read-doc this-doc
-         (λ (doc)
-           (match decl
-             [(Decl req? id left right)
-              (cond [req? (json-null)]
-                    [else
-                     (define ranges (cons (start/end->range doc left right)
-                                          (get-bindings uri decl)))
-                     (WorkspaceEdit
-                       #:changes
-                       (hasheq (string->symbol uri)
-                               (for/list ([range (in-list ranges)])
-                                 (TextEdit #:range range #:newText new-name))))])]
-             [#f (json-null)]))))
-     (success-response id result)]
+       (with-read-doc safe-doc
+         (λ (doc) (doc-rename doc uri pos new-name))))
+     (success/enc id result)]
     [_
-     (error-response id INVALID-PARAMS "textDocument/documentHighlight failed")]))
+     (error-response id INVALID-PARAMS "textDocument/rename failed")]))
 
 ;; Prepare rename
 (define (prepareRename id params)
   (match params
-    [(hash-table ['textDocument (DocIdentifier #:uri uri)]
-                 ['position (Pos #:line line #:char char)])
-     (define-values (start end decl) (get-decl uri line char))
-
-     (define this-doc (hash-ref open-docs (string->symbol uri)))
-
-     (if (and decl (not (Decl-filename decl)))
-         (success-response id (with-read-doc this-doc (λ (doc) (start/end->range doc start end))))
-         (success-response id (json-null)))]
+    [(hash-table ['textDocument (DocIdentifier-js #:uri uri)]
+                 ['position (as-Pos pos)])
+     (define safe-doc (lsp-get-doc uri))
+     (define result
+       (with-read-doc safe-doc
+         (λ (doc) (doc-prepare-rename doc pos))))
+     (success/enc id result)]
     [_
-     (error-response id INVALID-PARAMS "textDocument/documentHighlight failed")]))
-
-;; Gets a list of Range objects indicating bindings related to the
-;; symbol at the given position. If #:include-decl is #t, the list includes
-;; the declaration. If #:include-decl is 'all, the list includes the declaration
-;; and all bound occurrences.
-(define (get-bindings uri decl)
-  (define safe-doc (hash-ref open-docs (string->symbol uri)))
-  (with-read-doc safe-doc
-    (λ (doc)
-      (define doc-trace (Doc-trace doc))
-
-      (define doc-decls (send doc-trace get-sym-decls))
-      (match-define (Decl req? id left right) decl)
-      (define-values (bind-start bind-end bindings)
-        (interval-map-ref/bounds doc-decls left #f))
-      (if bindings
-          (for/list ([range (in-set bindings)])
-            (start/end->range doc (car range) (cdr range)))
-          empty))))
-
-(define (get-decl uri line char)
-  (define safe-doc (hash-ref open-docs (string->symbol uri)))
-  (with-read-doc safe-doc
-    (λ (doc)
-      (define doc-trace (Doc-trace doc))
-
-      (define pos (doc-pos doc line char))
-      (define doc-decls (send doc-trace get-sym-decls))
-      (define doc-bindings (send doc-trace get-sym-bindings))
-      (define-values (start end maybe-decl)
-        (interval-map-ref/bounds doc-bindings pos #f))
-      (define-values (bind-start bind-end maybe-bindings)
-        (interval-map-ref/bounds doc-decls pos #f))
-      (if maybe-decl
-          (values start end maybe-decl)
-          (if maybe-bindings
-              (values bind-start
-                      bind-end
-                      (interval-map-ref doc-bindings (car (set-first maybe-bindings)) #f))
-              (values #f #f #f))))))
+     (error-response id INVALID-PARAMS "textDocument/prepareRename failed")]))
 
 ;; Document Symbol request
 (define (document-symbol id params)
   (match params
-    [(hash-table ['textDocument (DocIdentifier #:uri uri)])
-     (define safe-doc (hash-ref open-docs (string->symbol uri)))
-
+    [(hash-table ['textDocument (DocIdentifier-js #:uri uri)])
+     (define safe-doc (lsp-get-doc uri))
      (define results
        (with-read-doc safe-doc
-         (λ (doc)
-           (dict-map (doc-get-symbols doc)
-                     (λ (key value)
-                       (match-define (cons start end) key)
-                       (match-define (list text type) value)
-                       (define kind (match type
-                                      ['constant SymbolKind-Constant]
-                                      ['string SymbolKind-String]
-                                      ['symbol SymbolKind-Variable]))
-                       (define range
-                         (Range #:start (abs-pos->pos doc start)
-                                #:end (abs-pos->pos doc end)))
-                       (SymbolInfo #:name text
-                                   #:kind kind
-                                   #:location (Location #:uri uri
-                                                        #:range range)))))))
-     (success-response id results)]
+         (λ (doc) (doc-symbols doc uri))))
+     (success/enc id results)]
     [_
      (error-response id INVALID-PARAMS "textDocument/documentSymbol failed")]))
 
 ;; Inlay Hint
 (define (inlay-hint id params)
   (match params
-    [(hash-table ['textDocument (DocIdentifier #:uri uri)]
-                 ['range (Range #:start start #:end end)])
-     (success-response id '())]
+    [(hash-table ['textDocument (DocIdentifier-js #:uri uri)]
+                 ['range (^Range _ _)])
+     (success/enc id '())]
     [_ (error-response id INVALID-PARAMS "textDocument/inlayHint failed")]))
 
 ;; Full document formatting request
 (define (formatting! id params)
   (match params
-    [(hash-table ['textDocument (DocIdentifier #:uri uri)]
+    [(hash-table ['textDocument (DocIdentifier-js #:uri uri)]
                  ['options (as-FormattingOptions opts)])
 
-     (define safe-doc (hash-ref open-docs (string->symbol uri)))
+     (define safe-doc (lsp-get-doc uri))
      (with-read-doc safe-doc
        (λ (doc)
-         (define-values (st-ln st-ch) (doc-line/ch doc 0))
-         (define-values (ed-ln ed-ch) (doc-line/ch doc (doc-endpos doc)))
-         (success-response id (format! doc st-ln st-ch ed-ln ed-ch #:formatting-options opts))))]
+         (define start (doc-abs-pos->pos doc 0))
+         (define end (doc-abs-pos->pos doc (doc-end-abs-pos doc)))
+         (success/enc
+           id
+           (doc-format-edits doc
+                             (Range start end)
+                             #:formatting-options opts))))]
     [_
      (error-response id INVALID-PARAMS "textDocument/formatting failed")]))
 
 ;; Range Formatting request
 (define (range-formatting! id params)
   (match params
-    [(hash-table ['textDocument (DocIdentifier #:uri uri)]
-                 ['range (Range #:start (Pos #:line st-ln #:char st-ch)
-                                #:end (Pos #:line ed-ln #:char ed-ch))]
+    [(hash-table ['textDocument (DocIdentifier-js #:uri uri)]
+                 ['range (as-Range range)]
                  ['options (as-FormattingOptions opts)])
-     (define safe-doc (hash-ref open-docs (string->symbol uri)))
+     (define safe-doc (lsp-get-doc uri))
      (with-read-doc safe-doc
        (λ (doc)
-         (success-response id (format! doc st-ln st-ch ed-ln ed-ch #:formatting-options opts))))]
+         (success/enc
+           id
+           (doc-format-edits doc range #:formatting-options opts))))]
     [_
      (error-response id INVALID-PARAMS "textDocument/rangeFormatting failed")]))
 
 ;; On-type formatting request
 (define (on-type-formatting! id params)
   (match params
-    [(hash-table ['textDocument (DocIdentifier #:uri uri)]
+    [(hash-table ['textDocument (DocIdentifier-js #:uri uri)]
                  ;; `position` is assumed to be the cursor position that after the edit.
                  ;; Therefore, `position - 1` is the position of `ch`.
                  ;; Also see issue https://github.com/jeapostrophe/racket-langserver/issues/111
-                 ['position (Pos #:line line #:char char)]
+                 ['position (as-Pos pos)]
                  ['ch ch]
                  ['options (as-FormattingOptions opts)])
-     (define safe-doc (hash-ref open-docs (string->symbol uri)))
+     (define safe-doc (lsp-get-doc uri))
 
      (with-read-doc safe-doc
        (λ (doc)
-         (define ch-pos (- (doc-pos doc line char) 1))
-         (define-values (st-ln st-ch ed-ln ed-ch)
+         (define ch-pos (- (doc-pos->abs-pos doc pos) 1))
+         (define line (Pos-line pos))
+         (define range
            (match ch
              ["\n"
-              (define-values (st-ln st-ch) (doc-line/ch doc (doc-line-start-pos doc line)))
-              (define-values (ed-ln ed-ch) (doc-line/ch doc (doc-line-end-pos doc line)))
-              (values st-ln st-ch ed-ln ed-ch)]
+              (define start (doc-abs-pos->pos doc (doc-line-start-abs-pos doc line)))
+              (define end (doc-abs-pos->pos doc (doc-line-end-abs-pos doc line)))
+              (Range start end)]
              [_
-              (define-values (st-ln st-ch)
-                (doc-line/ch doc (or (doc-find-containing-paren doc (max 0 (sub1 ch-pos))) 0)))
-              (define-values (ed-ln ed-ch) (doc-line/ch doc ch-pos))
-              (values st-ln st-ch ed-ln ed-ch)]))
-         (success-response id (format! doc st-ln st-ch ed-ln ed-ch
-                                       #:on-type? #t
-                                       #:formatting-options opts))))]
+              (define start
+                (let ([maybe-paren (doc-find-containing-paren doc (max 0 (sub1 ch-pos)))])
+                  (doc-abs-pos->pos doc (if (false? maybe-paren) 0 maybe-paren))))
+              (define end (doc-abs-pos->pos doc ch-pos))
+              (Range start end)]))
+         (success/enc
+           id
+           (doc-format-edits doc range
+                             #:on-type? #t
+                             #:formatting-options opts))))]
     [_
      (error-response id INVALID-PARAMS "textDocument/onTypeFormatting failed")]))
 
 (define (full-semantic-tokens id params)
   (match params
-    [(hash-table ['textDocument (DocIdentifier #:uri uri)])
-     (define safe-doc (hash-ref open-docs (string->symbol uri)))
-     (semantic-tokens uri id safe-doc 0 (with-read-doc safe-doc (λ (doc) (doc-endpos doc))))]
+    [(hash-table ['textDocument (DocIdentifier-js #:uri uri)])
+     (define safe-doc (lsp-get-doc uri))
+     (define full-range
+       (with-read-doc safe-doc
+         (λ (doc)
+           (Range (doc-abs-pos->pos doc 0)
+                  (doc-abs-pos->pos doc (doc-end-abs-pos doc))))))
+     (semantic-tokens uri id safe-doc full-range)]
     [_ (error-response id INVALID-PARAMS "textDocument/semanticTokens/full failed")]))
 
 (define (range-semantic-tokens id params)
   (match params
-    [(hash-table ['textDocument (DocIdentifier #:uri uri)]
-                 ['range (Range #:start (Pos #:line st-ln #:char st-ch)
-                                #:end (Pos #:line ed-ln #:char ed-ch))])
-     (define safe-doc (hash-ref open-docs (string->symbol uri)))
-     (match-define (list start-pos end-pos)
-       (with-read-doc safe-doc
-         (λ (doc)
-           (list (doc-pos doc st-ln st-ch)
-                 (doc-pos doc ed-ln ed-ch)))))
-     (semantic-tokens uri id safe-doc start-pos end-pos)]
+    [(hash-table ['textDocument (DocIdentifier-js #:uri uri)]
+                 ['range (as-Range range)])
+     (define safe-doc (lsp-get-doc uri))
+     (semantic-tokens uri id safe-doc range)]
     [_ (error-response id INVALID-PARAMS "textDocument/semanticTokens/range failed")]))
 
-(define (semantic-tokens uri id safe-doc start-pos end-pos)
+(define (semantic-tokens uri id safe-doc range)
   (define tokens
     (with-read-doc safe-doc
       (λ (doc)
-        (if (equal? (Doc-version doc) (Doc-trace-version doc))
-            (doc-range-tokens doc start-pos end-pos)
+        (if (doc-trace-latest? doc)
+            (encode-semantic-tokens
+              (λ (pos) (doc-abs-pos->pos doc pos))
+              (doc-range-tokens doc range))
             #f))))
   (if tokens
-      (success-response id (hash 'data tokens))
+      (success/enc id (hash 'data tokens))
       (async-query-wait
-        uri
+        (SafeDoc-token safe-doc)
         (λ (_signal)
-          (define tokens (with-read-doc safe-doc (λ (doc) (doc-range-tokens doc start-pos end-pos))))
-          (success-response id (hash 'data tokens))))))
+          (define tokens
+            (with-read-doc safe-doc
+              (λ (doc)
+                (encode-semantic-tokens
+                  (λ (pos) (doc-abs-pos->pos doc pos))
+                  (doc-range-tokens doc range)))))
+          (success/enc id (hash 'data tokens))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 

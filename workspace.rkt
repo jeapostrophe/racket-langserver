@@ -8,55 +8,42 @@
 (require compiler/module-suffix
          json)
 (require "json-util.rkt"
+         "interfaces.rkt"
+         "lsp.rkt"
+         "safedoc.rkt"
          "doc.rkt"
          "scheduler.rkt"
          "settings.rkt")
-(require "open-docs.rkt")
-
-(define-json-expander FileRename
-  [oldUri string?]
-  [newUri string?])
-(define-json-expander RenameFilesParams
-  [files (listof hash?)])
-
-(define-json-expander WorkspaceFolder
-  [uri string?]
-  [name string?])
-(define-json-expander WorkspaceFoldersChangeEvent
-  [added (listof hash?)]
-  [removed (listof hash?)])
-
-(define-json-expander FileEvent
-  [uri string?]
-  [type exact-positive-integer?])
-(define-json-expander DidChangeWatchedFilesParams
-  [changes (listof hash?)])
 
 (define workspace-folders (mutable-set))
 (define (add-workspace-folder! path)
   (set-add! workspace-folders path))
 
 (define (didRenameFiles params)
-  (match-define (RenameFilesParams #:files files) params)
+  (match-define (^RenameFilesParams #:files files) params)
   (for ([f files])
     (match-define (FileRename #:oldUri old-uri #:newUri new-uri) f)
 
     ; remove all awaiting internal queries about `old-uri`
-    (clear-old-queries/doc-close old-uri)
+    (define safe-doc (lsp-get-doc old-uri #f))
 
-    (if (regexp-match (get-module-suffix-regexp) new-uri)
-        (let ([safe-doc (hash-ref open-docs (string->symbol old-uri) #f)])
-          ; `safe-doc = #f` should be rarely happened.
-          ; we simply give up to handle it, let's trust LSP client will send others request about analysis this file.
-          (when safe-doc
-            (with-write-doc safe-doc
-              (lambda (doc)
-                (doc-update-uri! doc new-uri)))
-            (hash-set! open-docs (string->symbol new-uri) safe-doc)))
-        (hash-remove! open-docs (string->symbol old-uri)))))
+
+    ; `safe-doc = #f` should be rarely happened.
+    ; we simply give up to handle it, let's trust LSP client will send
+    ; other request about analysis this file.
+    (when safe-doc
+      (lsp-close-doc! old-uri))
+
+    (when (and safe-doc (regexp-match (get-module-suffix-regexp) new-uri))
+      (define-values (old-text old-version)
+        (with-read-doc safe-doc
+          (lambda (doc)
+            (values (doc-get-text doc) (Doc-version doc)))))
+      (lsp-open-doc! new-uri old-text old-version))))
 
 (define (didChangeWorkspaceFolders params)
-  (match-define (hash-table ['event (WorkspaceFoldersChangeEvent #:added added #:removed removed)]) params)
+  (match-define (^DidChangeWorkspaceFoldersParams #:event event) params)
+  (match-define (WorkspaceFoldersChangeEvent #:added added #:removed removed) event)
   (for ([f added])
     (match-define (WorkspaceFolder #:uri uri #:name _) f)
     (set-add! workspace-folders uri))
@@ -65,27 +52,28 @@
     (set-remove! workspace-folders uri)))
 
 (define (didChangeWatchedFiles params)
-  (match-define (DidChangeWatchedFilesParams #:changes changes) params)
+  (match-define (^DidChangeWatchedFilesParams #:changes changes) params)
   (for ([change changes])
     (match-define (FileEvent #:uri uri #:type type) change)
-    (match type
-      [1 (handle-file-created uri)]
-      [2 (handle-file-changed uri)]
-      [3 (handle-file-deleted uri)]
+    (match (FileChangeType-v type)
+      ['created (handle-file-created uri)]
+      ['changed (handle-file-changed uri)]
+      ['deleted (handle-file-deleted uri)]
       [_ (eprintf "Invalid file event type: ~a~n" type)])))
+
 (define (handle-file-created uri)
   (when (regexp-match (get-module-suffix-regexp) uri)
-    (define safe-doc (new-doc uri "" 0))
-    (hash-set! open-docs (string->symbol uri) safe-doc)))
+    (lsp-open-doc! uri "" 0)))
+
 (define (handle-file-changed uri)
   (when (regexp-match (get-module-suffix-regexp) uri)
-    (let ([safe-doc (hash-ref open-docs (string->symbol uri) #f)])
+    (let ([safe-doc (lsp-get-doc uri #f)])
       (when safe-doc
-        (clear-old-queries/doc-close uri)))))
+        (clear-old-queries/doc-close (SafeDoc-token safe-doc))))))
+
 (define (handle-file-deleted uri)
   (when (regexp-match (get-module-suffix-regexp) uri)
-    (clear-old-queries/doc-close uri)
-    (hash-remove! open-docs (string->symbol uri))))
+    (lsp-close-doc! uri)))
 
 (define (update-configuration settings)
   (for ([setting settings]
@@ -93,6 +81,7 @@
     (define key '(resyntax enable))
     (when (jsexpr-has-key? setting key)
       (set-resyntax-enabled! (jsexpr-ref setting key)))))
+
 (define (didChangeConfiguration params)
   (match-define (hash-table ['settings settings]) params)
   (update-configuration settings))

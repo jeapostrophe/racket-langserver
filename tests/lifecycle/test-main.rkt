@@ -1,10 +1,5 @@
 #lang racket/base
-(require json
-         compiler/module-suffix
-         racket/os
-         "../../msg-io.rkt"
-         "../../json-util.rkt"
-         "../../struct.rkt")
+(require racket/os)
 
 (define init-req
   (hasheq 'jsonrpc "2.0"
@@ -29,7 +24,12 @@
     (displayln str (current-error-port))))
 
 (module+ test
-  (require rackunit)
+  (require rackunit
+           json
+           compiler/module-suffix
+           "../../msg-io.rkt"
+           "../../json-util.rkt"
+           "../../interfaces.rkt")
 
   (define racket-path (find-executable-path "racket"))
   (define-values (sp stdout stdin stderr)
@@ -41,8 +41,8 @@
   (let ([resp (read-message stdout)])
     (define expected-json (read-json (open-input-file "init_resp.json")))
     (define json (jsexpr-set expected-json '(result capabilities semanticTokensProvider legend)
-                             (hasheq 'tokenModifiers (map symbol->string *semantic-token-modifiers*)
-                                     'tokenTypes (map symbol->string *semantic-token-types*))))
+                             (hasheq 'tokenModifiers (map ->jsexpr *semantic-token-modifiers*)
+                                     'tokenTypes (map ->jsexpr *semantic-token-types*))))
     (set! json (jsexpr-set json '(result capabilities workspace fileOperations didRename filters)
                            (map (lambda (ext)
                                   (hasheq 'scheme "file" 'pattern (hasheq 'glob (format "**/*.~a" ext))))

@@ -1,7 +1,5 @@
 #lang racket
 
-(require "../with-document.rkt")
-
 (define uri "file:///test.rkt")
 
 (define code
@@ -17,7 +15,8 @@ END
 
 (module+ test
   (require rackunit
-           json)
+           json
+           "../with-document.rkt")
 
   (with-document uri code
     (λ (lsp)

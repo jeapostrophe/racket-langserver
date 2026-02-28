@@ -5,7 +5,6 @@
 (require racket/set
          data/interval-map
          "../interfaces.rkt"
-         "../responses.rkt"
          "../path-util.rkt"
          "dynamic-import.rkt")
 
@@ -64,7 +63,7 @@
     (define rule-name (refactoring-result-rule-name result))
     (define diag
       (Diagnostic #:range range
-                  #:severity Diag-Information
+                  #:severity DiagnosticSeverity-Information
                   #:source "Resyntax"
                   #:message (format "[~a] ~a" rule-name message)))
     (define code-action

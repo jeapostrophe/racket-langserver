@@ -2,6 +2,7 @@
 
 (require "interface.rkt"
          "../autocomplete.rkt"
+         "../internal-types.rkt"
          racket/class)
 
 (provide completion%)
@@ -21,8 +22,10 @@
       ;; In such cases, preserve existing completions instead of clearing them.
       (void))
 
-    (define/override (walk-stx stx expanded-stx)
-      (set! completions (walk expanded-stx)))
+    (define/override (walk-stx expand-result)
+      (define expanded-stx (ExpandResult-post-syntax expand-result))
+      (when expanded-stx
+        (set! completions (walk expanded-stx))))
 
     (define/public (get-online-completions str-before-cursor)
       (walk-online str-before-cursor))

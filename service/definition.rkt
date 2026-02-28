@@ -2,7 +2,7 @@
 
 (require "interface.rkt"
          racket/class
-         "../struct.rkt"
+         "../internal-types.rkt"
          drracket/check-syntax)
 
 (provide definition%)

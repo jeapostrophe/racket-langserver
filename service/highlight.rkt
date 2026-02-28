@@ -2,7 +2,8 @@
 
 (require drracket/check-syntax
          syntax/parse
-         "../struct.rkt"
+         "../interfaces.rkt"
+         "../internal-types.rkt"
          racket/class
          racket/list
          racket/bool
@@ -39,10 +40,13 @@
 
     (define/override (syncheck:add-definition-target src start finish id mods)
       (when (< start finish)
-        (set! styles (cons (Token start finish 'definition) styles))))
+        (set! styles (cons (Token start finish SemanticTokenModifier-definition) styles))))
 
-    (define/override (walk-stx stx expanded)
-      (set! token-map (token-list->interval-map (collect-tokens stx expanded styles src doc-text))))
+    (define/override (walk-stx expand-result)
+      (define stx (ExpandResult-pre-syntax expand-result))
+      (define expanded (ExpandResult-post-syntax expand-result))
+      (when (and stx expanded)
+        (set! token-map (token-list->interval-map (collect-tokens stx expanded styles src doc-text)))))
 
     (define (token-list->interval-map lst)
       (define interval-map (make-interval-map))
@@ -84,7 +88,7 @@
           (for*/list ([t tokens-with-merged-tags]
                       [type (in-value (select-type (third t)))]
                       [modifiers (in-value (get-valid-modifiers (third t)))]
-                      #:when (not (false? type)))
+                      #:when type)
             (SemanticToken (first t) (second t) type modifiers))])
     result-tokens))
 
@@ -92,25 +96,29 @@
   (for/list ([s styles])
     (match s
       [(Token start end 'drracket:check-syntax:lexically-bound)
-       (Token start end 'variable)]
+       (Token start end SemanticTokenType-variable)]
       [(Token start end 'drracket:check-syntax:set!d)
-       (Token start end 'variable)]
+       (Token start end SemanticTokenType-variable)]
       [_ #f])))
 
-;; `tags` might contains multiple valid types.
-;; This function selects a proper type based on some rules.
+(define semantic-token-type-priority
+  (list SemanticTokenType-function
+        SemanticTokenType-variable
+        SemanticTokenType-string
+        SemanticTokenType-number
+        SemanticTokenType-regexp))
+
+;; tags might contain multiple valid types.
+;; This function selects a proper type based on priority.
 (define (select-type tags)
-  (define valid-types (filter (λ (t) (memq t *semantic-token-types*)) tags))
-  (cond [(null? valid-types)
-         #f]
-        [(memq 'function valid-types)
-         'function]
-        [(memq 'variable valid-types)
-         'variable]
-        [else (first valid-types)]))
+  (for/first ([type semantic-token-type-priority]
+              #:when (memq type tags))
+    type))
 
 (define (get-valid-modifiers tags)
-  (filter (λ (t) (memq t *semantic-token-modifiers*)) tags))
+  (filter (λ (tag)
+            (memq tag *semantic-token-modifiers*))
+          tags))
 
 (define (walk-orig-stx stx)
   (syntax-parse stx
@@ -132,12 +140,12 @@
     [(lambda (args ...) expr ...)
      (walk-expanded-stx src #'(expr ...))]
     [(define-values (fs) (lambda _ ...))
-     (append (list (tag-of-expanded-symbol-stx src #'fs 'function))
+     (append (list (tag-of-expanded-symbol-stx src #'fs SemanticTokenType-function))
              (walk-expanded-stx src (drop (syntax-e stx) 2)))]
     [(define-values (names ...) expr)
      (walk-expanded-stx src #'expr)]
     [(#%app proc args ...)
-     (append (list (tag-of-expanded-symbol-stx src #'proc 'function))
+     (append (list (tag-of-expanded-symbol-stx src #'proc SemanticTokenType-function))
              (walk-expanded-stx src #'(args ...)))]
     [(any1 any* ...)
      (append (walk-expanded-stx src #'any1)
@@ -167,10 +175,12 @@
 
 (define (get-atom-tag atom)
   (match atom
-    [(? number?) 'number]
+    [(? number?) SemanticTokenType-number]
+    ;; keep 'symbol here, not SemanticTokenType enum value,
+    ;; as it's not supported by LSP spec right now.
     [(? symbol?) 'symbol]
-    [(? string?) 'string]
-    [(? bytes?) 'string]
-    [(? regexp?) 'regexp]
+    [(? string?) SemanticTokenType-string]
+    [(? bytes?) SemanticTokenType-string]
+    [(? regexp?) SemanticTokenType-regexp]
     [_ 'unknown]))
 
