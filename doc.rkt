@@ -532,7 +532,6 @@
   (match-define (Decl req? id left right) decl)
   (define-values (bind-start bind-end bindings)
     (interval-map-ref/bounds doc-decls left #f))
-
   (if bindings
       (for/list ([range (in-set bindings)])
         (abs-range->range doc (car range) (cdr range)))
