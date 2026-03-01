@@ -9,7 +9,8 @@
          "service/definition.rkt"
          "service/diagnostic.rkt"
          "service/declaration.rkt"
-         "service/highlight.rkt")
+         "service/highlight.rkt"
+         "service/workspace-references.rkt")
 
 (define build-trace%
   (class (annotations-mixin object%)
@@ -21,6 +22,7 @@
     (define definitions (new definition% [src src]))
     (define diag (new diag% [src src] [doc-text doc-text] [indenter indenter]))
     (define decls (new declaration%))
+    (define workspace-references (new workspace-references% [src src] [doc-text doc-text]))
     (define semantic-tokens (new highlight% [src src] [doc-text doc-text]))
 
     (define services
@@ -31,6 +33,7 @@
             definitions
             diag
             decls
+            workspace-references
             semantic-tokens))
 
     (define/public (reset)
@@ -71,6 +74,7 @@
     (define/public (get-definitions) (send definitions get))
     (define/public (get-quickfixs) (cadr (send diag get)))
     (define/public (get-semantic-tokens) (send semantic-tokens get))
+    (define/public (get-workspace-bindings uri symbol) (find-workspace-bindings uri symbol))
 
     ;; Overrides
     (define/override (syncheck:find-source-object stx)

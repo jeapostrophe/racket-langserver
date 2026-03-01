@@ -3,21 +3,18 @@
          didChangeWorkspaceFolders
          didChangeWatchedFiles
          didChangeConfiguration
-         update-configuration
-         add-workspace-folder!)
+         update-configuration)
 (require compiler/module-suffix
          json)
 (require "json-util.rkt"
+         "path-util.rkt"
          "interfaces.rkt"
          "lsp.rkt"
          "safedoc.rkt"
          "doc.rkt"
          "scheduler.rkt"
-         "settings.rkt")
-
-(define workspace-folders (mutable-set))
-(define (add-workspace-folder! path)
-  (set-add! workspace-folders path))
+         "settings.rkt"
+         "private/workspace.rkt")
 
 (define (didRenameFiles params)
   (match-define (^RenameFilesParams #:files files) params)
@@ -46,10 +43,10 @@
   (match-define (WorkspaceFoldersChangeEvent #:added added #:removed removed) event)
   (for ([f added])
     (match-define (WorkspaceFolder #:uri uri #:name _) f)
-    (set-add! workspace-folders uri))
+    (add-workspace-folder! (uri->path uri)))
   (for ([f removed])
     (match-define (WorkspaceFolder #:uri uri #:name _) f)
-    (set-remove! workspace-folders uri)))
+    (remove-workspace-folder! (uri->path uri))))
 
 (define (didChangeWatchedFiles params)
   (match-define (^DidChangeWatchedFilesParams #:changes changes) params)

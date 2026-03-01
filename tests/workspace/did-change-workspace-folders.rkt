@@ -7,7 +7,7 @@
       (define noti
         (make-notification "workspace/didChangeWorkspaceFolders"
                            (hasheq 'event
-                                   (hasheq 'added (list (hasheq 'uri "/tmp/project_a" 'name "projectA"))
+                                   (hasheq 'added (list (hasheq 'uri "file:///tmp/project_a" 'name "projectA"))
                                            'removed (list)))))
       (client-send lsp noti))))
 
