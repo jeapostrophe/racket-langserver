@@ -8,9 +8,9 @@
          racket/set
          racket/file
          racket/path
+         racket/list
          drracket/check-syntax
          compiler/module-suffix)
-;(require "../debug.rkt")
 
 (provide workspace-references%
          find-workspace-bindings
@@ -43,14 +43,17 @@
     (init-field src doc-text)
     (super-new)
 
+    ; Check https://docs.racket-lang.org/drracket-tools/Accessing_Check_Syntax_Programmatically.html#%28meth._%28%28%28lib._drracket%2Fcheck-syntax..rkt%29._syncheck-annotations~3c~25~3e%29._syncheck~3aadd-jump-to-definition%2Fphase-level%2Bspace%29%29
+    ;
+    ; Basically here means, in file `src` absolute position from `start` to `end`
+    ; references to a definition with name `id` in the file `filepath`.
     (define/override (syncheck:add-jump-to-definition _src-obj start end id filepath _submods)
       ;; NOTE start <= end. In some situations, it may be that start = end.
       (define end- (if (= start end) (add1 end) end))
       (when (set-member? (project-files) filepath)
-        ;(maybe-debug-log (format "Reference from ~a to ~a" src filepath))
         (define (abs->Pos p)
           (define lc (send doc-text pos->line/char p))
-          (Pos #:line (car lc) #:char (cadr lc)))
+          (Pos #:line (first lc) #:char (second lc)))
         (hash-update! workspace-references
                       (list (path->string filepath) id)
                       (lambda (refs)
