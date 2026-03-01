@@ -39,7 +39,7 @@ You may need to restart your LSP runtime or your editor for `racket-langserver` 
 - **Hover** (textDocument/hover)
 - **Jump to Definition** (textDocument/definition)
 - **Find References** (textDocument/references)
-  - *Note:* Currently only considers references within the current file.
+  - *Note:* Currently only considers references from opened files within the workspace.
 - **Document Highlight** (textDocument/documentHighlight)
 - **Diagnostics** (textDocument/publishDiagnostics)
 - **Code Formatting** (textDocument/formatting & textDocument/rangeFormatting & textDocument/onTypeFormatting)
