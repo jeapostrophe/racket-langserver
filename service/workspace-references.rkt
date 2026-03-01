@@ -6,26 +6,12 @@
          "../interfaces.rkt"
          racket/class
          racket/set
-         racket/file
-         racket/path
          racket/list
-         drracket/check-syntax
-         compiler/module-suffix)
+         drracket/check-syntax)
 
 (provide workspace-references%
          find-workspace-bindings
          reset-workspace-references!)
-
-(define (project-files)
-  (define files (mutable-set))
-
-  (for* ([dir (current-workspace-folders)]
-         [path (find-files
-                 (lambda (path) (for/or ([suffix (get-module-suffixes)]) (path-has-extension? path suffix)))
-                 dir)])
-    (set-add! files (path->complete-path path)))
-
-  files)
 
 (define workspace-references (make-hash))
 (define (reset-workspace-references!)
@@ -50,7 +36,7 @@
     (define/override (syncheck:add-jump-to-definition _src-obj start end id filepath _submods)
       ;; NOTE start <= end. In some situations, it may be that start = end.
       (define end- (if (= start end) (add1 end) end))
-      (when (set-member? (project-files) filepath)
+      (when (set-member? (workspace-files) filepath)
         (define (abs->Pos p)
           (define lc (send doc-text pos->line/char p))
           (Pos #:line (first lc) #:char (second lc)))
