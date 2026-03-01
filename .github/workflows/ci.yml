@@ -8,7 +8,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        racket-version: ["7.6", "8.0", "8.17", "8.18", "9.0"]
+        racket-version: ["7.6", "8.0", "8.17", "8.18", "9.0", "9.1"]
         racket-variant: ["CS"]
         exclude:
           - racket-version: "7.6"
