@@ -17,14 +17,21 @@
     ;;   client.rkt: (require "lib.rkt") (foo)
     ;; Expanding client.rkt should record a reference from client -> lib's foo.
     ;; Then doc-references on lib.rkt for foo should include the client location.
-    (define tmp-dir (make-temporary-directory))
+    (define tmp-dir (normalize-path "./.tmp"))
+    (make-directory* tmp-dir)
 
     (define lib-path (build-path tmp-dir "lib.rkt"))
     (define lib-text "#lang racket/base\n(provide foo)\n(define (foo) 42)\n")
-    (with-output-to-file lib-path (lambda () (display lib-text)))
+    (with-output-to-file
+      lib-path
+      (lambda () (display lib-text))
+      #:exists 'replace)
     (define client-path (build-path tmp-dir "client.rkt"))
     (define client-text "#lang racket/base\n(require \"lib.rkt\")\n(foo)\n")
-    (with-output-to-file client-path (lambda () (display client-text)))
+    (with-output-to-file
+      client-path
+      (lambda () (display client-text))
+      #:exists 'replace)
 
     ;; Register workspace folder and reset state
     (reset-workspace-references!)
