@@ -12,7 +12,7 @@ END
   (require rackunit
            json
            "../with-document.rkt"
-           "../../../json-util.rkt")
+           "../../../common/json-util.rkt")
 
   (with-document uri code
     (λ (lsp)

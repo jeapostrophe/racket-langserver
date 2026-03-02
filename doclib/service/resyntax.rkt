@@ -4,8 +4,8 @@
 
 (require racket/set
          data/interval-map
-         "../interfaces.rkt"
-         "../path-util.rkt"
+         "../../common/interfaces.rkt"
+         "../../common/path-util.rkt"
          "dynamic-import.rkt")
 
 (define has-resyntax? #t)

@@ -15,7 +15,7 @@
          racket/match
          racket/runtime-path
          json
-         "../methods.rkt")
+         "../lsp/methods.rkt")
 
 (define id 0)
 (define (genid)

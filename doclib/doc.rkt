@@ -5,9 +5,9 @@
 ;; functions. For use in a multi-threaded LSP environment, it should be wrapped
 ;; by a structure that provides thread safety, such as `SafeDoc`.
 
-(require "interfaces.rkt"
+(require "../common/interfaces.rkt"
          "editor.rkt"
-         "path-util.rkt"
+         "../common/path-util.rkt"
          "doc-trace.rkt"
          "internal-types.rkt"
          racket/match

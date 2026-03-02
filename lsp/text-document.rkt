@@ -5,11 +5,11 @@
          racket/bool
          racket/contract
          "error-codes.rkt"
-         "interfaces.rkt"
-         "json-util.rkt"
+         "../common/interfaces.rkt"
+         "../common/json-util.rkt"
          "responses.rkt"
          "safedoc.rkt"
-         "doc.rkt"
+         "../doclib/doc.rkt"
          "semantic-token-lsp.rkt"
          "scheduler.rkt"
          "lsp.rkt"

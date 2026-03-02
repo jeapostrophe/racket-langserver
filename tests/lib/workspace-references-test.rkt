@@ -2,12 +2,12 @@
 
 (module+ test
   (require rackunit
-           "../../doc.rkt"
-           "../../internal-types.rkt"
-           "../../interfaces.rkt"
-           "../../private/workspace.rkt"
-           "../../service/workspace-references.rkt"
-           "../../path-util.rkt"
+           "../../doclib/doc.rkt"
+           "../../doclib/internal-types.rkt"
+           "../../common/interfaces.rkt"
+           "../../common/workspace.rkt"
+           "../../doclib/service/workspace-references.rkt"
+           "../../common/path-util.rkt"
            racket/file)
 
   (test-case

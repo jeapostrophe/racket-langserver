@@ -2,7 +2,7 @@
 
 (require racket/contract
          racket/list
-         "interfaces.rkt")
+         "../common/interfaces.rkt")
 
 (define (token-type-encoding token)
   (index-of *semantic-token-types* (SemanticToken-type token)))
