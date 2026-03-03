@@ -6,7 +6,6 @@
          racket/match
          racket/class
          racket/async-channel
-         "error-codes.rkt"
          "../common/interfaces.rkt"
          "../common/json-util.rkt"
          "responses.rkt"
@@ -125,7 +124,7 @@
          (define id-ref (hash-ref msg 'id void))
          (define id (if ((or/c number? string?) id-ref) id-ref (json-null)))
          (define err "The JSON sent is not a valid request object.")
-         (send-response (error-response id INVALID-REQUEST err))]))
+         (send-response (error-response id ErrorCode-InvalidRequest err))]))
 
     ;; Handle a request. This procedure should always return a jsexpr
     ;; which is a suitable response object.
@@ -172,7 +171,7 @@
           [_
            (eprintf "invalid request for method ~v\n" method)
            (define err (format "The method ~v was not found" method))
-           (error-response id METHOD-NOT-FOUND err)])))
+           (error-response id ErrorCode-MethodNotFound err)])))
 
     ;; Handle a notification. Because notifications do not require
     ;; a response, this procedure always returns void.
@@ -206,7 +205,7 @@
 (define ((report-request-error id method) exn)
   (eprintf "Caught exn in request ~v\n~a\n" method (exn->string exn))
   (define err (format "internal error in method ~v" method))
-  (error-response id INTERNAL-ERROR err))
+  (error-response id ErrorCode-InternalError err))
 
 ;;
 ;; Requests
@@ -279,7 +278,7 @@
      (set! already-initialized? #t)
      resp]
     [_
-     (error-response id INVALID-PARAMS "initialize failed")]))
+     (error-response id ErrorCode-InvalidParams "initialize failed")]))
 
 (define (shutdown id)
   (set! already-shutdown? #t)

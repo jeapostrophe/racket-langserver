@@ -249,8 +249,8 @@ from @tt{racket-langserver/json-util}. Nested struct values are encoded recursiv
   The @tt{tab-size} and @tt{insert-spaces} fields are required in protocol payloads.
   The remaining fields (@tt{trim-trailing-whitespace}, @tt{insert-final-newline},
   @tt{trim-final-newlines}, @tt{key}) are optional in the JSON payload;
-  absent fields are represented as an internal @emph{undef} sentinel rather than @racket[#f].
-  Test for an absent optional field with @tt{undef?} from @tt{common/interfaces.rkt}.
+  absent fields are represented as @racket[(Nothing)] rather than @racket[#f].
+  Test for an absent optional field with @tt{Nothing?} from @tt{racket-langserver/common/json-util}.
 
   The corresponding JSON field names use camelCase:
   @tt{tabSize}, @tt{insertSpaces}, @tt{trimTrailingWhitespace}, @tt{insertFinalNewline},

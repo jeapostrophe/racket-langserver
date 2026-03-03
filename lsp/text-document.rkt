@@ -4,7 +4,6 @@
          racket/list
          racket/bool
          racket/contract
-         "error-codes.rkt"
          "../common/interfaces.rkt"
          "../common/json-util.rkt"
          "responses.rkt"
@@ -80,7 +79,7 @@
            (doc-hover doc pos))))
      (success/enc id result)]
     [_
-     (error-response id INVALID-PARAMS "textDocument/hover failed")]))
+     (error-response id ErrorCode-InvalidParams "textDocument/hover failed")]))
 
 ;; Code Action request
 (define (code-action id params)
@@ -100,9 +99,9 @@
            (doc-code-action doc range))))
      (success/enc id actions)]
     [(hash-table ['textDocument (DocIdentifier-js #:uri uri)])
-     (error-response id INVALID-PARAMS
+     (error-response id ErrorCode-InvalidParams
                      (format "textDocument/codeAction failed uri is not a path ~a" uri))]
-    [_ (error-response id INVALID-PARAMS "textDocument/codeAction failed")]))
+    [_ (error-response id ErrorCode-InvalidParams "textDocument/codeAction failed")]))
 
 ;; Signature Help request
 (define (signatureHelp id params)
@@ -116,7 +115,7 @@
            (doc-signature-help doc pos))))
      (success/enc id result)]
     [_
-     (error-response id INVALID-PARAMS "textDocument/signatureHelp failed")]))
+     (error-response id ErrorCode-InvalidParams "textDocument/signatureHelp failed")]))
 
 ;; Completion Request
 (define (completion id params)
@@ -129,7 +128,7 @@
          (λ (doc) (doc-completion doc pos))))
      (success/enc id result)]
     [_
-     (error-response id INVALID-PARAMS "textDocument/completion failed")]))
+     (error-response id ErrorCode-InvalidParams "textDocument/completion failed")]))
 
 ;; Definition request
 
@@ -143,7 +142,7 @@
          (λ (doc) (doc-definition doc uri pos))))
      (success/enc id result)]
     [_
-     (error-response id INVALID-PARAMS "textDocument/definition failed")]))
+     (error-response id ErrorCode-InvalidParams "textDocument/definition failed")]))
 
 ;; Reference request
 (define (references id params)
@@ -157,7 +156,7 @@
          (λ (doc) (doc-references doc uri pos include-decl?))))
      (success/enc id result)]
     [_
-     (error-response id INVALID-PARAMS "textDocument/references failed")]))
+     (error-response id ErrorCode-InvalidParams "textDocument/references failed")]))
 
 ;; Document Highlight request
 (define (document-highlight id params)
@@ -170,7 +169,7 @@
          (λ (doc) (doc-highlights doc pos))))
      (success/enc id result)]
     [_
-     (error-response id INVALID-PARAMS "textDocument/documentHighlight failed")]))
+     (error-response id ErrorCode-InvalidParams "textDocument/documentHighlight failed")]))
 
 ;; Rename request
 (define (_rename id params)
@@ -184,7 +183,7 @@
          (λ (doc) (doc-rename doc uri pos new-name))))
      (success/enc id result)]
     [_
-     (error-response id INVALID-PARAMS "textDocument/rename failed")]))
+     (error-response id ErrorCode-InvalidParams "textDocument/rename failed")]))
 
 ;; Prepare rename
 (define (prepareRename id params)
@@ -197,7 +196,7 @@
          (λ (doc) (doc-prepare-rename doc pos))))
      (success/enc id result)]
     [_
-     (error-response id INVALID-PARAMS "textDocument/prepareRename failed")]))
+     (error-response id ErrorCode-InvalidParams "textDocument/prepareRename failed")]))
 
 ;; Document Symbol request
 (define (document-symbol id params)
@@ -209,7 +208,7 @@
          (λ (doc) (doc-symbols doc uri))))
      (success/enc id results)]
     [_
-     (error-response id INVALID-PARAMS "textDocument/documentSymbol failed")]))
+     (error-response id ErrorCode-InvalidParams "textDocument/documentSymbol failed")]))
 
 ;; Inlay Hint
 (define (inlay-hint id params)
@@ -217,7 +216,7 @@
     [(hash-table ['textDocument (DocIdentifier-js #:uri uri)]
                  ['range (^Range _ _)])
      (success/enc id '())]
-    [_ (error-response id INVALID-PARAMS "textDocument/inlayHint failed")]))
+    [_ (error-response id ErrorCode-InvalidParams "textDocument/inlayHint failed")]))
 
 ;; Full document formatting request
 (define (formatting! id params)
@@ -236,7 +235,7 @@
                              (Range start end)
                              #:formatting-options opts))))]
     [_
-     (error-response id INVALID-PARAMS "textDocument/formatting failed")]))
+     (error-response id ErrorCode-InvalidParams "textDocument/formatting failed")]))
 
 ;; Range Formatting request
 (define (range-formatting! id params)
@@ -251,7 +250,7 @@
            id
            (doc-format-edits doc range #:formatting-options opts))))]
     [_
-     (error-response id INVALID-PARAMS "textDocument/rangeFormatting failed")]))
+     (error-response id ErrorCode-InvalidParams "textDocument/rangeFormatting failed")]))
 
 ;; On-type formatting request
 (define (on-type-formatting! id params)
@@ -287,7 +286,7 @@
                              #:on-type? #t
                              #:formatting-options opts))))]
     [_
-     (error-response id INVALID-PARAMS "textDocument/onTypeFormatting failed")]))
+     (error-response id ErrorCode-InvalidParams "textDocument/onTypeFormatting failed")]))
 
 (define (full-semantic-tokens id params)
   (match params
@@ -299,7 +298,7 @@
            (Range (doc-abs-pos->pos doc 0)
                   (doc-abs-pos->pos doc (doc-end-abs-pos doc))))))
      (semantic-tokens uri id safe-doc full-range)]
-    [_ (error-response id INVALID-PARAMS "textDocument/semanticTokens/full failed")]))
+    [_ (error-response id ErrorCode-InvalidParams "textDocument/semanticTokens/full failed")]))
 
 (define (range-semantic-tokens id params)
   (match params
@@ -307,7 +306,7 @@
                  ['range (as-Range range)])
      (define safe-doc (lsp-get-doc uri))
      (semantic-tokens uri id safe-doc range)]
-    [_ (error-response id INVALID-PARAMS "textDocument/semanticTokens/range failed")]))
+    [_ (error-response id ErrorCode-InvalidParams "textDocument/semanticTokens/range failed")]))
 
 (define (semantic-tokens uri id safe-doc range)
   (define tokens

@@ -1,11 +1,12 @@
-#lang racket
+#lang racket/base
 (provide didRenameFiles
          didChangeWorkspaceFolders
          didChangeWatchedFiles
          didChangeConfiguration
          update-configuration)
 (require compiler/module-suffix
-         json)
+         json
+         racket/match)
 (require "../common/json-util.rkt"
          "../common/path-util.rkt"
          "../common/interfaces.rkt"
