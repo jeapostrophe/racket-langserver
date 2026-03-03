@@ -4,6 +4,7 @@
 
 (provide with-racket-lsp
          client-send
+         client-wait-message
          client-wait-response
          client-wait-notification
          make-request
@@ -97,6 +98,10 @@
        ; not the response of this request, wait next
        [else (async-channel-put (response-channel) msg)])]
     [_ (error "Not a response from server")]))
+
+(define/contract (client-wait-message)
+  (-> jsexpr?)
+  (async-channel-get (response-channel)))
 
 (define (client-wait-notification lsp)
   (async-channel-get (notification-channel)))
