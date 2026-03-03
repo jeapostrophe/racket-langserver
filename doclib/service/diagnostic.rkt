@@ -9,10 +9,10 @@
          racket/list
          setup/path-to-relative
          data/interval-map
-         "../interfaces.rkt"
+         "../../common/interfaces.rkt"
          "../internal-types.rkt"
-         "../path-util.rkt"
-         "../settings.rkt"
+         "../../common/path-util.rkt"
+         "../../common/settings.rkt"
          drracket/check-syntax
          "resyntax.rkt")
 

@@ -1,9 +1,9 @@
 #lang racket/base
 
 (require "interface.rkt"
-         "../private/workspace.rkt"
-         "../path-util.rkt"
-         "../interfaces.rkt"
+         "../../common/workspace.rkt"
+         "../../common/path-util.rkt"
+         "../../common/interfaces.rkt"
          racket/class
          racket/set
          racket/list

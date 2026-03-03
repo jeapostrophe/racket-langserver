@@ -27,9 +27,9 @@
   (require rackunit
            json
            compiler/module-suffix
-           "../../msg-io.rkt"
-           "../../json-util.rkt"
-           "../../interfaces.rkt")
+           "../../lsp/msg-io.rkt"
+           "../../common/json-util.rkt"
+           "../../common/interfaces.rkt")
 
   (define racket-path (find-executable-path "racket"))
   (define-values (sp stdout stdin stderr)

@@ -7,12 +7,12 @@
          racket/class
          racket/async-channel
          "error-codes.rkt"
-         "interfaces.rkt"
-         "json-util.rkt"
+         "../common/interfaces.rkt"
+         "../common/json-util.rkt"
          "responses.rkt"
-         "path-util.rkt"
+         "../common/path-util.rkt"
          (prefix-in workspace/ "workspace.rkt")
-         "private/workspace.rkt"
+         "../common/workspace.rkt"
          (prefix-in text-document/ "text-document.rkt"))
 
 ;; Process a request or an notification.

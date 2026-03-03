@@ -1,5 +1,5 @@
 #lang racket
-(require "../json-util.rkt" rackunit syntax/macro-testing)
+(require "../common/json-util.rkt" rackunit syntax/macro-testing)
 
 (module+ test
   ;; Define test structs
@@ -233,7 +233,7 @@
 
 ;; 6. Export Test
 (module export-test racket
-  (require "../json-util.rkt")
+  (require "../common/json-util.rkt")
   (define-json-struct Exported [x integer?])
   (provide (json-type-out Exported))
   )

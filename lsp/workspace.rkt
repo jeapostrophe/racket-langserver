@@ -6,15 +6,15 @@
          update-configuration)
 (require compiler/module-suffix
          json)
-(require "json-util.rkt"
-         "path-util.rkt"
-         "interfaces.rkt"
+(require "../common/json-util.rkt"
+         "../common/path-util.rkt"
+         "../common/interfaces.rkt"
          "lsp.rkt"
          "safedoc.rkt"
-         "doc.rkt"
+         "../doclib/doc.rkt"
          "scheduler.rkt"
-         "settings.rkt"
-         "private/workspace.rkt")
+         "../common/settings.rkt"
+         "../common/workspace.rkt")
 
 (define (didRenameFiles params)
   (match-define (^RenameFilesParams #:files files) params)

@@ -2,7 +2,7 @@
 
 (require drracket/check-syntax
          syntax/parse
-         "../interfaces.rkt"
+         "../../common/interfaces.rkt"
          "../internal-types.rkt"
          racket/class
          racket/list

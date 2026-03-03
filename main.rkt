@@ -7,11 +7,11 @@
          racket/match
          racket/class
          racket/async-channel
-         "debug.rkt"
-         "error-codes.rkt"
-         "methods.rkt"
-         "msg-io.rkt"
-         "responses.rkt")
+         "lsp/debug.rkt"
+         "lsp/error-codes.rkt"
+         "lsp/methods.rkt"
+         "lsp/msg-io.rkt"
+         "lsp/responses.rkt")
 
 ;; https://www.cs.utah.edu/plt/publications/pldi04-ff.pdf
 
@@ -55,7 +55,7 @@
 ;;                    or current-input-port and put it into queue `q`.
 ;; * mgr-t          - defined in queue, forward message between current and consume threads.
 ;; * consume        - read message from queue `q` and really process it.
-;; * out-t          - defined in `msg-io.rkt`, put the response message
+;; * out-t          - defined in `lsp/msg-io.rkt`, put the response message
 ;;                    to a specified output-port or current-output-port.
 (define (main-loop)
   (define resp-ch (make-async-channel))

@@ -5,11 +5,11 @@
 ;; safe concurrent access from multiple threads, making it suitable for being
 ;; managed by the language server.
 
-(require "base/rwlock.rkt"
-         "doc.rkt"
-         "check-syntax.rkt"
+(require "../common/rwlock.rkt"
+         "../doclib/doc.rkt"
+         "../doclib/check-syntax.rkt"
          "scheduler.rkt"
-         "json-util.rkt"
+         "../common/json-util.rkt"
          racket/set
          racket/match
          racket/class)

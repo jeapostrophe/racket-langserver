@@ -5,7 +5,7 @@
            json
            racket/port
            "../client.rkt"
-           "../../json-util.rkt")
+           "../../common/json-util.rkt")
 
   (with-racket-lsp
     (λ (lsp)

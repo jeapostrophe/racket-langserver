@@ -2,9 +2,9 @@
 
 (module+ test
   (require rackunit
-           "../../doc.rkt"
-           "../../internal-types.rkt"
-           "../../interfaces.rkt"
+           "../../doclib/doc.rkt"
+           "../../doclib/internal-types.rkt"
+           "../../common/interfaces.rkt"
            racket/class
            racket/file
            data/interval-map)

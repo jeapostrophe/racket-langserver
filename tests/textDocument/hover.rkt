@@ -12,7 +12,7 @@ END
 
 (module+ test
   (require rackunit
-           "../../json-util.rkt"
+           "../../common/json-util.rkt"
            "with-document.rkt")
 
   (with-document uri code

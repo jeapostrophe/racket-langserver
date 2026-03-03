@@ -7,7 +7,7 @@
          racket/port
          "editor.rkt"
          "doc-trace.rkt"
-         "path-util.rkt"
+         "../common/path-util.rkt"
          "internal-types.rkt")
 
 (define (get-indenter text)
