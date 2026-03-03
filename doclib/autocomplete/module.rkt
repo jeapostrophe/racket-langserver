@@ -11,8 +11,14 @@
 ; particular means that you must release the source code for the
 ; modified software.  See http://www.gnu.org/copyleft/lesser.html
 ; for more information.
-#lang racket
-(require setup/link)
+#lang racket/base
+
+(require setup/link
+         racket/set
+         racket/match
+         racket/string
+         racket/list
+         racket/path)
 
 (define (collections)
   (define h1

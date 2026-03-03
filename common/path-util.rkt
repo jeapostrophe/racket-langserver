@@ -1,9 +1,10 @@
-#lang racket
+#lang racket/base
 
 (provide path->uri
          uri->path)
 
-(require net/url)
+(require net/url
+         racket/string)
 
 (define path->uri (compose url->string path->url))
 
