@@ -15,7 +15,8 @@
                "racket-index" ;; for cross references (setup/xref)
                "html-parsing" ;; for parsing documentation text
                ))
-(define build-deps '("rackunit-lib"))
+(define build-deps '("rackunit-lib"
+                     "racket-doc"))
 (define pkg-desc "Language Server Protocol implementation for Racket.")
 (define version "1.0")
 
