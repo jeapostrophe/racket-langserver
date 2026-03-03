@@ -15,7 +15,7 @@
                   'params (hasheq 'broken #t)))
 
         (client-send lsp malformed-msg)
-        (define resp (client-wait-message))
+        (define resp (client-wait-response malformed-msg))
         (define err (hash-ref resp 'error))
 
         (check-equal? (hash-ref resp 'id) 100)

@@ -4,7 +4,6 @@
 
 (provide with-racket-lsp
          client-send
-         client-wait-message
          client-wait-response
          client-wait-notification
          make-request
@@ -91,17 +90,21 @@
   (define msg (async-channel-get (response-channel)))
 
   (match msg
+    ;; successful response of the request
     [(hash-table ['id (? (or/c number? string?) id)]
                  ['result _result])
      (cond
        [(equal? (hash-ref req 'id) id) msg]
        ; not the response of this request, wait next
        [else (async-channel-put (response-channel) msg)])]
+    ;; error response of the request
+    [(hash-table ['id (? (or/c number? string?) id)]
+                 ['error _err])
+     (cond
+       [(equal? (hash-ref req 'id) id) msg]
+       ; not the response of this request, wait next
+       [else (async-channel-put (response-channel) msg)])]
     [_ (error "Not a response from server")]))
-
-(define/contract (client-wait-message)
-  (-> jsexpr?)
-  (async-channel-get (response-channel)))
 
 (define (client-wait-notification lsp)
   (async-channel-get (notification-channel)))
