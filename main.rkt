@@ -7,8 +7,8 @@
          racket/match
          racket/class
          racket/async-channel
+         "common/interfaces.rkt"
          "lsp/debug.rkt"
-         "lsp/error-codes.rkt"
          "lsp/methods.rkt"
          "lsp/msg-io.rkt"
          "lsp/responses.rkt")
@@ -70,7 +70,7 @@
     (match msg
       ['parse-json-error
        (define err "Invalid JSON was received by the server.")
-       (display-message/flush (error-response (json-null) PARSE-ERROR err))]
+       (display-message/flush (error-response (json-null) ErrorCode-ParseError err))]
       [_
        (maybe-debug-log msg)
        (with-handlers ([exn:fail? report-error])

@@ -20,6 +20,7 @@
          (json-type-out WorkspaceEdit)
          (json-type-out CodeAction)
          (json-type-out DiagnosticSeverity)
+         (json-type-out ErrorCode)
          (json-type-out Diagnostic)
          (json-type-out Location)
          (json-type-out DocumentHighlight)
@@ -74,6 +75,21 @@
   [Warning 2]
   [Information 3]
   [Hint 4])
+
+(define-json-enum ErrorCode
+  ;; Defined by JSON RPC
+  [ParseError -32700]
+  [InvalidRequest -32600]
+  [MethodNotFound -32601]
+  [InvalidParams -32602]
+  [InternalError -32603]
+  [ServerErrorStart -32099]
+  [ServerErrorEnd -32000]
+  [ServerNotInitialized -32002]
+  [UnknownErrorCode -32001]
+
+  ;; Defined by LSP protocol
+  [RequestCancelled -32800])
 
 (define-json-struct Diagnostic
   [range Range]
