@@ -70,15 +70,6 @@
    [right exact-nonnegative-integer?])
   #:transparent)
 
-(define undef-object (gensym 'undef))
-
-(define (undef? x)
-  (eq? x undef-object))
-
-(define (undef/c pred?)
-  (λ (x)
-    (or/c (undef? x) (pred? x))))
-
 (define (interval-map-of value/c)
   (define value-flat/c (coerce-flat-contract 'interval-map-of value/c))
   (define value? (flat-contract-predicate value-flat/c))
@@ -88,8 +79,4 @@
       (and (interval-map? m)
            (for/and ([(k value) (in-dict m)])
              (value? value))))))
-
-(provide undef?
-         undef/c
-         undef-object)
 
