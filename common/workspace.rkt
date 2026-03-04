@@ -2,7 +2,8 @@
 (require racket/set
          racket/file
          racket/path
-         compiler/module-suffix)
+         compiler/module-suffix
+         "path-util.rkt")
 
 (define workspace-folders (mutable-set))
 
@@ -15,14 +16,11 @@
 (define (current-workspace-folders)
   (set->stream workspace-folders))
 
-(define (workspace-files)
-  (for*/set ([dir (current-workspace-folders)]
-             [path (find-files
-                     (lambda (path) (for/or ([suffix (get-module-suffixes)]) (path-has-extension? path suffix)))
-                     dir)])
-    (path->complete-path path)))
+(define (workspace-contains? filepath)
+  (for/or ([dir (current-workspace-folders)])
+    (directory-contains? dir filepath)))
 
 (provide current-workspace-folders
          add-workspace-folder!
          remove-workspace-folder!
-         workspace-files)
+         workspace-contains?)
