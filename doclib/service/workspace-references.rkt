@@ -36,7 +36,7 @@
     (define/override (syncheck:add-jump-to-definition _src-obj start end id filepath _submods)
       ;; NOTE start <= end. In some situations, it may be that start = end.
       (define end- (if (= start end) (add1 end) end))
-      (when (set-member? (workspace-files) filepath)
+      (when (workspace-contains? filepath)
         (define (abs->Pos p)
           (define lc (send doc-text pos->line/char p))
           (Pos #:line (first lc) #:char (second lc)))
