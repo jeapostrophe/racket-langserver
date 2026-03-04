@@ -13,3 +13,4 @@
 (define-json-union 1)
 (call-with-read-lock 1)
 (call-with-write-lock 1)
+(define-syntax-parse-rule 1)
