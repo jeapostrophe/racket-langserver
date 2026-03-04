@@ -8,7 +8,7 @@
          racket/class
          racket/async-channel
          "common/interfaces.rkt"
-         "lsp/debug.rkt"
+         "common/debug.rkt"
          "lsp/methods.rkt"
          "lsp/msg-io.rkt"
          "lsp/responses.rkt")
