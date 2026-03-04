@@ -21,9 +21,10 @@
   (token)
   #:transparent)
 
-(define (timeout-task time-sec task)
+(define (handle-timeout-or-break time-sec task)
   (λ ()
-    (with-handlers ([exn:fail:resource? (λ (_e) (void))])
+    (with-handlers ([exn:break? (λ (_e) (void))]
+                    [exn:fail:resource? (λ (_e) (void))])
       (with-limits time-sec #f (task)))))
 
 ;; Scheduler
@@ -35,25 +36,25 @@
 
 (define incoming-jobs-ch (make-async-channel))
 
-(define (kill-running-thread! th)
+(define (break-running-thread! th)
   (unless (thread-dead? th)
-    (kill-thread th)))
+    (break-thread th)))
 
 (define (cancel-tasks! token->tasks token)
   (define doc-tasks (hash-ref token->tasks token #f))
   (when doc-tasks
     (for ([th (in-hash-values doc-tasks)])
-      (kill-running-thread! th))
+      (break-running-thread! th))
     (hash-remove! token->tasks token)))
 
 (define (handle-push-task! token->tasks active-tokens token type task)
   (when (set-member? active-tokens token)
     (define doc (hash-ref! token->tasks token make-hash))
     (when (hash-has-key? doc type)
-      (kill-running-thread! (hash-ref doc type)))
+      (break-running-thread! (hash-ref doc type)))
     ;; Each scheduled task is bounded to avoid zombie long-running jobs.
-    (define task/timeout (timeout-task 90 task))
-    (hash-set! doc type (thread task/timeout))))
+    (define handled-task (handle-timeout-or-break 90 task))
+    (hash-set! doc type (thread handled-task))))
 
 ;; new incoming task will replace the old task immediately
 ;; no matter if the old one is running or completed
