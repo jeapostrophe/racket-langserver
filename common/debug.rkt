@@ -1,7 +1,6 @@
 #lang racket/base
 (require racket/file
          racket/runtime-path
-         syntax/parse/define
          racket/match
          racket/string
          racket/format)
@@ -31,7 +30,7 @@
   (eprintf "[~a] ~a:\n~a\n" tag name msg))
 
 ;; DEBUG macro: evaluates the expression, logs the result, and returns the result.
-(define-syntax-parse-rule (D expr)
+(define-syntax-rule (D expr)
   (call-with-values
     (lambda () expr)
     (lambda results
@@ -43,7 +42,7 @@
       (apply values results))))
 
 ;; TIME macro: evaluates the expression, logs the time taken, and returns the result.
-(define-syntax-parse-rule (T expr)
+(define-syntax-rule (T expr)
   (let-values ([(results cpu-time real-time gc-time)
                 (time-apply (lambda () expr) '())])
     (err-log 'TIME (quote expr)
