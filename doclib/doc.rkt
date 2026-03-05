@@ -121,10 +121,6 @@
   (-> Doc? boolean?)
   (equal? (Doc-version doc) (Doc-trace-version doc)))
 
-(define/contract (doc-walk-text trace text)
-  (-> (is-a?/c build-trace%) string? void?)
-  (send trace walk-text text))
-
 (define/contract (doc-expand! doc)
   (-> Doc? boolean?)
   (define result (doc-expand (Doc-uri doc) (Doc-text doc)))
@@ -669,7 +665,6 @@
          doc-update-trace!
          doc-trace-latest?
          doc-expand!
-         doc-walk-text
          doc-hover
          doc-code-action
          doc-signature-help

@@ -69,19 +69,7 @@
 
         (when (and (CSResult-succeed? result)
                    (equal? old-version cur-version))
-          (doc-update-trace! doc trace cur-version)
-
-          ;; TODO: Run `walk-text` in a separate Racket process.
-          ;; `expand` appears to be locked per process, so `walk-text` work started
-          ;; by external tools can block/interfere with document expands through
-          ;; the scheduler.
-          (define (walk-text-task)
-            (doc-walk-text trace (CSResult-text result))
-            (define new-diags (set->list (send trace get-warn-diags)))
-            (when (not (set=? diags new-diags))
-              (send-diagnostics notify-client uri new-diags)))
-
-          (scheduler-push-task! token 'walk-text walk-text-task))))
+          (doc-update-trace! doc trace cur-version))))
     (clear-old-queries/new-trace token))
 
   (scheduler-stop-all-tasks! token)
