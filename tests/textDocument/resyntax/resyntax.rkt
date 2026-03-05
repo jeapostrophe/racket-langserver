@@ -1,6 +1,6 @@
 #lang racket
 
-(require "../../../doclib/service/dynamic-import.rkt")
+(require "../../../common/dynamic-import.rkt")
 
 (define uri "file:///test.rkt")
 

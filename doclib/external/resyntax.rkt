@@ -1,19 +1,9 @@
 #lang racket/base
 
-(provide run-resyntax
-         (struct-out Resyntax-Result))
+(provide run-resyntax)
 
-(require "../../common/dynamic-import.rkt")
-
-(require racket/contract)
-
-(struct/contract Resyntax-Result
-  ([start exact-nonnegative-integer?]
-   [end exact-nonnegative-integer?]
-   [message string?]
-   [rule-name string?]
-   [new-text string?])
-  #:transparent)
+(require "../../common/dynamic-import.rkt"
+         "../../common/interfaces.rkt")
 
 (define has-resyntax? #t)
 

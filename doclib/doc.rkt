@@ -22,6 +22,7 @@
          syntax-color/module-lexer
          syntax-color/racket-lexer
          "check-syntax.rkt"
+         "external/resyntax.rkt"
          "docs-helpers.rkt"
          "documentation-parser.rkt"
          drracket/check-syntax
@@ -32,7 +33,8 @@
    [text (is-a?/c lsp-editor%)]
    [trace (is-a?/c build-trace%)]
    [version exact-nonnegative-integer?]
-   [trace-version (or/c false/c exact-nonnegative-integer?)])
+   [trace-version (or/c false/c exact-nonnegative-integer?)]
+   [resyntax-results (listof Resyntax-Result?)])
   #:mutable)
 
 (define/contract (make-doc uri text [version 0])
@@ -43,7 +45,50 @@
   (send doc-text insert text 0)
   ;; the init trace should not be #f
   (define doc-trace (new build-trace% [src (uri->path uri)] [doc-text doc-text] [indenter #f]))
-  (Doc uri doc-text doc-trace version #f))
+  (Doc uri doc-text doc-trace version #f (list)))
+
+(define/contract (doc-get-resyntax-results doc)
+  (-> Doc? (listof Resyntax-Result?))
+  (Doc-resyntax-results doc))
+
+(define/contract (doc-update-resyntax-result! doc results)
+  (-> Doc? (listof Resyntax-Result?) void?)
+  (set-Doc-resyntax-results! doc results))
+
+(define/contract (resyntax-result->diag doc res)
+  (-> Doc? Resyntax-Result? Diagnostic?)
+  (define range
+    (Range #:start (doc-abs-pos->pos doc (Resyntax-Result-start res))
+           #:end (doc-abs-pos->pos doc (Resyntax-Result-end res))))
+  (Diagnostic #:range range
+              #:severity DiagnosticSeverity-Information
+              #:source "Resyntax"
+              #:message (format "[~a] ~a" (Resyntax-Result-rule-name res) (Resyntax-Result-message res))))
+
+(define/contract (resyntax-result->code-action doc res)
+  (-> Doc? Resyntax-Result? CodeAction?)
+  (define diag (resyntax-result->diag doc res))
+  (define doc-uri (Doc-uri doc))
+  (define range (Diagnostic-range diag))
+  (CodeAction
+    #:title (format "Apply rule [~a]" (Resyntax-Result-rule-name res))
+    #:kind "quickfix"
+    #:diagnostics (list diag)
+    #:isPreferred #f
+    #:edit (WorkspaceEdit
+             #:changes
+             (hasheq (string->symbol doc-uri)
+                     (list (TextEdit #:range range
+                                     #:newText (Resyntax-Result-new-text res)))))))
+
+(define/contract (doc-resyntax doc)
+  (-> Doc? (listof Resyntax-Result?))
+  (run-resyntax (send (Doc-text doc) get-text) (Doc-uri doc)))
+
+(define/contract (doc-resyntax! doc)
+  (-> Doc? void?)
+  (define results (doc-resyntax doc))
+  (doc-update-resyntax-result! doc results))
 
 (define/contract (doc-update-version! doc new-ver)
   (-> Doc? exact-nonnegative-integer? void?)
@@ -665,6 +710,12 @@
          doc-update-trace!
          doc-trace-latest?
          doc-expand!
+         doc-resyntax
+         doc-resyntax!
+         doc-get-resyntax-results
+         doc-update-resyntax-result!
+         resyntax-result->diag
+         resyntax-result->code-action
          doc-hover
          doc-code-action
          doc-signature-help

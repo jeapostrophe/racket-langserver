@@ -53,7 +53,8 @@
          (struct-out SemanticToken)
          *semantic-token-types*
          *semantic-token-modifiers*
-         abs-pos->Pos)
+         abs-pos->Pos
+         (json-type-out Resyntax-Result))
 
 (define-json-struct Pos
   [line exact-nonnegative-integer?]
@@ -274,4 +275,12 @@
 (define (abs-pos->Pos editor pos)
   (match-define (list line char) (send editor pos->line/char pos))
   (Pos #:line line #:char char))
+
+;; Resyntax-Result: result of a resyntax refactoring suggestion
+(define-json-struct Resyntax-Result
+  [start exact-nonnegative-integer?]
+  [end exact-nonnegative-integer?]
+  [message string?]
+  [rule-name symbol?]
+  [new-text string?])
 
