@@ -130,9 +130,7 @@
   (define result (doc-expand (Doc-uri doc) (Doc-text doc)))
   (define new-trace (CSResult-trace result))
   (cond [(CSResult-succeed? result)
-         (define text (CSResult-text result))
          (doc-update-trace! doc new-trace (Doc-version doc))
-         (doc-walk-text new-trace text)
          #t]
         [else #f]))
 
