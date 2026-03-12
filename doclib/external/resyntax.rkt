@@ -1,11 +1,15 @@
 #lang racket/base
 
-(provide run-resyntax)
+(provide run-resyntax
+         resyntax-available?)
 
 (require "../../common/dynamic-import.rkt"
          "../../common/interfaces.rkt")
 
 (define has-resyntax? #t)
+
+(define (resyntax-available?)
+  has-resyntax?)
 
 (define (disable-resyntax!)
   (set! has-resyntax? #f))

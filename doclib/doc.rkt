@@ -90,6 +90,10 @@
   (define results (doc-resyntax doc))
   (doc-update-resyntax-result! doc results))
 
+(define/contract (doc-resyntax-available?)
+  (-> boolean?)
+  (resyntax-available?))
+
 (define/contract (doc-update-version! doc new-ver)
   (-> Doc? exact-nonnegative-integer? void?)
   (set-Doc-version! doc new-ver))
@@ -726,6 +730,7 @@
          doc-expand!
          doc-resyntax
          doc-resyntax!
+         doc-resyntax-available?
          doc-get-resyntax-results
          doc-update-resyntax-result!
          resyntax-result->diag
