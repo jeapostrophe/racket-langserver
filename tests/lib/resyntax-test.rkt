@@ -223,4 +223,30 @@
     (check-equal? (TextEdit-newText text-edit) "(or 1 2 3)")
     (define edit-range (TextEdit-range text-edit))
     (check-equal? (doc-pos->abs-pos d (Range-start edit-range)) (Resyntax-Result-start res))
-    (check-equal? (doc-pos->abs-pos d (Range-end edit-range)) (Resyntax-Result-end res))))
+    (check-equal? (doc-pos->abs-pos d (Range-end edit-range)) (Resyntax-Result-end res)))
+
+  (test-case
+    "doc-code-action: includes resyntax action when ranges intersect"
+    (define-values (d res) (nested-or-single-result))
+    (doc-update-resyntax-result! d (list res))
+    (define request-range
+      (Range (doc-abs-pos->pos d (sub1 (Resyntax-Result-start res)))
+             (doc-abs-pos->pos d (+ (Resyntax-Result-start res) 1))))
+    (define actions (doc-code-action d request-range))
+    (check-true
+      (for/or ([action (in-list actions)])
+        (string=? (CodeAction-title action)
+                  (format "Apply rule [~a]" (Resyntax-Result-rule-name res))))))
+
+  (test-case
+    "doc-code-action: excludes resyntax action when ranges are disjoint"
+    (define-values (d res) (nested-or-single-result))
+    (doc-update-resyntax-result! d (list res))
+    (define request-range
+      (Range (Pos 0 0)
+             (Pos 0 5)))
+    (define actions (doc-code-action d request-range))
+    (check-false
+      (for/or ([action (in-list actions)])
+        (string=? (CodeAction-title action)
+                  (format "Apply rule [~a]" (Resyntax-Result-rule-name res)))))))
