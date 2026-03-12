@@ -498,11 +498,25 @@
 (define/contract (doc-code-action doc range)
   (-> Doc? Range? (listof CodeAction?))
   (define doc-trace (Doc-trace doc))
+  (define req-start (doc-pos->abs-pos doc (Range-start range)))
+  (define req-end (doc-pos->abs-pos doc (Range-end range)))
   (define act
     (interval-map-ref (send doc-trace get-quickfixs)
-                      (doc-pos->abs-pos doc (Range-start range))
+                      req-start
                       #f))
-  (if act (list act) (list)))
+
+  (define resyntax-actions
+    (for/list ([res (in-list (doc-get-resyntax-results doc))]
+               #:when (char-range-intersect?
+                        req-start
+                        req-end
+                        (Resyntax-Result-start res)
+                        (Resyntax-Result-end res)))
+      (resyntax-result->code-action doc res)))
+
+  (if act
+      (cons act resyntax-actions)
+      resyntax-actions))
 
 (define/contract (doc-signature-help doc pos)
   (-> Doc? Pos? (or/c SignatureHelp? #f))

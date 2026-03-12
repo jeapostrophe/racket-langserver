@@ -16,6 +16,7 @@
 
 (provide (json-type-out Pos)
          (json-type-out Range)
+         char-range-intersect?
          (json-type-out TextEdit)
          (json-type-out WorkspaceEdit)
          (json-type-out CodeAction)
@@ -63,6 +64,15 @@
 (define-json-struct Range
   [start Pos]
   [end Pos])
+
+(define/contract (char-range-intersect? left-start left-end right-start right-end)
+  (-> exact-nonnegative-integer?
+      exact-nonnegative-integer?
+      exact-nonnegative-integer?
+      exact-nonnegative-integer?
+      boolean?)
+  (and (< left-start right-end)
+       (< right-start left-end)))
 
 (define-json-struct TextEdit
   [range Range]
