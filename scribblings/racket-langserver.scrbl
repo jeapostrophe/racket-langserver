@@ -235,6 +235,24 @@ from @tt{racket-langserver/json-util}. Nested struct values are encoded recursiv
   The @tt{message} field is the user-facing diagnostic text.
 }
 
+@subsection{Resyntax Results}
+
+@defstruct*[Resyntax-Result ([start exact-nonnegative-integer?]
+                             [end exact-nonnegative-integer?]
+                             [message string?]
+                             [rule-name symbol?]
+                             [new-text string?])
+            #:transparent]{
+  One refactoring recommendation produced by the optional @tt{resyntax}
+  integration.
+  The @tt{start} and @tt{end} fields are absolute character offsets into the
+  document text.
+  The @tt{message} field is the user-facing explanation for the recommendation.
+  The @tt{rule-name} field identifies the resyntax rule that fired.
+  The @tt{new-text} field is the replacement text suggested for the covered
+  range.
+}
+
 @subsection{Formatting Options}
 
 @defstruct*[FormattingOptions ([tab-size exact-nonnegative-integer?]
@@ -431,6 +449,10 @@ These functions manage check-syntax expansion and the resulting trace.
   successful expansion. Lexer-only queries (such as @racket[doc-symbols] and
   @racket[doc-get-symbols]) still work without expansion, but hover, definition,
   and reference queries will be stale or empty.
+  This call does not compute or refresh stored resyntax results; use
+  @racket[doc-resyntax!], or update them explicitly with
+  @racket[doc-update-resyntax-result!], when you want resyntax-backed
+  diagnostics and code actions to match the current text.
 }
 
 @defproc[(doc-update-trace! [doc Doc?]
@@ -451,6 +473,71 @@ These functions manage check-syntax expansion and the resulting trace.
          void?]{
   Feeds @tt{text} into @racket[trace] for incremental token and hover collection.
   Called automatically by @racket[doc-expand!].
+}
+
+@subsection{Resyntax}
+
+These functions manage the optional @tt{resyntax} recommendations attached to a
+document. They are separate from the check-syntax trace so callers can run
+resyntax synchronously in-process or compute results elsewhere and write them
+back later.
+
+@defproc[(doc-resyntax-available?) boolean?]{
+  Returns @racket[#t] when the optional @tt{resyntax} package is available in
+  the current process.
+}
+
+@defproc[(doc-resyntax [doc Doc?])
+         (listof Resyntax-Result?)]{
+  Analyzes the current text of @tt{doc} with @tt{resyntax} and returns the
+  resulting recommendations without mutating the document.
+  Returns an empty list when no recommendations are found or when resyntax is
+  unavailable.
+}
+
+@defproc[(doc-resyntax! [doc Doc?]) void?]{
+  Runs @racket[doc-resyntax] and stores the resulting recommendations on
+  @tt{doc}.
+  This is the synchronous single-threaded convenience API for keeping
+  @racket[doc-diagnostics] and @racket[doc-code-action] aligned with the
+  document's current text.
+}
+
+@defproc[(doc-get-resyntax-results [doc Doc?])
+         (listof Resyntax-Result?)]{
+  Returns the currently stored resyntax recommendations for @tt{doc}.
+  Editing or resetting the document clears previously stored results until
+  resyntax is run again or new results are written with
+  @racket[doc-update-resyntax-result!].
+}
+
+@defproc[(doc-update-resyntax-result! [doc Doc?]
+                                      [results (listof Resyntax-Result?)])
+         void?]{
+  Replaces the stored resyntax recommendations on @tt{doc} with @tt{results}.
+  This is useful when resyntax analysis runs outside the main document thread,
+  such as the language-server path that computes resyntax asynchronously and
+  writes the finished results back later.
+  The written results become the current resyntax state used by
+  @racket[doc-diagnostics] and @racket[doc-code-action] until the document text
+  changes.
+}
+
+@defproc[(resyntax-result->diag [doc Doc?]
+                                [res Resyntax-Result?])
+         Diagnostic?]{
+  Converts @tt{res} into an informational @racket[Diagnostic].
+  The diagnostic range is derived from the result's absolute offsets, and the
+  diagnostic message is formatted as @tt{[rule-name] message}.
+}
+
+@defproc[(resyntax-result->code-action [doc Doc?]
+                                       [res Resyntax-Result?])
+         CodeAction?]{
+  Converts @tt{res} into a quick-fix @racket[CodeAction] titled
+  @tt{Apply rule [rule-name]}.
+  The action replaces the result range in @tt{doc} with the result's
+  @tt{new-text}.
 }
 
 @subsection{Token and Symbol Utilities}
@@ -565,7 +652,10 @@ Exceptions are noted in individual entries.
 @defproc[(doc-code-action [doc Doc?]
                           [range Range?])
          (listof CodeAction?)]{
-  Returns quick-fix code actions available at the start of @tt{range}.
+  Returns quick-fix code actions whose edits intersect @tt{range}.
+  This includes any quick fix stored in the current trace plus stored resyntax
+  quick fixes produced by @racket[doc-resyntax!] or
+  @racket[doc-update-resyntax-result!].
   Returns an empty list when no actions are available.
 }
 
@@ -573,7 +663,7 @@ Exceptions are noted in individual entries.
          (listof Diagnostic?)]{
   Returns the list of diagnostics for the document, including both trace
   diagnostics from the most recent @racket[doc-expand!] run and any stored
-  resyntax diagnostics.
+  current resyntax diagnostics derived from @racket[doc-get-resyntax-results].
 }
 
 @defproc[(doc-symbols [doc Doc?]
