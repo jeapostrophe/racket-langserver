@@ -219,13 +219,30 @@
   (-> Doc? (is-a?/c lsp-editor%))
   (send (Doc-text doc) copy))
 
+(define (interval-map-iterate-least/end>?/fallback intervals end)
+  (let loop ([iter (interval-map-iterate-first intervals)])
+    (cond
+      [(not iter) #f]
+      [else
+       (match-define (cons _ interval-end)
+         (interval-map-iterate-key intervals iter))
+       (if (> interval-end end)
+           iter
+           (loop (interval-map-iterate-next intervals iter)))])))
+
+(define maybe-interval-map-iterate-least/end>?
+  (dynamic-require 'data/interval-map
+                   'interval-map-iterate-least/end>?
+                   (lambda () interval-map-iterate-least/end>?/fallback)))
+
 (define (interval-map-overlap-values intervals start end)
-  (let loop ([iter (interval-map-iterate-least/end>? intervals start)]
+  (let loop ([iter (maybe-interval-map-iterate-least/end>? intervals start)]
              [values (list)])
     (cond
       [(not iter) (reverse values)]
       [else
-       (match-define (cons interval-start _) (interval-map-iterate-key intervals iter))
+       (match-define (cons interval-start _)
+         (interval-map-iterate-key intervals iter))
        (if (>= interval-start end)
            (reverse values)
            (loop (interval-map-iterate-next intervals iter)
