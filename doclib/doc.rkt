@@ -47,6 +47,9 @@
   (define doc-trace (new build-trace% [src (uri->path uri)] [doc-text doc-text] [indenter #f]))
   (Doc uri doc-text doc-trace version #f (list)))
 
+(define (invalidate-resyntax-results! doc)
+  (set-Doc-resyntax-results! doc (list)))
+
 (define/contract (doc-get-resyntax-results doc)
   (-> Doc? (listof Resyntax-Result?))
   (Doc-resyntax-results doc))
@@ -107,6 +110,7 @@
   (define doc-text (Doc-text doc))
   (define doc-trace (Doc-trace doc))
 
+  (invalidate-resyntax-results! doc)
   (send doc-text erase)
   (send doc-trace reset)
   (send doc-text insert new-text 0))
@@ -121,6 +125,7 @@
   (define old-len (- end-pos st-pos))
   (define new-len (string-length text))
 
+  (invalidate-resyntax-results! doc)
   ;; try reuse old information as the check-syntax can fail
   ;; and return the old build-trace% object
   (cond [(> new-len old-len) (send doc-trace expand end-pos (+ st-pos new-len))]
@@ -213,6 +218,18 @@
 (define/contract (doc-copy-text-buffer doc)
   (-> Doc? (is-a?/c lsp-editor%))
   (send (Doc-text doc) copy))
+
+(define (interval-map-overlap-values intervals start end)
+  (let loop ([iter (interval-map-iterate-least/end>? intervals start)]
+             [values (list)])
+    (cond
+      [(not iter) (reverse values)]
+      [else
+       (match-define (cons interval-start _) (interval-map-iterate-key intervals iter))
+       (if (>= interval-start end)
+           (reverse values)
+           (loop (interval-map-iterate-next intervals iter)
+                 (cons (interval-map-iterate-value intervals iter) values)))])))
 
 ;; TODO: Use lexer/token info here instead of scanning raw characters.
 (define/contract (doc-find-containing-paren doc pos)
@@ -506,10 +523,10 @@
   (define doc-trace (Doc-trace doc))
   (define req-start (doc-pos->abs-pos doc (Range-start range)))
   (define req-end (doc-pos->abs-pos doc (Range-end range)))
-  (define act
-    (interval-map-ref (send doc-trace get-quickfixs)
-                      req-start
-                      #f))
+  (define trace-actions
+    (interval-map-overlap-values (send doc-trace get-quickfixs)
+                                 req-start
+                                 req-end))
 
   (define resyntax-actions
     (for/list ([res (in-list (doc-get-resyntax-results doc))]
@@ -520,9 +537,7 @@
                         (Resyntax-Result-end res)))
       (resyntax-result->code-action doc res)))
 
-  (if act
-      (cons act resyntax-actions)
-      resyntax-actions))
+  (append trace-actions resyntax-actions))
 
 (define/contract (doc-signature-help doc pos)
   (-> Doc? Pos? (or/c SignatureHelp? #f))

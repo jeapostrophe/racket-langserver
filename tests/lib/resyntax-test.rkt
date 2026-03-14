@@ -196,6 +196,24 @@
                             (Resyntax-Result-message res))))))
 
     (test-case
+      "doc-get-resyntax-results: edit invalidates stored resyntax results"
+      (define-values (d res) (nested-or-single-result))
+      (doc-update-resyntax-result! d (list res))
+      (check-equal? (doc-get-resyntax-results d) (list res))
+      (doc-reset! d (string-append nested-or-code "\n"))
+      (check-equal? (doc-get-resyntax-results d) (list)))
+
+    (test-case
+      "doc-diagnostics: excludes stale resyntax diagnostics after edit"
+      (define-values (d res) (nested-or-single-result))
+      (doc-update-resyntax-result! d (list res))
+      (doc-reset! d (string-append nested-or-code "\n"))
+      (define diags (doc-diagnostics d))
+      (check-false
+        (for/or ([diag (in-list diags)])
+          (string=? (Diagnostic-source diag) "Resyntax"))))
+
+    (test-case
       "resyntax-result->diag: works with actual resyntax findings"
       (define-values (d res) (nested-or-single-result))
       (define diag (resyntax-result->diag d res))
@@ -267,6 +285,20 @@
       (define request-range
         (Range (Pos 0 0)
                (Pos 0 5)))
+      (define actions (doc-code-action d request-range))
+      (check-false
+        (for/or ([action (in-list actions)])
+          (string=? (CodeAction-title action)
+                    (format "Apply rule [~a]" (Resyntax-Result-rule-name res))))))
+
+    (test-case
+      "doc-code-action: excludes stale resyntax action after edit"
+      (define-values (d res) (nested-or-single-result))
+      (doc-update-resyntax-result! d (list res))
+      (doc-reset! d (string-append nested-or-code "\n"))
+      (define request-range
+        (Range (doc-abs-pos->pos d (sub1 (Resyntax-Result-start res)))
+               (doc-abs-pos->pos d (+ (Resyntax-Result-start res) 1))))
       (define actions (doc-code-action d request-range))
       (check-false
         (for/or ([action (in-list actions)])
