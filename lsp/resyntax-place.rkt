@@ -65,9 +65,13 @@
   (place-channel-put worker 'stop)
   '())
 
+(define (cancel-task!/re-raise worker exn)
+  (cancel-task! worker)
+  (raise exn))
+
 (define (run-resyntax/safely text uri)
   (define worker (ensure-worker!))
-  (with-handlers ([exn:break? (lambda (_exn) (cancel-task! worker))]
+  (with-handlers ([exn:break? (lambda (exn) (cancel-task!/re-raise worker exn))]
                   [exn:fail:resource? (lambda (_exn) (cancel-task! worker))]
                   [exn:fail? (lambda (_exn) (cancel-task! worker))])
     (place-channel-put worker (list text uri))

@@ -7,9 +7,9 @@
     (let ([logging-fail-thunk (λ ()
                                 (log-info "symbol '~a' from module '~a' fail to load." 'name mod)
                                 (fail-thunk))])
-      (with-handlers ([exn? (λ (e)
-                              (logging-fail-thunk)
-                              (void))])
+      (with-handlers ([exn:fail? (λ (_e)
+                                   (logging-fail-thunk)
+                                   (void))])
         (dynamic-require mod 'name logging-fail-thunk)))))
 
 (define-syntax-rule (dynamic-import-mod mod names ... fail-thunk)

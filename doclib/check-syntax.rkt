@@ -39,7 +39,7 @@
                  [current-namespace ns]
                  [current-annotations collector])
     (define stx
-      (with-handlers ([(λ _ #t) (λ (exn) exn)])
+      (with-handlers ([exn:fail? (λ (exn) exn)])
         (with-module-reading-parameterization
           (λ () (read-syntax path in)))))
 
@@ -48,7 +48,7 @@
       (with-intercepted-logging
         (λ (log) (set! expand-logs (cons log expand-logs)))
         (λ ()
-          (with-handlers ([(λ _ #t) (λ (exn) exn)])
+          (with-handlers ([exn:fail? (λ (exn) exn)])
             (parameterize ([current-output-port (open-output-nowhere)])
               (if (syntax? stx)
                   (expand stx)

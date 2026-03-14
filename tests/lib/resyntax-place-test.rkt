@@ -70,6 +70,7 @@
       void
       (lambda ()
         (define delayed-worker #f)
+        (define break-caught? #f)
         (call-with-test-resyntax-available?
           #t
           (lambda ()
@@ -80,11 +81,12 @@
                 (define worker-thread
                   (thread
                     (lambda ()
-                      (with-handlers ([exn:break? (lambda (_exn) (void))])
+                      (with-handlers ([exn:break? (lambda (_exn) (set! break-caught? #t))])
                         (run-resyntax/in-place "#lang racket\n(+ 1 2)" "file:///cancel.rkt")))))
                 (sleep 0.05)
                 (break-thread worker-thread)
-                (wait-for-thread worker-thread)))))
+                (wait-for-thread worker-thread)
+                (check-true break-caught?)))))
         (check-false (get-resyntax-worker))
         (check-false (resyntax-worker-live?))
         (when has-resyntax?

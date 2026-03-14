@@ -17,7 +17,7 @@
 
     ;; insert str at start
     (define/public (insert str start)
-      (with-handlers ([exn?
+      (with-handlers ([exn:fail?
                        (λ _
                          (reload!)
                          ;; only retry once
@@ -26,7 +26,7 @@
 
     ;; replace text at (range start end) with str
     (define/public (replace str start end)
-      (with-handlers ([exn?
+      (with-handlers ([exn:fail?
                        (λ _
                          (reload!)
                          ;; only retry once
