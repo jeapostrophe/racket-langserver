@@ -7,6 +7,11 @@
            "../../common/interfaces.rkt"
            racket/class)
 
+  (define has-resyntax? (doc-resyntax-available?))
+
+  (unless has-resyntax?
+    (displayln "Skipping tests/lib/resyntax-test.rkt because resyntax is unavailable."))
+
   (define nested-or-code
     "#lang racket\n(or 1 (or 2 3))")
 
@@ -18,6 +23,8 @@
     (define results (doc-resyntax d))
     (check-equal? (length results) 1)
     (values d (first results)))
+
+  (when has-resyntax?
 
   (test-case
     "doc-get-resyntax-results: initial state is empty"
@@ -174,6 +181,21 @@
     (check-true (andmap Resyntax-Result? results)))
 
   (test-case
+    "doc-diagnostics: includes resyntax diagnostics when present"
+    (define-values (d res) (nested-or-single-result))
+    (doc-update-resyntax-result! d (list res))
+    (define diags (doc-diagnostics d))
+    (check-true
+      (for/or ([diag (in-list diags)])
+        (string=? (Diagnostic-source diag) "Resyntax")))
+    (check-true
+      (for/or ([diag (in-list diags)])
+        (string=? (Diagnostic-message diag)
+                  (format "[~a] ~a"
+                          (Resyntax-Result-rule-name res)
+                          (Resyntax-Result-message res))))))
+
+  (test-case
     "resyntax-result->diag: works with actual resyntax findings"
     (define-values (d res) (nested-or-single-result))
     (define diag (resyntax-result->diag d res))
@@ -249,4 +271,4 @@
     (check-false
       (for/or ([action (in-list actions)])
         (string=? (CodeAction-title action)
-                  (format "Apply rule [~a]" (Resyntax-Result-rule-name res)))))))
+                  (format "Apply rule [~a]" (Resyntax-Result-rule-name res))))))))
