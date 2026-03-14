@@ -1,14 +1,15 @@
 #lang racket/base
 
-(provide resyntax)
+(provide run-resyntax
+         resyntax-available?)
 
-(require racket/set
-         data/interval-map
-         "../../common/interfaces.rkt"
-         "../../common/path-util.rkt"
-         "dynamic-import.rkt")
+(require "../../common/dynamic-import.rkt"
+         "../../common/interfaces.rkt")
 
 (define has-resyntax? #t)
+
+(define (resyntax-available?)
+  has-resyntax?)
 
 (define (disable-resyntax!)
   (set! has-resyntax? #f))
@@ -37,12 +38,12 @@
                    resyntax-analyze)
                  disable-resyntax!)
 
+(define (run-resyntax text _src)
+  (if has-resyntax?
+      (run-resyntax-impl text)
+      (list)))
 
-(define (resyntax text doc-text src warn-diags quickfixs)
-  (when has-resyntax?
-    (resyntax-impl text doc-text src warn-diags quickfixs)))
-
-(define (resyntax-impl text doc-text src warn-diags quickfixs)
+(define (run-resyntax-impl text)
   (define text-source (string-source text))
   (define all-lines (range-set (unbounded-range #:comparator natural<=>)))
   (define result-set
@@ -51,34 +52,11 @@
       #:suite default-recommendations
       #:lines all-lines))
 
-  (define (add result)
+  (for/list ([result (in-list (refactoring-result-set-results result-set))])
     (define sr (refactoring-result-string-replacement result))
     (define char-start (string-replacement-start sr))
     (define char-end (string-replacement-original-end sr))
     (define message (refactoring-result-message result))
-    (define range (Range #:start (abs-pos->Pos doc-text char-start)
-                         #:end (abs-pos->Pos doc-text char-end)))
     (define new-text (string-replacement-render sr (source->string text-source)))
-
     (define rule-name (refactoring-result-rule-name result))
-    (define diag
-      (Diagnostic #:range range
-                  #:severity DiagnosticSeverity-Information
-                  #:source "Resyntax"
-                  #:message (format "[~a] ~a" rule-name message)))
-    (define code-action
-      (CodeAction
-        #:title (format "Apply rule [~a]" rule-name)
-        #:kind "quickfix"
-        #:diagnostics (list diag)
-        #:isPreferred #f
-        #:edit (WorkspaceEdit
-                 #:changes
-                 (hasheq (string->symbol (path->uri src))
-                         (list (TextEdit #:range range
-                                         #:newText new-text))))))
-    (set-add! warn-diags diag)
-    (interval-map-set! quickfixs char-start char-end code-action))
-
-  (for-each add (refactoring-result-set-results result-set)))
-
+    (Resyntax-Result char-start char-end message rule-name new-text)))

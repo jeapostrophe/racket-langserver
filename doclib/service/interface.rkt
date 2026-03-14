@@ -13,7 +13,6 @@
     contract
     reset
     walk-stx
-    walk-text
     walk-log))
 
 (define base-service%
@@ -40,9 +39,6 @@
 
     ;; walk syntax expansion result
     (define/public (walk-stx expand-result)
-      (void))
-
-    (define/public (walk-text text)
       (void))
 
     (define/public (walk-log log)

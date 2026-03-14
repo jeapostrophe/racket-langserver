@@ -16,6 +16,7 @@
 
 (provide (json-type-out Pos)
          (json-type-out Range)
+         char-range-intersect?
          (json-type-out TextEdit)
          (json-type-out WorkspaceEdit)
          (json-type-out CodeAction)
@@ -53,7 +54,8 @@
          (struct-out SemanticToken)
          *semantic-token-types*
          *semantic-token-modifiers*
-         abs-pos->Pos)
+         abs-pos->Pos
+         (json-type-out Resyntax-Result))
 
 (define-json-struct Pos
   [line exact-nonnegative-integer?]
@@ -62,6 +64,15 @@
 (define-json-struct Range
   [start Pos]
   [end Pos])
+
+(define/contract (char-range-intersect? left-start left-end right-start right-end)
+  (-> exact-nonnegative-integer?
+      exact-nonnegative-integer?
+      exact-nonnegative-integer?
+      exact-nonnegative-integer?
+      boolean?)
+  (and (< left-start right-end)
+       (< right-start left-end)))
 
 (define-json-struct TextEdit
   [range Range]
@@ -274,4 +285,12 @@
 (define (abs-pos->Pos editor pos)
   (match-define (list line char) (send editor pos->line/char pos))
   (Pos #:line line #:char char))
+
+;; Resyntax-Result: result of a resyntax refactoring suggestion
+(define-json-struct Resyntax-Result
+  [start exact-nonnegative-integer?]
+  [end exact-nonnegative-integer?]
+  [message string?]
+  [rule-name symbol?]
+  [new-text string?])
 
