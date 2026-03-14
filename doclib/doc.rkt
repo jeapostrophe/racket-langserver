@@ -206,7 +206,9 @@
 
 (define/contract (doc-diagnostics doc)
   (-> Doc? (listof Diagnostic?))
-  (set->list (send (Doc-trace doc) get-warn-diags)))
+  (append (set->list (send (Doc-trace doc) get-warn-diags))
+          (for/list ([res (in-list (doc-get-resyntax-results doc))])
+            (resyntax-result->diag doc res))))
 
 (define/contract (doc-copy-text-buffer doc)
   (-> Doc? (is-a?/c lsp-editor%))

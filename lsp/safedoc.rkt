@@ -50,15 +50,10 @@
                  (hasheq 'uri uri
                          'diagnostics (->jsexpr diag-lst))))
 
-(define (doc-resyntax-diagnostics doc)
-  (for/list ([res (in-list (doc-get-resyntax-results doc))])
-    (resyntax-result->diag doc res)))
-
 (define (send-doc-diagnostics notify-client doc)
   (send-diagnostics notify-client
                     (Doc-uri doc)
-                    (append (doc-diagnostics doc)
-                            (doc-resyntax-diagnostics doc))))
+                    (doc-diagnostics doc)))
 
 ;; The only place that actually runs check-syntax.
 (define (safedoc-run-check-syntax! notify-client safe-doc)

@@ -571,8 +571,9 @@ Exceptions are noted in individual entries.
 
 @defproc[(doc-diagnostics [doc Doc?])
          (listof Diagnostic?)]{
-  Returns the list of diagnostics (errors, warnings) collected in the document's
-  current trace. The result reflects the most recent @racket[doc-expand!] run.
+  Returns the list of diagnostics for the document, including both trace
+  diagnostics from the most recent @racket[doc-expand!] run and any stored
+  resyntax diagnostics.
 }
 
 @defproc[(doc-symbols [doc Doc?]
