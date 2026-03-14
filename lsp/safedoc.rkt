@@ -8,10 +8,12 @@
 (require "../common/rwlock.rkt"
          "../doclib/doc.rkt"
          "../doclib/check-syntax.rkt"
+         "../doclib/external/resyntax.rkt"
+         "resyntax-place.rkt"
          "scheduler.rkt"
-         "../common/json-util.rkt"
          racket/set
-         racket/match
+         "../common/json-util.rkt"
+         "../common/settings.rkt"
          racket/class)
 
 ;; SafeDoc has two eliminators:
@@ -46,30 +48,52 @@
 (define (send-diagnostics notify-client uri diag-lst)
   (notify-client "textDocument/publishDiagnostics"
                  (hasheq 'uri uri
-                         'diagnostics (->jsexpr (set->list diag-lst)))))
+                         'diagnostics (->jsexpr diag-lst))))
+
+(define (doc-resyntax-diagnostics doc)
+  (for/list ([res (in-list (doc-get-resyntax-results doc))])
+    (resyntax-result->diag doc res)))
+
+(define (send-doc-diagnostics notify-client doc)
+  (send-diagnostics notify-client
+                    (Doc-uri doc)
+                    (append (doc-diagnostics doc)
+                            (doc-resyntax-diagnostics doc))))
 
 ;; The only place that actually runs check-syntax.
 (define (safedoc-run-check-syntax! notify-client safe-doc)
-  (match-define (list uri old-version doc-text token)
+  (define-values (uri working-version text-buffer-copy token)
     (with-read-doc safe-doc
-      (λ (doc)
-        (list (Doc-uri doc)
-              (Doc-version doc)
-              (doc-copy-text-buffer doc)
-              (SafeDoc-token safe-doc)))))
+      (lambda (doc)
+        (values (Doc-uri doc)
+                (Doc-version doc)
+                (doc-copy-text-buffer doc)
+                (SafeDoc-token safe-doc)))))
+
+  (define (resyntax-task)
+    (define text (send text-buffer-copy get-text))
+    (define resyntax-results (run-resyntax/in-place text uri))
+    (with-write-doc safe-doc
+      (lambda (doc)
+        (when (equal? working-version (Doc-version doc))
+          (doc-update-resyntax-result! doc resyntax-results)
+          (send-doc-diagnostics notify-client doc)))))
 
   (define (check-syntax-task)
-    (define result (doc-expand uri doc-text))
+    (define result (doc-expand uri text-buffer-copy))
+
     (with-write-doc safe-doc
-      (λ (doc)
+      (lambda (doc)
         (define cur-version (Doc-version doc))
         (define trace (CSResult-trace result))
         (define diags (set->list (send trace get-warn-diags)))
         (send-diagnostics notify-client uri diags)
 
         (when (and (CSResult-succeed? result)
-                   (equal? old-version cur-version))
-          (doc-update-trace! doc trace cur-version))))
+                   (equal? working-version cur-version))
+          (doc-update-trace! doc trace cur-version)
+          (when (and (get-resyntax-enabled) (resyntax-available?))
+            (scheduler-push-task! token 'resyntax resyntax-task)))))
     (clear-old-queries/new-trace token))
 
   (scheduler-stop-all-tasks! token)
