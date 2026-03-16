@@ -12,9 +12,7 @@
          "../../common/interfaces.rkt"
          "../internal-types.rkt"
          "../../common/path-util.rkt"
-         "../../common/settings.rkt"
-         drracket/check-syntax
-         "resyntax.rkt")
+         drracket/check-syntax)
 
 (provide diag%)
 
@@ -61,10 +59,6 @@
         (define result (check-typed-racket-log doc-text log))
         (when (list? result)
           (add-diags! result))))
-
-    (define/override (walk-text text)
-      (when (get-resyntax-enabled)
-        (resyntax text doc-text src diags quickfixs)))
 
     (define/override (syncheck:add-mouse-over-status src-obj start finish text)
       (when (string=? "no bound occurrences" text)

@@ -15,7 +15,7 @@
 (define (walk stx)
   (append
     (set->list (user-defined:walk stx))
-    (with-handlers ([(λ (_exn) #t) (λ (_) '())])
+    (with-handlers ([exn:fail? (λ (_) '())])
       (set->list (required:walk-module stx)))))
 
 ;; Get completions that will be computed for every text change.

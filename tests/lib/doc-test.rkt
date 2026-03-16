@@ -502,5 +502,25 @@ END
     (define act (first actions))
     (check-equal? (CodeAction-title act) "Add prefix `_` to ignore"))
 
+  (test-case
+    "Document code action for overlapping range"
+    (define text
+#<<END
+#lang racket/base
+
+(define x 0)
+END
+      )
+    (define uri "file:///tmp/code-action-overlap-test.rkt")
+    (define d (make-doc uri text))
+    (doc-expand! d)
+
+    (define start (Pos 2 7))
+    (define end (Pos 2 9))
+    (define actions (doc-code-action d (Range start end)))
+    (check-false (empty? actions) "actions should not be empty for overlapping ranges")
+    (define act (first actions))
+    (check-equal? (CodeAction-title act) "Add prefix `_` to ignore"))
+
   )
 

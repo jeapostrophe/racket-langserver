@@ -52,10 +52,6 @@
       (for ([s services])
         (send s walk-stx expand-result)))
 
-    (define/public (walk-text text)
-      (for ([s services])
-        (send s walk-text text)))
-
     (define/public (walk-log text)
       (for ([s services])
         (send s walk-log text)))

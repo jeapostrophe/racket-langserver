@@ -22,6 +22,7 @@
          syntax-color/module-lexer
          syntax-color/racket-lexer
          "check-syntax.rkt"
+         "external/resyntax.rkt"
          "docs-helpers.rkt"
          "documentation-parser.rkt"
          drracket/check-syntax
@@ -32,7 +33,8 @@
    [text (is-a?/c lsp-editor%)]
    [trace (is-a?/c build-trace%)]
    [version exact-nonnegative-integer?]
-   [trace-version (or/c false/c exact-nonnegative-integer?)])
+   [trace-version (or/c false/c exact-nonnegative-integer?)]
+   [resyntax-results (listof Resyntax-Result?)])
   #:mutable)
 
 (define/contract (make-doc uri text [version 0])
@@ -43,7 +45,57 @@
   (send doc-text insert text 0)
   ;; the init trace should not be #f
   (define doc-trace (new build-trace% [src (uri->path uri)] [doc-text doc-text] [indenter #f]))
-  (Doc uri doc-text doc-trace version #f))
+  (Doc uri doc-text doc-trace version #f (list)))
+
+(define (invalidate-resyntax-results! doc)
+  (set-Doc-resyntax-results! doc (list)))
+
+(define/contract (doc-get-resyntax-results doc)
+  (-> Doc? (listof Resyntax-Result?))
+  (Doc-resyntax-results doc))
+
+(define/contract (doc-update-resyntax-result! doc results)
+  (-> Doc? (listof Resyntax-Result?) void?)
+  (set-Doc-resyntax-results! doc results))
+
+(define/contract (resyntax-result->diag doc res)
+  (-> Doc? Resyntax-Result? Diagnostic?)
+  (define range
+    (Range #:start (doc-abs-pos->pos doc (Resyntax-Result-start res))
+           #:end (doc-abs-pos->pos doc (Resyntax-Result-end res))))
+  (Diagnostic #:range range
+              #:severity DiagnosticSeverity-Information
+              #:source "Resyntax"
+              #:message (format "[~a] ~a" (Resyntax-Result-rule-name res) (Resyntax-Result-message res))))
+
+(define/contract (resyntax-result->code-action doc res)
+  (-> Doc? Resyntax-Result? CodeAction?)
+  (define diag (resyntax-result->diag doc res))
+  (define doc-uri (Doc-uri doc))
+  (define range (Diagnostic-range diag))
+  (CodeAction
+    #:title (format "Apply rule [~a]" (Resyntax-Result-rule-name res))
+    #:kind "quickfix"
+    #:diagnostics (list diag)
+    #:isPreferred #f
+    #:edit (WorkspaceEdit
+             #:changes
+             (hasheq (string->symbol doc-uri)
+                     (list (TextEdit #:range range
+                                     #:newText (Resyntax-Result-new-text res)))))))
+
+(define/contract (doc-resyntax doc)
+  (-> Doc? (listof Resyntax-Result?))
+  (run-resyntax (send (Doc-text doc) get-text) (Doc-uri doc)))
+
+(define/contract (doc-resyntax! doc)
+  (-> Doc? void?)
+  (define results (doc-resyntax doc))
+  (doc-update-resyntax-result! doc results))
+
+(define/contract (doc-resyntax-available?)
+  (-> boolean?)
+  (resyntax-available?))
 
 (define/contract (doc-update-version! doc new-ver)
   (-> Doc? exact-nonnegative-integer? void?)
@@ -58,6 +110,7 @@
   (define doc-text (Doc-text doc))
   (define doc-trace (Doc-trace doc))
 
+  (invalidate-resyntax-results! doc)
   (send doc-text erase)
   (send doc-trace reset)
   (send doc-text insert new-text 0))
@@ -72,6 +125,7 @@
   (define old-len (- end-pos st-pos))
   (define new-len (string-length text))
 
+  (invalidate-resyntax-results! doc)
   ;; try reuse old information as the check-syntax can fail
   ;; and return the old build-trace% object
   (cond [(> new-len old-len) (send doc-trace expand end-pos (+ st-pos new-len))]
@@ -121,18 +175,12 @@
   (-> Doc? boolean?)
   (equal? (Doc-version doc) (Doc-trace-version doc)))
 
-(define/contract (doc-walk-text trace text)
-  (-> (is-a?/c build-trace%) string? void?)
-  (send trace walk-text text))
-
 (define/contract (doc-expand! doc)
   (-> Doc? boolean?)
   (define result (doc-expand (Doc-uri doc) (Doc-text doc)))
   (define new-trace (CSResult-trace result))
   (cond [(CSResult-succeed? result)
-         (define text (CSResult-text result))
          (doc-update-trace! doc new-trace (Doc-version doc))
-         (doc-walk-text new-trace text)
          #t]
         [else #f]))
 
@@ -163,11 +211,42 @@
 
 (define/contract (doc-diagnostics doc)
   (-> Doc? (listof Diagnostic?))
-  (set->list (send (Doc-trace doc) get-warn-diags)))
+  (append (set->list (send (Doc-trace doc) get-warn-diags))
+          (for/list ([res (in-list (doc-get-resyntax-results doc))])
+            (resyntax-result->diag doc res))))
 
 (define/contract (doc-copy-text-buffer doc)
   (-> Doc? (is-a?/c lsp-editor%))
   (send (Doc-text doc) copy))
+
+(define (interval-map-iterate-least/end>?/fallback intervals end)
+  (let loop ([iter (interval-map-iterate-first intervals)])
+    (cond
+      [(not iter) #f]
+      [else
+       (match-define (cons _ interval-end)
+         (interval-map-iterate-key intervals iter))
+       (if (> interval-end end)
+           iter
+           (loop (interval-map-iterate-next intervals iter)))])))
+
+(define maybe-interval-map-iterate-least/end>?
+  (dynamic-require 'data/interval-map
+                   'interval-map-iterate-least/end>?
+                   (lambda () interval-map-iterate-least/end>?/fallback)))
+
+(define (interval-map-overlap-values intervals start end)
+  (let loop ([iter (maybe-interval-map-iterate-least/end>? intervals start)]
+             [values (list)])
+    (cond
+      [(not iter) (reverse values)]
+      [else
+       (match-define (cons interval-start _)
+         (interval-map-iterate-key intervals iter))
+       (if (>= interval-start end)
+           (reverse values)
+           (loop (interval-map-iterate-next intervals iter)
+                 (cons (interval-map-iterate-value intervals iter) values)))])))
 
 ;; TODO: Use lexer/token info here instead of scanning raw characters.
 (define/contract (doc-find-containing-paren doc pos)
@@ -459,11 +538,23 @@
 (define/contract (doc-code-action doc range)
   (-> Doc? Range? (listof CodeAction?))
   (define doc-trace (Doc-trace doc))
-  (define act
-    (interval-map-ref (send doc-trace get-quickfixs)
-                      (doc-pos->abs-pos doc (Range-start range))
-                      #f))
-  (if act (list act) (list)))
+  (define req-start (doc-pos->abs-pos doc (Range-start range)))
+  (define req-end (doc-pos->abs-pos doc (Range-end range)))
+  (define trace-actions
+    (interval-map-overlap-values (send doc-trace get-quickfixs)
+                                 req-start
+                                 req-end))
+
+  (define resyntax-actions
+    (for/list ([res (in-list (doc-get-resyntax-results doc))]
+               #:when (char-range-intersect?
+                        req-start
+                        req-end
+                        (Resyntax-Result-start res)
+                        (Resyntax-Result-end res)))
+      (resyntax-result->code-action doc res)))
+
+  (append trace-actions resyntax-actions))
 
 (define/contract (doc-signature-help doc pos)
   (-> Doc? Pos? (or/c SignatureHelp? #f))
@@ -671,7 +762,13 @@
          doc-update-trace!
          doc-trace-latest?
          doc-expand!
-         doc-walk-text
+         doc-resyntax
+         doc-resyntax!
+         doc-resyntax-available?
+         doc-get-resyntax-results
+         doc-update-resyntax-result!
+         resyntax-result->diag
+         resyntax-result->code-action
          doc-hover
          doc-code-action
          doc-signature-help
