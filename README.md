@@ -6,10 +6,6 @@
 
 A Racket runtime is a prerequisite, so before using `racket-langserver`, ensure that a Racket runtime is installed. You can install an from the [official download page](https://download.racket-lang.org) or install one from your package manager. Currently `racket-langserver` is compatible with Racket version 7.6 to 9.1.
 
-### Atom
-
-You can use the [atom-ide-racket](https://github.com/cfinegan/atom-ide-racket) package. The language server will be automatically installed when `atom-ide-racket` installs.
-
 ### VSCode
 
 Use the [Magic Racket](https://marketplace.visualstudio.com/items?itemName=evzen-wybitul.magic-racket) extension.
