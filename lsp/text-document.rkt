@@ -309,26 +309,32 @@
     [_ (error-response id ErrorCode-InvalidParams "textDocument/semanticTokens/range failed")]))
 
 (define (semantic-tokens uri id safe-doc range)
+  (define (get-tokens-encoding doc)
+    (encode-semantic-tokens
+      (λ (pos) (doc-abs-pos->pos doc pos))
+      (doc-range-tokens doc range)))
+
   (define tokens
     (with-read-doc safe-doc
       (λ (doc)
         (if (doc-trace-latest? doc)
-            (encode-semantic-tokens
-              (λ (pos) (doc-abs-pos->pos doc pos))
-              (doc-range-tokens doc range))
+            (get-tokens-encoding doc)
             #f))))
   (if tokens
       (success/enc id (hash 'data tokens))
       (async-query-wait
         (SafeDoc-token safe-doc)
-        (λ (_signal)
-          (define tokens
-            (with-read-doc safe-doc
-              (λ (doc)
-                (encode-semantic-tokens
-                  (λ (pos) (doc-abs-pos->pos doc pos))
-                  (doc-range-tokens doc range)))))
-          (success/enc id (hash 'data tokens))))))
+        (λ (signal)
+          (cond
+            [(signal-doc-close? signal)
+             (error-response id
+                             ErrorCode-RequestCancelled
+                             "textDocument/semanticTokens request was cancelled because the document closed")]
+            [else
+             (define tokens
+               (with-read-doc safe-doc
+                 get-tokens-encoding))
+             (success/enc id (hash 'data tokens))])))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
