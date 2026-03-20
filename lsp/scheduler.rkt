@@ -111,12 +111,16 @@
 
 (define *doc-change-signal* (QuerySignal))
 (define *new-trace-signal* (QuerySignal))
+(define *doc-close-signal* (QuerySignal))
 
 (define (signal-doc-change? s)
   (eq? s *doc-change-signal*))
 
 (define (signal-new-trace? s)
   (eq? s *new-trace-signal*))
+
+(define (signal-doc-close? s)
+  (eq? s *doc-close-signal*))
 
 (define (run-and-remove-queries token signal)
   (for ([data (hash-ref *await-queries* token '())])
@@ -152,16 +156,18 @@
     (λ ()
       (run-and-remove-queries token *new-trace-signal*))))
 
-;; remove all await queries
+;; send doc close signal so waiting query threads can finish and release any
+;; document state they captured.
 (define (clear-old-queries/doc-close token)
   (call-with-semaphore
     *await-queries-semaphore*
     (λ ()
-      (hash-remove! *await-queries* token))))
+      (run-and-remove-queries token *doc-close-signal*))))
 
 (provide async-query-wait
          signal-doc-change?
          signal-new-trace?
+         signal-doc-close?
          clear-old-queries/doc-change
          clear-old-queries/new-trace
          clear-old-queries/doc-close)
