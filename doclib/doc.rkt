@@ -9,6 +9,7 @@
          "editor.rkt"
          "../common/path-util.rkt"
          "doc-trace.rkt"
+         "formatting.rkt"
          "internal-types.rkt"
          racket/match
          racket/contract
@@ -16,7 +17,6 @@
          racket/set
          racket/list
          racket/string
-         racket/bool
          racket/dict
          data/interval-map
          syntax-color/module-lexer
@@ -349,17 +349,20 @@
 
 ;; formatting ;;
 
+(define (doc-src-dir doc)
+  (with-handlers ([exn:fail? (λ (_exn) #f)])
+    (define doc-path (uri->path (Doc-uri doc)))
+    (define-values (base _name _must-be-dir?) (split-path doc-path))
+    base))
+
 ;; Shared path for all formatting requests
 (define/contract (doc-format-edits doc fmt-range
-                                   #:formatting-options opts
+                                   #:formatting-options _opts
                                    #:on-type? [on-type? #f])
   (->* (Doc? Range? #:formatting-options FormattingOptions?)
        (#:on-type? boolean?)
        (or/c (listof TextEdit?) #f))
   (define doc-text (Doc-text doc))
-  (define doc-trace (Doc-trace doc))
-
-  (define indenter (send doc-trace get-indenter))
   (define start-pos (doc-pos->abs-pos doc (Range-start fmt-range)))
   ;; Adjust for line endings (#92)
   (define end-pos
@@ -367,99 +370,11 @@
          (sub1 (doc-pos->abs-pos doc (Range-end fmt-range)))))
   (define start-line (send doc-text at-line start-pos))
   (define end-line (send doc-text at-line end-pos))
-
-  (define mut-doc-text (send doc-text copy))
-  ;; replace \t with spaces at line `(sub1 start-line)`
-  ;; as we cannot make `compute-racket-amount-to-indent`
-  ;; to respect the given tab size
-  (replace-tab! mut-doc-text
-                (max 0 (sub1 start-line))
-                (FormattingOptions-tab-size opts))
-
-  (define indenter-wp (indenter-wrapper indenter mut-doc-text on-type?))
-  (define skip-this-line? #f)
-
-  (if (eq? indenter 'missing) #f
-      (let loop ([line start-line])
-        (define line-start (send mut-doc-text line-start-pos line))
-        (define line-end (send mut-doc-text line-end-pos line))
-        (for ([i (range line-start (add1 line-end))])
-          (when (and (char=? #\" (send mut-doc-text get-char i))
-                     (not (char=? #\\ (send mut-doc-text get-char (sub1 i)))))
-            (set! skip-this-line? (not skip-this-line?))))
-        (if (> line end-line)
-            null
-            (append (filter-map
-                      values
-                      ;; NOTE: The order is important here.
-                      ;; `remove-trailing-space!` deletes content relative to the initial document
-                      ;; position. If we were to instead call `indent-line!` first and then
-                      ;; `remove-trailing-space!` second, the remove step could result in
-                      ;; losing user entered code.
-                      (list (if (false? (FormattingOptions-trim-trailing-whitespace opts))
-                                #f
-                                (remove-trailing-space! mut-doc-text skip-this-line? line))
-                            (indent-line! mut-doc-text indenter-wp line)))
-                    (loop (add1 line)))))))
-
-(define (replace-tab! doc-text line tabsize)
-  (define old-line (send doc-text get-line line))
-  (define spaces (make-string tabsize #\space))
-  (define new-line-str (string-replace old-line "\t" spaces))
-  (send doc-text replace-in-line
-        new-line-str
-        line 0 (string-length old-line)))
-
-(define (indenter-wrapper indenter doc-text on-type?)
-  (λ (line)
-    (cond [(and (not on-type?)
-                (= (send doc-text line-start-pos line)
-                   (send doc-text line-end-pos line)))
-           #f]
-          [else
-           (define line-start (send doc-text line-start-pos line))
-           (if indenter
-               (or (send doc-text run-indenter indenter line-start)
-                   (send doc-text compute-racket-amount-to-indent line-start))
-               (send doc-text compute-racket-amount-to-indent line-start))])))
-
-;; Returns a TextEdit, or #f if the line is a part of multiple-line string
-(define (remove-trailing-space! doc-text in-string? line)
-  (define line-text (send doc-text get-line line))
-  (cond
-    [(not in-string?)
-     (define from (string-length (string-trim line-text #px"\\s+" #:left? #f)))
-     (define to (string-length line-text))
-     (send doc-text replace-in-line "" line from to)
-     (TextEdit #:range (Range (Pos line from)
-                              (Pos line to))
-               #:newText "")]
-    [else #f]))
-
-(define (extract-indent-string content)
-  (define len
-    (or (for/first ([(c i) (in-indexed content)]
-                    #:when (not (char-whitespace? c)))
-          i)
-        (string-length content)))
-  (substring content 0 len))
-
-;; Returns a TextEdit, or #f if the line is already correct.
-(define (indent-line! doc-text indenter line)
-  (define content (send doc-text get-line line))
-  (define old-indent-string (extract-indent-string content))
-  (define expect-indent (indenter line))
-  (define really-indent (string-length old-indent-string))
-  (define has-tab? (string-contains? old-indent-string "\t"))
-
-  (cond [(false? expect-indent) #f]
-        [(and (= expect-indent really-indent) (not has-tab?)) #f]
-        [else
-         (define new-text (make-string expect-indent #\space))
-         (send doc-text replace-in-line new-text line 0 really-indent)
-         (TextEdit #:range (Range (Pos line 0)
-                                  (Pos line really-indent))
-                   #:newText new-text)]))
+  (formatting (send doc-text get-text)
+              start-line
+              end-line
+              #:src-dir (doc-src-dir doc)
+              #:interactive? on-type?))
 
 ;; get the tokens whose range are contained in interval [pos-start, pos-end)
 ;; the tokens whose range intersects the given range is included.

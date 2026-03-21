@@ -58,14 +58,6 @@ END
                                                             'end
                                                             (hasheq 'line 3
                                                                     'character 0))
-                                                    'newText "")
-                                            (hasheq 'range
-                                                    (hasheq 'start
-                                                            (hasheq 'line 3
-                                                                    'character 0)
-                                                            'end
-                                                            (hasheq 'line 3
-                                                                    'character 0))
                                                     'newText "  ")))])
         (client-send lsp req)
         (check-equal? (jsexpr->string (client-wait-response req)) (jsexpr->string res))))))

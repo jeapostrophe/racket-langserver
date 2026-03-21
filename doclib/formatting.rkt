@@ -6,22 +6,18 @@
 
 (provide formatting)
 
-(define (formatting text start-ln end-ln #:interactive? [interactive? #f])
-  (define lines (port->lines (open-input-string text)))
-  (define formatted-lines (get-formatted-lines text #:interactive? interactive?))
-  (define diffs (diff-lines lines formatted-lines))
-  (for/list ([diff (in-list diffs)]
+(define (formatting text start-ln end-ln
+                    #:src-dir [src-dir #f]
+                    #:interactive? [interactive? #f])
+  (define original-lines (port->lines (open-input-string text)))
+  (define formatted-lines
+    (get-formatted-lines text src-dir #:interactive? interactive?))
+  (for/list ([original-line (in-list original-lines)]
+             [formatted-line (in-list formatted-lines)]
              [ln (in-naturals)]
-             [line (in-list lines)]
-             #:when (and diff (<= start-ln ln end-ln)))
+             #:when (and (<= start-ln ln end-ln)
+                         (not (string=? original-line formatted-line))))
     (TextEdit #:range (Range (Pos ln 0)
-                             (Pos ln (string-length line)))
-              #:newText diff)))
-
-(define (diff-lines olds news)
-  (for/list ([old (in-list olds)]
-             [new (in-list news)])
-    (if (string=? old new)
-        #f
-        new)))
+                             (Pos ln (string-length original-line)))
+              #:newText formatted-line)))
 

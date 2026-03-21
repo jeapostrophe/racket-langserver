@@ -193,7 +193,7 @@
 
   (test-case
     "Formatting"
-    ;; doc.rkt `doc-format-edits` uses `indenter` from trace.
+    ;; doc.rkt `doc-format-edits` delegates to the external formatter.
     (define text "(define x\n1)")
     (define d (make-doc "file:///test.rkt" text))
     (define opts
@@ -204,9 +204,9 @@
                          #:trim-final-newlines #f
                          #:key #f)) ;; tab-size 2
     (define edits (doc-format-edits d (Range (Pos 0 0) (Pos 2 0)) #:formatting-options opts))
-    (check-equal? (length edits) 3)
+    (check-equal? (length edits) 1)
     (check-true (andmap TextEdit? edits))
-    (check-equal? (map TextEdit-newText edits) (list "" "" "  "))
+    (check-equal? (map TextEdit-newText edits) (list "  1)"))
 
     ;; Test with tab size 4
     (define opts4
@@ -217,9 +217,38 @@
                          #:trim-final-newlines #f
                          #:key #f))
     (define edits4 (doc-format-edits d (Range (Pos 0 0) (Pos 2 0)) #:formatting-options opts4))
-    (check-equal? (length edits4) 3)
+    (check-equal? (length edits4) 1)
     (check-true (andmap TextEdit? edits4))
-    (check-equal? (map TextEdit-newText edits4) (list "" "" "  ")))
+    (check-equal? (map TextEdit-newText edits4) (list "  1)")))
+
+  (test-case
+    "Formatting modes"
+    (define opts
+      (FormattingOptions #:tab-size 2
+                         #:insert-spaces #t
+                         #:trim-trailing-whitespace #t
+                         #:insert-final-newline #f
+                         #:trim-final-newlines #f
+                         #:key #f))
+
+    (define normal-doc
+      (make-doc "file:///test.rkt"
+                "#lang racket/base\n\n(define (bob)\n  \n  (+ 1 2))\n"))
+    (check-equal?
+      (doc-format-edits normal-doc
+                        (Range (Pos 3 0) (Pos 4 0))
+                        #:formatting-options opts)
+      (list (TextEdit (Range (Pos 3 0) (Pos 3 2)) "")))
+
+    (define interactive-doc
+      (make-doc "file:///test.rkt"
+                "#lang racket/base\n\n(define (bob)\n\n  (+ 1 2))\n"))
+    (check-equal?
+      (doc-format-edits interactive-doc
+                        (Range (Pos 3 0) (Pos 3 0))
+                        #:on-type? #t
+                        #:formatting-options opts)
+      (list (TextEdit (Range (Pos 3 0) (Pos 3 0)) "  "))))
 
   (test-case
     "Apply TextEdits"
@@ -235,9 +264,7 @@
     (define edits (doc-format-edits d (Range (Pos 0 0) (Pos 2 0)) #:formatting-options opts))
     (check-equal?
       edits
-      (list (TextEdit (Range (Pos 0 9) (Pos 0 9)) "")
-            (TextEdit (Range (Pos 1 2) (Pos 1 2)) "")
-            (TextEdit (Range (Pos 1 0) (Pos 1 0)) "  ")))
+      (list (TextEdit (Range (Pos 1 0) (Pos 1 2)) "  1)")))
     (doc-apply-edits! d edits)
     (check-equal? (doc-get-text d) "(define x\n  1)"))
 
