@@ -14,6 +14,7 @@
                "scribble-lib" ;; for blueboxes (scribble/blueboxes)
                "racket-index" ;; for cross references (setup/xref)
                "html-parsing" ;; for parsing documentation text
+               "fixw" ;; formatter
                ))
 (define build-deps '("rackunit-lib"
                      "racket-doc"
