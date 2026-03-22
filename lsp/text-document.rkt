@@ -252,6 +252,28 @@
     [_
      (error-response id ErrorCode-InvalidParams "textDocument/rangeFormatting failed")]))
 
+(define (on-type-formatting-range doc pos ch)
+  (define ch-pos (max 0 (sub1 (doc-pos->abs-pos doc pos))))
+  (define current-line (Pos-line pos))
+  (define current-line-start-pos (doc-line-start-abs-pos doc current-line))
+  (define current-line-end-pos (doc-line-end-abs-pos doc current-line))
+
+  (define (current-line-range)
+    (Range (doc-abs-pos->pos doc current-line-start-pos)
+           (doc-abs-pos->pos doc current-line-end-pos)))
+
+  (define (containing-form-range)
+    (define maybe-paren-pos (doc-find-containing-paren doc (max 0 (sub1 ch-pos))))
+    (define start-pos (if (false? maybe-paren-pos) 0 maybe-paren-pos))
+    (Range (doc-abs-pos->pos doc start-pos)
+           (doc-abs-pos->pos doc current-line-end-pos)))
+
+  (match ch
+    ["\n" (current-line-range)]
+    [")" (containing-form-range)]
+    ["]" (containing-form-range)]
+    [_ (current-line-range)]))
+
 ;; On-type formatting request
 (define (on-type-formatting! id params)
   (match params
@@ -266,20 +288,7 @@
 
      (with-read-doc safe-doc
        (λ (doc)
-         (define ch-pos (- (doc-pos->abs-pos doc pos) 1))
-         (define line (Pos-line pos))
-         (define range
-           (match ch
-             ["\n"
-              (define start (doc-abs-pos->pos doc (doc-line-start-abs-pos doc line)))
-              (define end (doc-abs-pos->pos doc (doc-line-end-abs-pos doc line)))
-              (Range start end)]
-             [_
-              (define start
-                (let ([maybe-paren (doc-find-containing-paren doc (max 0 (sub1 ch-pos)))])
-                  (doc-abs-pos->pos doc (if (false? maybe-paren) 0 maybe-paren))))
-              (define end (doc-abs-pos->pos doc ch-pos))
-              (Range start end)]))
+         (define range (on-type-formatting-range doc pos ch))
          (success/enc
            id
            (doc-format-edits doc range
