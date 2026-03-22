@@ -15,6 +15,7 @@
   (for/list ([original-line (in-list original-lines)]
              [formatted-line (in-list formatted-lines)]
              [ln (in-naturals)]
+             #:break (> ln end-ln)
              #:when (and (<= start-ln ln end-ln)
                          (not (string=? original-line formatted-line))))
     (TextEdit #:range (Range (Pos ln 0)
