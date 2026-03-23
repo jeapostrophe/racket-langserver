@@ -355,6 +355,15 @@
     (define-values (base _name _must-be-dir?) (split-path doc-path))
     base))
 
+(define (formatting-range->lines doc-text fmt-range)
+  (define last-line (send doc-text at-line (send doc-text end-pos)))
+  (define requested-start-line (Pos-line (Range-start fmt-range)))
+  (define requested-end-line (Pos-line (Range-end fmt-range)))
+  (define start-line (min requested-start-line last-line))
+  ;; PR #92 established that formatting ranges use inclusive end-line semantics,
+  ;; even though the LSP range end itself is exclusive.
+  (values start-line (max start-line (min requested-end-line last-line))))
+
 ;; Shared path for all formatting requests
 (define/contract (doc-format-edits doc fmt-range
                                    #:formatting-options _opts
@@ -363,13 +372,8 @@
        (#:on-type? boolean?)
        (or/c (listof TextEdit?) #f))
   (define doc-text (Doc-text doc))
-  (define start-pos (doc-pos->abs-pos doc (Range-start fmt-range)))
-  ;; Adjust for line endings (#92)
-  (define end-pos
-    (max start-pos
-         (sub1 (doc-pos->abs-pos doc (Range-end fmt-range)))))
-  (define start-line (send doc-text at-line start-pos))
-  (define end-line (send doc-text at-line end-pos))
+  (define-values (start-line end-line)
+    (formatting-range->lines doc-text fmt-range))
   (formatting (send doc-text get-text)
               start-line
               end-line
