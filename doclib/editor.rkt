@@ -1,6 +1,6 @@
 #lang racket/base
 
-(require "editor-legacy.rkt")
-
 (provide lsp-editor%)
+
+(require "textbuffer/editor-rope.rkt")
 
