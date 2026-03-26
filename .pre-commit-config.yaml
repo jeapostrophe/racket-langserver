@@ -5,6 +5,6 @@ repos:
     hooks:
       - id: formatting
         name: Formatting with Racket-fixw
-        entry: raco fixw .
+        entry: raco fixw --ensure-newline-eof .
         language: system
         pass_filenames: false

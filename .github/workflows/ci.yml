@@ -73,7 +73,7 @@ jobs:
         run: raco pkg install --auto fixw
       - name: Checking code formatting
         run: |
-          raco fixw .
+          raco fixw --ensure-newline-eof .
           if [ -n "$(git status --porcelain)" ]; then
             echo "Code is not properly formatted. Please run 'raco fixw .' locally and commit the changes."
             exit 1
