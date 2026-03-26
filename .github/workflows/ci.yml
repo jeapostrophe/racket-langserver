@@ -33,7 +33,7 @@ jobs:
       - name: Checking the package dependency of racket-langserver
         run: raco setup -j 1 --no-docs --check-pkg-deps --unused-pkg-deps --pkgs racket-langserver
       - name: Testing racket-langserver
-        run: xvfb-run -a raco test -j 1 -c racket-langserver/tests
+        run: raco test -j 16 -c racket-langserver/tests
 
   resyntax:
     name: "Resyntax integration on Racket '${{ matrix.racket-version }}' (${{ matrix.racket-variant }})"
@@ -56,7 +56,7 @@ jobs:
       - name: Install Resyntax
         run: raco pkg install --no-docs --auto resyntax
       - name: Running resyntax tests
-        run: xvfb-run -a raco test -j 1 tests/textDocument/resyntax/
+        run: raco test -j 16 tests/textDocument/resyntax/
 
   formatting:
     name: "Code formatting check"
