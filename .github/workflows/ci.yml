@@ -31,9 +31,9 @@ jobs:
       - name: Installing racket-langserver and its dependencies
         run: raco pkg install --no-docs --auto --name racket-langserver
       - name: Checking the package dependency of racket-langserver
-        run: raco setup -j 1 --no-docs --check-pkg-deps --unused-pkg-deps --pkgs racket-langserver
+        run: raco setup -j "$(getconf _NPROCESSORS_ONLN)" --no-docs --check-pkg-deps --unused-pkg-deps --pkgs racket-langserver
       - name: Testing racket-langserver
-        run: raco test -j 16 -c racket-langserver/tests
+        run: raco test -j "$(getconf _NPROCESSORS_ONLN)" -c racket-langserver/tests
 
   resyntax:
     name: "Resyntax integration on Racket '${{ matrix.racket-version }}' (${{ matrix.racket-variant }})"
@@ -56,7 +56,7 @@ jobs:
       - name: Install Resyntax
         run: raco pkg install --no-docs --auto resyntax
       - name: Running resyntax tests
-        run: raco test -j 16 tests/textDocument/resyntax/
+        run: raco test tests/textDocument/resyntax/
 
   formatting:
     name: "Code formatting check"

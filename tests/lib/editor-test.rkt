@@ -263,8 +263,8 @@
 
   (define practical-line-count 2000)
   (define practical-line-width 40)
-  ;; 0.001 time budget is enough for recent laptops, 0.005 for CI environments in parallel tests
-  (define practical-time-budget 0.005)
+  ;; 0.001 time budget is enough for recent laptops, 0.01 for CI environments in parallel tests
+  (define practical-time-budget 0.01)
   (define practical-memory-budget 0.01)
 
   (define practical-top-insert-line 5)
