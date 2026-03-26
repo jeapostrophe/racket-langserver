@@ -17,11 +17,9 @@
 ;; For CRLF, Only `#\newline `contributes to line structure,
 ;; `#\return `stays in the leaf text as an ordinary character.
 
-
 ;; Rope is one of:
 ;; - RopeLeaf
 ;; - RopeNode
-
 
 ;; RopeLeaf is a leaf node containing a string segment. It stores the offsets of
 ;; `#\newline` characters for efficient line-based operations.
@@ -35,7 +33,6 @@
     chars
     newlines)
   #:transparent)
-
 
 ;; RopeNode is an internal node that combines two child ropes. It caches the total
 ;; character count, newline count, and subtree height for efficient operations and balancing.
