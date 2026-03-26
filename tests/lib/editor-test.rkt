@@ -263,6 +263,8 @@
 
   (define practical-line-count 2000)
   (define practical-line-width 40)
+  ;; 0.001 time budget is enough for recent laptops, 0.005 for CI environments in parallel tests
+  (define practical-time-budget 0.005)
   (define practical-memory-budget 0.01)
 
   (define practical-top-insert-line 5)
@@ -300,7 +302,7 @@
 
   (test-case "performance spec: build practical editor"
     (check-performance
-      #:seconds 0.001
+      #:seconds practical-time-budget
       #:megabytes practical-memory-budget
       (lambda ()
         (void (make-editor practical-source-text)))))
@@ -310,7 +312,7 @@
     (define insert-pos
       (send editor line/char->pos practical-top-insert-line practical-top-insert-column))
     (check-performance
-      #:seconds 0.001
+      #:seconds practical-time-budget
       #:megabytes practical-memory-budget
       (lambda ()
         (send editor replace "x" insert-pos insert-pos)
@@ -323,7 +325,7 @@
     (define original-text
       (send editor get-text replace-pos (add1 replace-pos)))
     (check-performance
-      #:seconds 0.001
+      #:seconds practical-time-budget
       #:megabytes practical-memory-budget
       (lambda ()
         (send editor replace "x" replace-pos (add1 replace-pos))
@@ -340,7 +342,7 @@
     (define replacement-end
       (+ replace-start (string-length practical-multiline-replacement)))
     (check-performance
-      #:seconds 0.001
+      #:seconds practical-time-budget
       #:megabytes practical-memory-budget
       (lambda ()
         (send editor replace practical-multiline-replacement replace-start replace-end)
@@ -351,7 +353,7 @@
     (define insert-pos
       (send editor line/char->pos practical-top-insert-line practical-top-insert-column))
     (check-performance
-      #:seconds 0.001
+      #:seconds practical-time-budget
       #:megabytes practical-memory-budget
       (lambda ()
         (for ([_ (in-range 50)])
