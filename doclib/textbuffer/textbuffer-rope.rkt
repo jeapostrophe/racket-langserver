@@ -8,8 +8,7 @@
          rope-ref
          rope-line-start-offset
          rope-line-end-offset
-         rope-offset->line
-         in-rope)
+         rope-offset->line)
 
 (require racket/match
          (for-syntax racket/base))
@@ -372,11 +371,3 @@
 (define (rope-offset->line rope offset)
   (count-newlines-before-offset rope offset))
 
-(define-syntax in-rope
-  (syntax-rules ()
-    [(_ rope)
-     (in-rope rope 0 (rope-chars rope))]
-    [(_ rope start)
-     (in-rope rope start (rope-chars rope))]
-    [(_ rope start end)
-     (in-string (rope-get-text rope start end))]))
