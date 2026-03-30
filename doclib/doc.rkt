@@ -407,52 +407,57 @@
 (define (abs-range->range doc start end)
   (Range (doc-abs-pos->pos doc start) (doc-abs-pos->pos doc end)))
 
+(define (hover-tag->signature-block tag)
+  ;; We want signatures from `scribble/blueboxes` as they have better indentation,
+  ;; but in some super rare cases blueboxes aren't accessible, thus we try to use the
+  ;; parsed signature instead.
+  (match-define (list signatures args-description)
+    (if tag
+        (get-docs-for-tag tag)
+        (list #f #f)))
+  (and signatures
+       (~a "```\n"
+           (string-join signatures "\n")
+           (if args-description
+               (~a "\n" args-description)
+               "")
+           "\n```\n---\n")))
+
+(define (hover-documentation-text link signature-block)
+  (if link
+      (~a (or signature-block "")
+          (or (extract-documentation-for-selected-element
+                link #:include-signature? (not signature-block))
+              ""))
+      ""))
+
+(define (build-hover-contents hover-text link documentation-text)
+  (if link
+      (~a hover-text
+          " - [online docs]("
+          (make-proper-url-for-online-documentation link)
+          ")\n"
+          (if (non-empty-string? documentation-text)
+              (~a "\n---\n" documentation-text)
+              ""))
+      hover-text))
+
 (define/contract (doc-hover doc pos)
   (-> Doc? Pos? (or/c Hover? #f))
   (define doc-trace (Doc-trace doc))
-  (define hovers (send doc-trace get-hovers))
   (define pos* (doc-pos->abs-pos doc pos))
-  (define-values (start end text)
-    (interval-map-ref/bounds hovers pos* #f))
-  (match-define (list link tag)
-    (interval-map-ref (send doc-trace get-docs) pos* (list #f #f)))
-  (define result
-    (cond [text
-           ;; We want signatures from `scribble/blueboxes` as they have better indentation,
-           ;; but in some super rare cases blueboxes aren't accessible, thus we try to use the
-           ;; parsed signature instead
-           (match-define (list sigs args-descr)
-             (if tag
-                 (get-docs-for-tag tag)
-                 (list #f #f)))
-           (define maybe-signature
-             (and sigs
-                  (~a "```\n"
-                      (string-join sigs "\n")
-                      (if args-descr
-                          (~a "\n" args-descr)
-                          "")
-                      "\n```\n---\n")))
-           (define documentation-text
-             (if link
-                 (~a (or maybe-signature "")
-                     (or (extract-documentation-for-selected-element
-                           link #:include-signature? (not maybe-signature))
-                         ""))
-                 ""))
-           (define contents (if link
-                                (~a text
-                                    " - [online docs]("
-                                    (make-proper-url-for-online-documentation link)
-                                    ")\n"
-                                    (if (non-empty-string? documentation-text)
-                                        (~a "\n---\n" documentation-text)
-                                        ""))
-                                text))
-           (Hover #:contents contents
-                  #:range (abs-range->range doc start end))]
-          [else #f]))
-  result)
+  (define-values (start end hover-text)
+    (interval-map-ref/bounds (send doc-trace get-hovers) pos* #f))
+  (cond
+    [(not hover-text) #f]
+    [else
+     (match-define (list link tag)
+       (interval-map-ref (send doc-trace get-docs) pos* (list #f #f)))
+     (define signature-block (hover-tag->signature-block tag))
+     (define documentation-text
+       (hover-documentation-text link signature-block))
+     (Hover #:contents (build-hover-contents hover-text link documentation-text)
+            #:range (abs-range->range doc start end))]))
 
 (define/contract (doc-code-action doc range)
   (-> Doc? Range? (listof CodeAction?))
