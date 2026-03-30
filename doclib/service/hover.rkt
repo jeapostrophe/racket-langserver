@@ -24,10 +24,9 @@
     (define/override (contract start end)
       (interval-map-contract! hovers start end))
 
-    (define/override (syncheck:add-mouse-over-status src-obj start finish text)
-      ;; Infer a length of 1 for zero-length ranges in the document.
-      ;; XXX This might not exactly match the behavior in DrRacket.
-      (when (= start finish)
-        (set! finish (add1 finish)))
-      (interval-map-set! hovers start finish text))))
+    (define/override (syncheck:add-mouse-over-status _src start end text)
+      ;; When start = end, it means the identifier is not found in the source file,
+      ;; but exists in expanded syntax. So we shouldn't add an item for it.
+      (when (< start end)
+        (interval-map-set! hovers start end text)))))
 
