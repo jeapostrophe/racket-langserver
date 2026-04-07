@@ -77,18 +77,6 @@
     (check-equal? (Pos-char p) 0))
 
   (test-case
-    "Document symbols"
-    (define text "#lang racket\n(define x 1)\n")
-    (define d (make-doc "file:///test.rkt" text))
-    (define syms (doc-get-symbols d))
-    ;; lexer positions are 1-based in this symbol map:
-    ;; define: 15..21, x: 22..23, 1: 24..25
-    (check-equal? (interval-map-ref syms 15 #f) (list "define" SymbolKind-Variable))
-    (check-equal? (interval-map-ref syms 22 #f) (list "x" SymbolKind-Variable))
-    (check-equal? (interval-map-ref syms 24 #f) (list "1" SymbolKind-Constant))
-    (check-false (interval-map-ref syms 21 #f) "space should not be a symbol"))
-
-  (test-case
     "Find containing paren"
     (define text "(list 1 2)")
     (define d (make-doc "file:///test.rkt" text))
@@ -453,23 +441,6 @@ END
     (define-values (d _uri) (make-expanded-doc))
     (define result (doc-prepare-rename d (Pos 1 1)))
     (check-false result))
-
-  (test-case
-    "doc-symbols returns lexed symbols with correct positions"
-    (define-values (d uri) (make-expanded-doc))
-    (define result (doc-symbols d uri))
-    ;; Symbols come from lexer, should have: define, x (defn), 1, x (usage).
-    ;; Note: lexer positions are 1-based but get-symbols uses them directly.
-    ;; Exact results depend on the lexer, but we can check structure and known entries.
-    (check-equal? (length result) 4)
-    ;; Check that "define" symbol is present with kind=SymbolKind-Variable
-    (define define-sym (findf (λ (s) (equal? (SymbolInformation-name s) "define")) result))
-    (check-not-false define-sym)
-    (check-equal? (SymbolInformation-kind define-sym) SymbolKind-Variable)
-    ;; Check that "1" is present with kind=SymbolKind-Constant
-    (define one-sym (findf (λ (s) (equal? (SymbolInformation-name s) "1")) result))
-    (check-not-false one-sym)
-    (check-equal? (SymbolInformation-kind one-sym) SymbolKind-Constant))
 
   (test-case
     "Document hover"

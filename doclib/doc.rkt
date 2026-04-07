@@ -11,6 +11,7 @@
          "doc-trace.rkt"
          "formatting.rkt"
          "internal-types.rkt"
+         "lexer.rkt"
          racket/match
          racket/contract
          racket/class
@@ -19,8 +20,6 @@
          racket/string
          racket/dict
          data/interval-map
-         syntax-color/module-lexer
-         syntax-color/racket-lexer
          "check-syntax.rkt"
          "external/resyntax.rkt"
          "docs-helpers.rkt"
@@ -34,7 +33,8 @@
    [trace (is-a?/c build-trace%)]
    [version exact-nonnegative-integer?]
    [trace-version (or/c false/c exact-nonnegative-integer?)]
-   [resyntax-results (listof Resyntax-Result?)])
+   [resyntax-results (listof Resyntax-Result?)]
+   [lexer-snapshot (or/c false/c LexerSnapshot?)])
   #:mutable)
 
 (define/contract (make-doc uri text [version 0])
@@ -45,10 +45,13 @@
   (send doc-text insert text 0)
   ;; the init trace should not be #f
   (define doc-trace (new build-trace% [src (uri->path uri)] [doc-text doc-text] [indenter #f]))
-  (Doc uri doc-text doc-trace version #f (list)))
+  (Doc uri doc-text doc-trace version #f (list) #f))
 
 (define (invalidate-resyntax-results! doc)
   (set-Doc-resyntax-results! doc (list)))
+
+(define (invalidate-lexer-snapshot! doc)
+  (set-Doc-lexer-snapshot! doc #f))
 
 (define/contract (doc-get-resyntax-results doc)
   (-> Doc? (listof Resyntax-Result?))
@@ -111,6 +114,7 @@
   (define doc-trace (Doc-trace doc))
 
   (invalidate-resyntax-results! doc)
+  (invalidate-lexer-snapshot! doc)
   (send doc-text erase)
   (send doc-trace reset)
   (send doc-text insert new-text 0))
@@ -126,6 +130,7 @@
   (define new-len (string-length text))
 
   (invalidate-resyntax-results! doc)
+  (invalidate-lexer-snapshot! doc)
   ;; try reuse old information as the check-syntax can fail
   ;; and return the old build-trace% object
   (cond [(> new-len old-len) (send doc-trace expand end-pos (+ st-pos new-len))]
@@ -265,61 +270,24 @@
           (loop (- i 1) (+ p 1))]
          [else (loop (- i 1) p)]))]))
 
-(define (get-symbols doc-text)
-  (define text (send doc-text get-text))
-  (define in (open-input-string text))
-  (port-count-lines! in)
-  (define lexer (get-lexer in))
-  (define symbols (make-interval-map))
-  (for ([lst (in-port (lexer-wrap lexer) in)]
-        #:when (set-member? '(constant string symbol) (second lst)))
-    (match-define (list text type _paren? start end) lst)
-    (define kind
-      (match type
-        ['constant SymbolKind-Constant]
-        ['string SymbolKind-String]
-        ['symbol SymbolKind-Variable]))
-    (interval-map-set! symbols start end (list text kind)))
-  symbols)
+;; Cache lexer-derived token ranges so hot-path symbol queries stay off the
+;; lexer once the current text has been indexed.
+;; `tokens` feeds the exact position helpers added in the next hover step.
+(define (build-doc-lexer-snapshot doc)
+  (build-lexer-snapshot (send (Doc-text doc) get-text)))
 
-;; Wrapper for in-port, returns a list or EOF.
-(define ((lexer-wrap lexer) in)
-  (define (eof-or-list txt type paren? start end)
-    (if (eof-object? txt)
-        eof
-        (list txt type paren? start end)))
+(define (doc-lexer-snapshot doc)
+  (define cached (Doc-lexer-snapshot doc))
   (cond
-    [(procedure? lexer)
-     (define-values (txt type paren? start end)
-       (lexer in))
-     (eof-or-list txt type paren? start end)]
-    [(cons? lexer)
-     (define-values (txt type paren? start end _backup mode)
-       ((car lexer) in 0 (cdr lexer)))
-     (set! lexer (cons (car lexer) mode))
-     (eof-or-list txt type paren? start end)]))
+    [cached cached]
+    [else
+     (define snapshot (build-doc-lexer-snapshot doc))
+     (set-Doc-lexer-snapshot! doc snapshot)
+     snapshot]))
 
-;; Call module-lexer on an input port, then discard all
-;; values except the lexer.
-(define (get-lexer in)
-  (match-define-values
-    (_ _ _ _ _ _ lexer)
-    (module-lexer in 0 #f))
-  (cond
-    [(procedure? lexer) lexer]
-    [(cons? lexer) lexer]
-    [(eq? lexer 'no-lang-line) racket-lexer]
-    [(eq? lexer 'before-lang-line) racket-lexer]
-    [else racket-lexer]))
-
-(define symbol-entry/c
-  (list/c string? SymbolKind?))
-
-;; TODO: Lexer positions start at 1.
-;; Convert them to start at 0 so they match the rest of this file.
 (define/contract (doc-get-symbols doc)
   (-> Doc? (interval-map-of symbol-entry/c))
-  (get-symbols (Doc-text doc)))
+  (lexer-snapshot-symbols (doc-lexer-snapshot doc)))
 
 ;; definition BEG ;;
 
@@ -492,9 +460,8 @@
            (define tag
              (cond [maybe-tag (last maybe-tag)]
                    [else
-                    (define symbols (doc-get-symbols doc))
-                    (define-values (start end symbol)
-                      (interval-map-ref/bounds symbols (+ new-pos 2) #f))
+                    (define symbol
+                      (lexer-snapshot-symbol-at (doc-lexer-snapshot doc) (+ new-pos 2)))
                     (cond [symbol
                            (id-to-tag (first symbol) doc-trace)]
                           [else #f])]))
@@ -706,4 +673,3 @@
          doc-prepare-rename
          doc-symbols
          )
-
