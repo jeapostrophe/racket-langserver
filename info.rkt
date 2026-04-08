@@ -16,6 +16,7 @@
                "fixw" ;; formatter
                ))
 (define build-deps '("rackunit-lib"
+                     "racket-doc"
                      "profile-flame-graph"))
 (define pkg-desc "Language Server Protocol implementation for Racket.")
 (define version "1.0")

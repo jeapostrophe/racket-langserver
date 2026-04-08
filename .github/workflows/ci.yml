@@ -29,9 +29,9 @@ jobs:
           variant: ${{ matrix.racket-variant }}
           version: ${{ matrix.racket-version }}
       - name: Installing racket-langserver and its dependencies
-        run: raco pkg install --no-docs --auto --name racket-langserver
+        run: raco pkg install --auto --name racket-langserver
       - name: Checking the package dependency of racket-langserver
-        run: raco setup -j "$(getconf _NPROCESSORS_ONLN)" --no-docs --check-pkg-deps --unused-pkg-deps --pkgs racket-langserver
+        run: raco setup -j "$(getconf _NPROCESSORS_ONLN)" --check-pkg-deps --pkgs racket-langserver
       - name: Testing racket-langserver
         run: raco test -j "$(getconf _NPROCESSORS_ONLN)" -c racket-langserver/tests
 
