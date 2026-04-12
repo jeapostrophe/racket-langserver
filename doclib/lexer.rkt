@@ -234,10 +234,12 @@
          (record-lexer-entry initial-type initial-start initial-end)))
   (define token-spans
     (append (if initial-span (list initial-span) '())
-            (for/list ([lst (in-port (lexer-wrap lexer) in)]
-                       #:do [(match-define (list _txt type _paren? start end) lst)
-                             (define span (record-lexer-entry type start end))]
-                       #:when span)
+            (for*/list ([lst (in-port (lexer-wrap lexer) in)]
+                        [span (in-value
+                                (match lst
+                                  [(list _txt type _paren? start end)
+                                   (record-lexer-entry type start end)]))]
+                        #:when span)
               span)))
   (LexerSnapshot text (list->vector token-spans)))
 
