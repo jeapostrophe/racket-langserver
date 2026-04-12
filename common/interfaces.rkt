@@ -49,6 +49,7 @@
          (json-type-out FileEvent)
          (json-type-out DidChangeWatchedFilesParams)
          (json-type-out FormattingOptions)
+         (struct-out LexerEntry)
          (json-type-out SemanticTokenType)
          (json-type-out SemanticTokenModifier)
          (struct-out SemanticToken)
@@ -250,6 +251,16 @@
   [insert-final-newline (optional boolean?) #:json insertFinalNewline]
   [trim-final-newlines (optional boolean?) #:json trimFinalNewlines]
   [key (or/c false/c (optional/c hash?))])
+
+;; Public query result for cached lexer tokens. Positions are zero-based
+;; absolute character offsets; callers still need to convert them to line /
+;; character pairs for LSP positions.
+(struct/contract LexerEntry
+  ([start exact-nonnegative-integer?]
+   [end exact-nonnegative-integer?]
+   [text string?]
+   [type symbol?])
+  #:transparent)
 
 (define-json-enum SemanticTokenType
   [variable "variable"]

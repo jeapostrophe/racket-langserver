@@ -3,6 +3,8 @@
 (module+ test
   (require rackunit
            "../../doclib/doc.rkt"
+           "../../doclib/doc-trace.rkt"
+           "../../doclib/editor.rkt"
            "../../doclib/internal-types.rkt"
            "../../common/interfaces.rkt"
            racket/class
@@ -122,6 +124,11 @@
     (check-false (doc-find-containing-paren d4 1)))
 
   (test-case
+    "Find containing paren ignores parens inside strings"
+    (define d (make-doc "file:///test.rkt" "(foo \"(\")"))
+    (check-equal? (doc-find-containing-paren d 6) 0))
+
+  (test-case
     "Document meta updates"
     (define d (make-doc "file:///test.rkt" "v1"))
     (doc-update-version! d 2)
@@ -145,25 +152,30 @@
     (check-equal? (doc-line-end-abs-pos d 1) 11))
 
   (test-case
-    "Token guessing"
+    "doc-token-at returns the token at the given position"
     (define text "foo bar-baz \"str\"")
-    ;; 01234567890123456
-    ;; "foo bar-baz " is 12 chars.
-    ;; "str" starts at 12.
     (define d (make-doc "file:///test.rkt" text))
 
-    ;; "foo" at 2 ('o') -> "foo"
-    (check-equal? (doc-guess-token d 2) "foo")
-    ;; "bar-baz" at 10 ('z') -> "bar-baz"
-    (check-equal? (doc-guess-token d 10) "bar-baz")
-    ;; Space at 3 -> "" (as per logic)
-    (check-equal? (doc-guess-token d 3) "")
-    ;; Quote at 12 -> ""
-    (check-equal? (doc-guess-token d 12) "")
-    ;; Inside string at 15 ('r') -> "str"
-    (check-equal? (doc-guess-token d 15) "str")
-    ;; Start of file at 0 ('f') -> "f"
-    (check-equal? (doc-guess-token d 0) "f"))
+    (define (token-summary token)
+      (list (LexerEntry-start token)
+            (LexerEntry-end token)
+            (LexerEntry-text token)
+            (LexerEntry-type token)))
+
+    (check-equal? (token-summary (doc-token-at d 2))
+                  (list 0 3 "foo" 'symbol))
+    (check-equal? (token-summary (doc-token-at d 10))
+                  (list 4 11 "bar-baz" 'symbol))
+    (check-equal? (token-summary (doc-token-at d 3))
+                  (list 3 4 " " 'white-space))
+    (check-equal? (token-summary (doc-token-at d 12))
+                  (list 12 17 "\"str\"" 'string))
+    (check-equal? (token-summary (doc-token-at d 15))
+                  (list 12 17 "\"str\"" 'string))
+    (check-equal? (token-summary (doc-token-at d 16))
+                  (list 12 17 "\"str\"" 'string))
+    (check-equal? (token-summary (doc-token-at d 0))
+                  (list 0 3 "foo" 'symbol)))
 
   (test-case
     "Range tokens (Semantic Tokens)"
@@ -253,8 +265,26 @@
     (check-equal?
       edits
       (list (TextEdit (Range (Pos 1 0) (Pos 1 2)) "  1)")))
+    (check-equal? (LexerEntry-type (doc-token-at d 1)) 'symbol)
     (doc-apply-edits! d edits)
-    (check-equal? (doc-get-text d) "(define x\n  1)"))
+    (check-equal? (doc-get-text d) "(define x\n  1)")
+    (define updated-token
+      (doc-token-at d (doc-pos->abs-pos d (Pos 1 2))))
+    (check-true (LexerEntry? updated-token))
+    (check-equal? (LexerEntry-type updated-token) 'constant)
+    (check-equal? (LexerEntry-text updated-token) "1"))
+
+  (test-case
+    "Apply TextEdits invalidates lexer snapshot across spanning tokens"
+    (define d (make-doc "file:///test.rkt" "#lang racket\n#| comment |#\nfoo\n"))
+    (check-equal? (LexerEntry-type (doc-token-at d (doc-pos->abs-pos d (Pos 2 0))))
+                  'symbol)
+    (doc-apply-edits! d (list (TextEdit (Range (Pos 1 11) (Pos 1 13)) "")))
+    (define comment-token
+      (doc-token-at d (doc-pos->abs-pos d (Pos 2 0))))
+    (check-true (LexerEntry? comment-token))
+    (check-equal? (LexerEntry-type comment-token) 'error)
+    (check-equal? (LexerEntry-text comment-token) "#| comment \nfoo\n"))
 
   (test-case
     "Get definition"
@@ -356,6 +386,34 @@ END
     (check-not-false
       (findf (λ (i) (equal? (CompletionItem-label i) "x")) items)
       "x should be in completions"))
+
+  (test-case
+    "doc-completion at buffer start returns a list"
+    (define-values (d _uri) (make-expanded-doc))
+    (check-pred CompletionList?
+                (doc-completion d (Pos 0 0))))
+
+  (test-case
+    "doc-completion at symbol buffer start does not consume the first character"
+    (define d (make-doc "file:///tmp/completion-buffer-start.rkt" "foo"))
+    (define test-trace%
+      (class build-trace%
+        (super-new [src (string->path "/tmp/completion-buffer-start.rkt")]
+                   [doc-text (new lsp-editor%)]
+                   [indenter #f])
+        (define/override (get-completions) '())
+        (define/override (get-online-completions str-before-cursor)
+          (cond
+            [(string=? str-before-cursor "")
+             '(alpha beta)]
+            [else
+             '()]))))
+    (doc-update-trace! d (new test-trace%) (Doc-version d))
+    (define result (doc-completion d (Pos 0 0)))
+    (define items (CompletionList-items result))
+    (check-equal? (map CompletionItem-label items)
+                  '("alpha" "beta")
+                  "buffer-start completion should pass an empty prefix to online completion lookup"))
 
   (test-case
     "doc-definition for local x usage"
@@ -481,6 +539,106 @@ END
                 "label should contain 'list'"))
 
   (test-case
+    "Document signature help for single-character function"
+    (define text
+#<<END
+#lang racket/base
+
+(+ )
+END
+      )
+    (define uri "file:///tmp/signature-help-single-char-test.rkt")
+    (define d (make-doc uri text))
+    (doc-expand! d)
+
+    (define help (doc-signature-help d (Pos 2 3)))
+    (check-not-false help "help should not be #f for single-character callees")
+    (define sigs (SignatureHelp-signatures help))
+    (check-false (empty? sigs) "signatures should not be empty")
+    (define first-sig (first sigs))
+    (check-true (string-contains? (SignatureInformation-label first-sig) "+")
+                "label should contain '+'"))
+
+  (test-case
+    "Document signature help skips spaces after the opening paren"
+    (define text
+#<<END
+#lang racket/base
+
+(  list )
+END
+      )
+    (define uri "file:///tmp/signature-help-space-test.rkt")
+    (define d (make-doc uri text))
+    (doc-expand! d)
+
+    (define help (doc-signature-help d (Pos 2 8)))
+    (check-not-false help "help should not be #f when whitespace separates the callee")
+    (define sigs (SignatureHelp-signatures help))
+    (check-false (empty? sigs) "signatures should not be empty")
+    (define first-sig (first sigs))
+    (check-true (string-contains? (SignatureInformation-label first-sig) "list")
+                "label should contain 'list'"))
+
+  (test-case
+    "Document signature help skips a newline after the opening paren"
+    (define text
+#<<END
+#lang racket/base
+
+(
+  list )
+END
+      )
+    (define uri "file:///tmp/signature-help-newline-test.rkt")
+    (define d (make-doc uri text))
+    (doc-expand! d)
+
+    (define help (doc-signature-help d (Pos 3 7)))
+    (check-not-false help "help should not be #f when the callee starts on the next line")
+    (define sigs (SignatureHelp-signatures help))
+    (check-false (empty? sigs) "signatures should not be empty")
+    (define first-sig (first sigs))
+    (check-true (string-contains? (SignatureInformation-label first-sig) "list")
+                "label should contain 'list'"))
+
+  (test-case
+    "Document signature help skips a comment after the opening paren"
+    (define text
+#<<END
+#lang racket/base
+
+( ; comment
+  list )
+END
+      )
+    (define uri "file:///tmp/signature-help-comment-test.rkt")
+    (define d (make-doc uri text))
+    (doc-expand! d)
+
+    (define help (doc-signature-help d (Pos 3 7)))
+    (check-not-false help "help should not be #f when a comment separates the callee")
+    (define sigs (SignatureHelp-signatures help))
+    (check-false (empty? sigs) "signatures should not be empty")
+    (define first-sig (first sigs))
+    (check-true (string-contains? (SignatureInformation-label first-sig) "list")
+                "label should contain 'list'"))
+
+  (test-case
+    "Document signature help at buffer start returns #f"
+    (define text
+#<<END
+#lang racket/base
+
+(list )
+END
+      )
+    (define uri "file:///tmp/signature-help-edge-test.rkt")
+    (define d (make-doc uri text))
+    (doc-expand! d)
+    (check-false (doc-signature-help d (Pos 0 0))))
+
+  (test-case
     "Document code action"
     (define text
 #<<END
@@ -521,4 +679,3 @@ END
     (check-equal? (CodeAction-title act) "Add prefix `_` to ignore"))
 
   )
-

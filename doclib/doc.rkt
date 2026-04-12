@@ -8,6 +8,7 @@
 (require "../common/interfaces.rkt"
          "editor.rkt"
          "../common/path-util.rkt"
+         "lazy-cache.rkt"
          "doc-trace.rkt"
          "formatting.rkt"
          "internal-types.rkt"
@@ -18,7 +19,6 @@
          racket/set
          racket/list
          racket/string
-         racket/dict
          data/interval-map
          "check-syntax.rkt"
          "external/resyntax.rkt"
@@ -34,7 +34,7 @@
    [version exact-nonnegative-integer?]
    [trace-version (or/c false/c exact-nonnegative-integer?)]
    [resyntax-results (listof Resyntax-Result?)]
-   [lexer-snapshot (or/c false/c LexerSnapshot?)])
+   [lexer-snapshot (lazy-cache-of LexerSnapshot?)])
   #:mutable)
 
 (define/contract (make-doc uri text [version 0])
@@ -45,13 +45,13 @@
   (send doc-text insert text 0)
   ;; the init trace should not be #f
   (define doc-trace (new build-trace% [src (uri->path uri)] [doc-text doc-text] [indenter #f]))
-  (Doc uri doc-text doc-trace version #f (list) #f))
+  (Doc uri doc-text doc-trace version #f (list) (make-lazy-cache)))
 
 (define (invalidate-resyntax-results! doc)
   (set-Doc-resyntax-results! doc (list)))
 
 (define (invalidate-lexer-snapshot! doc)
-  (set-Doc-lexer-snapshot! doc #f))
+  (lazy-cache-invalidate! (Doc-lexer-snapshot doc)))
 
 (define/contract (doc-get-resyntax-results doc)
   (-> Doc? (listof Resyntax-Result?))
@@ -119,53 +119,69 @@
   (send doc-trace reset)
   (send doc-text insert new-text 0))
 
-(define/contract (doc-apply-edit! doc range text)
-  (-> Doc? Range? string? void?)
+(define (text-edit-start doc edit)
+  (doc-pos->abs-pos doc (Range-start (TextEdit-range edit))))
+
+(define (text-edit-end doc edit)
+  (doc-pos->abs-pos doc (Range-end (TextEdit-range edit))))
+
+(define (sort-text-edits-descending doc edits)
+  (sort edits
+        (lambda (a b)
+          (define a-start (text-edit-start doc a))
+          (define b-start (text-edit-start doc b))
+          (if (= a-start b-start)
+              (> (text-edit-end doc a) (text-edit-end doc b))
+              (> a-start b-start)))))
+
+(define (doc-apply-absolute-edit! doc start end text)
   (define doc-text (Doc-text doc))
   (define doc-trace (Doc-trace doc))
-
-  (define st-pos (doc-pos->abs-pos doc (Range-start range)))
-  (define end-pos (doc-pos->abs-pos doc (Range-end range)))
-  (define old-len (- end-pos st-pos))
+  (define old-len (- end start))
   (define new-len (string-length text))
 
-  (invalidate-resyntax-results! doc)
-  (invalidate-lexer-snapshot! doc)
   ;; try reuse old information as the check-syntax can fail
-  ;; and return the old build-trace% object
-  (cond [(> new-len old-len) (send doc-trace expand end-pos (+ st-pos new-len))]
-        [(< new-len old-len) (send doc-trace contract (+ st-pos new-len) end-pos)])
-  (send doc-text replace text st-pos end-pos))
-
-(define/contract (doc-apply-edits! doc edits)
-  (-> Doc? (listof TextEdit?) void?)
-  ;; Apply from the end of the document so earlier edits do not shift
-  ;; the positions of later edits.
-  (define edits-descending-by-start
-    (sort edits
-          (λ (a b)
-            (define a-start (doc-pos->abs-pos doc (Range-start (TextEdit-range a))))
-            (define b-start (doc-pos->abs-pos doc (Range-start (TextEdit-range b))))
-            (if (= a-start b-start)
-                (> (doc-pos->abs-pos doc (Range-end (TextEdit-range a)))
-                   (doc-pos->abs-pos doc (Range-end (TextEdit-range b))))
-                (> a-start b-start)))))
-  (doc-check-non-overlapping-edits! doc edits-descending-by-start)
-  (for ([edit (in-list edits-descending-by-start)])
-    (doc-apply-edit! doc (TextEdit-range edit) (TextEdit-newText edit))))
+  ;; for updated code.
+  (cond [(> new-len old-len) (send doc-trace expand end (+ start new-len))]
+        [(< new-len old-len) (send doc-trace contract (+ start new-len) end)])
+  (send doc-text replace text start end))
 
 (define (doc-check-non-overlapping-edits! doc edits-descending-by-start)
   (for ([later-start-edit (in-list edits-descending-by-start)]
         [earlier-start-edit (in-list (rest edits-descending-by-start))])
-    (define later-start (doc-pos->abs-pos doc (Range-start (TextEdit-range later-start-edit))))
-    (define earlier-start (doc-pos->abs-pos doc (Range-start (TextEdit-range earlier-start-edit))))
-    (define earlier-end (doc-pos->abs-pos doc (Range-end (TextEdit-range earlier-start-edit))))
+    (define later-start (text-edit-start doc later-start-edit))
+    (define earlier-start (text-edit-start doc earlier-start-edit))
+    (define earlier-end (text-edit-end doc earlier-start-edit))
     (when (> earlier-end later-start)
       (error 'doc-apply-edits!
              "overlapping edits: ~a..~a, next starts at ~a"
              earlier-start
              earlier-end
              earlier-start))))
+
+(define/contract (doc-apply-edit! doc range text)
+  (-> Doc? Range? string? void?)
+  (invalidate-resyntax-results! doc)
+  (invalidate-lexer-snapshot! doc)
+  (define start (doc-pos->abs-pos doc (Range-start range)))
+  (define end (doc-pos->abs-pos doc (Range-end range)))
+  (doc-apply-absolute-edit! doc start end text))
+
+(define/contract (doc-apply-edits! doc edits)
+  (-> Doc? (listof TextEdit?) void?)
+  (unless (empty? edits)
+    (invalidate-resyntax-results! doc)
+    (invalidate-lexer-snapshot! doc)
+    ;; Apply from the end of the document so earlier edits do not shift
+    ;; the positions of later edits.
+    (define edits-descending-by-start
+      (sort-text-edits-descending doc edits))
+    (doc-check-non-overlapping-edits! doc edits-descending-by-start)
+    (for ([edit (in-list edits-descending-by-start)])
+      (doc-apply-absolute-edit! doc
+                                (text-edit-start doc edit)
+                                (text-edit-end doc edit)
+                                (TextEdit-newText edit)))))
 
 (define/contract (doc-expand uri doc-text)
   (-> string? (is-a?/c lsp-editor%) CSResult?)
@@ -253,41 +269,34 @@
            (loop (interval-map-iterate-next intervals iter)
                  (cons (interval-map-iterate-value intervals iter) values)))])))
 
-;; TODO: Use lexer/token info here instead of scanning raw characters.
 (define/contract (doc-find-containing-paren doc pos)
   (-> Doc? exact-nonnegative-integer? (or/c exact-nonnegative-integer? #f))
-  (define text (send (Doc-text doc) get-text))
-  (define l (string-length text))
-  (cond
-    [(>= pos l) #f]
-    [else
-     (let loop ([i pos] [p 0])
-       (cond
-         [(< i 0) #f]
-         [(or (char=? (string-ref text i) #\() (char=? (string-ref text i) #\[))
-          (if (> p 0) (loop (- i 1) (- p 1)) i)]
-         [(or (char=? (string-ref text i) #\)) (char=? (string-ref text i) #\]))
-          (loop (- i 1) (+ p 1))]
-         [else (loop (- i 1) p)]))]))
+  (lexer-snapshot-enclosing-paren-start (doc-lexer-snapshot doc) pos))
 
-;; Cache lexer-derived token ranges so hot-path symbol queries stay off the
-;; lexer once the current text has been indexed.
-;; `tokens` feeds the exact position helpers added in the next hover step.
-(define (build-doc-lexer-snapshot doc)
+;; Cache lexer-derived token ranges lazily. Query paths may build a cache miss
+;; while the caller already holds whatever lock stabilizes the document state.
+(define (doc-build-lexer-snapshot doc)
   (build-lexer-snapshot (send (Doc-text doc) get-text)))
 
 (define (doc-lexer-snapshot doc)
-  (define cached (Doc-lexer-snapshot doc))
-  (cond
-    [cached cached]
-    [else
-     (define snapshot (build-doc-lexer-snapshot doc))
-     (set-Doc-lexer-snapshot! doc snapshot)
-     snapshot]))
+  (call-with-lazy-cache!
+    (Doc-lexer-snapshot doc)
+    (lambda ()
+      (doc-build-lexer-snapshot doc))))
 
-(define/contract (doc-get-symbols doc)
-  (-> Doc? (interval-map-of symbol-entry/c))
-  (lexer-snapshot-symbols (doc-lexer-snapshot doc)))
+(define (lexer-entry->symbol-kind entry)
+  (match (LexerEntry-type entry)
+    ['constant SymbolKind-Constant]
+    ['string SymbolKind-String]
+    ['symbol SymbolKind-Variable]))
+
+(define (symbol-information-lexer-entry? entry)
+  (memq (LexerEntry-type entry)
+        '(constant string symbol)))
+
+(define (completion-prefix-token? token)
+  (memq (LexerEntry-type token)
+        '(constant string symbol hash-colon-keyword no-color)))
 
 ;; definition BEG ;;
 
@@ -361,16 +370,22 @@
                            (>= (SemanticToken-start tok) pos-end)))
               tokens))
 
-(define (-doc-find-token text pos)
-  (define ch (string-ref text pos))
-  (cond [(= pos 0) (list ch)]
-        [(or (char=? ch #\") (char-whitespace? ch)) '()]
-        [else (cons ch (-doc-find-token text (sub1 pos)))]))
+(define/contract (doc-token-at doc pos)
+  (-> Doc? exact-nonnegative-integer? (or/c LexerEntry? #f))
+  (lexer-snapshot-token-at (doc-lexer-snapshot doc) pos))
 
-;; TODO: Use lexer/token data here instead of manual character scanning.
-(define/contract (doc-guess-token doc pos)
+(define/contract (doc-token-prefix-at doc pos)
   (-> Doc? exact-nonnegative-integer? string?)
-  (list->string (reverse (-doc-find-token (send (Doc-text doc) get-text) pos))))
+  (define lexer-snapshot (doc-lexer-snapshot doc))
+  (define token
+    (lexer-snapshot-token-at lexer-snapshot pos))
+  (cond
+    [(not token) ""]
+    [else
+     (define token-start (LexerEntry-start token))
+     (substring (LexerEntry-text token)
+                0
+                (add1 (- pos token-start)))]))
 
 (define (abs-range->range doc start end)
   (Range (doc-abs-pos->pos doc start) (doc-abs-pos->pos doc end)))
@@ -453,17 +468,26 @@
   (define doc-trace (Doc-trace doc))
 
   (define pos* (doc-pos->abs-pos doc pos))
-  (define new-pos (doc-find-containing-paren doc (- pos* 1)))
+  (define pos-before-cursor (sub1 pos*))
+  (define new-pos
+    (and (not (negative? pos-before-cursor))
+         (doc-find-containing-paren doc pos-before-cursor)))
   (define result
     (cond [new-pos
-           (define maybe-tag (interval-map-ref (send doc-trace get-docs) (+ new-pos 1) #f))
+           (define maybe-callee-pos
+             (lexer-snapshot-next-symbol-start (doc-lexer-snapshot doc) (add1 new-pos)))
+           (define maybe-tag
+             (and maybe-callee-pos
+                  (interval-map-ref (send doc-trace get-docs) maybe-callee-pos #f)))
            (define tag
              (cond [maybe-tag (last maybe-tag)]
                    [else
                     (define symbol
-                      (lexer-snapshot-symbol-at (doc-lexer-snapshot doc) (+ new-pos 2)))
+                      (and maybe-callee-pos
+                           (lexer-snapshot-symbol-at (doc-lexer-snapshot doc)
+                                                     maybe-callee-pos)))
                     (cond [symbol
-                           (id-to-tag (first symbol) doc-trace)]
+                           (id-to-tag (LexerEntry-text symbol) doc-trace)]
                           [else #f])]))
            (cond [tag
                   (match-define (list sigs docs) (get-docs-for-tag tag))
@@ -523,10 +547,32 @@
 (define/contract (doc-completion doc pos)
   (-> Doc? Pos? CompletionList?)
   (define doc-trace (Doc-trace doc))
-  (define pos* (sub1 (doc-pos->abs-pos doc pos)))
+  (define cursor-pos (doc-pos->abs-pos doc pos))
+  (define lexer-snapshot (doc-lexer-snapshot doc))
+  (define token
+    (and (positive? cursor-pos)
+         (lexer-snapshot-token-at lexer-snapshot (sub1 cursor-pos))))
+  (define left-fragment
+    (if (zero? cursor-pos)
+        ""
+        (doc-token-prefix-at doc (sub1 cursor-pos))))
+  (define online-prefix
+    (cond
+      [(not token) left-fragment]
+      [(not (completion-prefix-token? token)) ""]
+      [(eq? (LexerEntry-type token) 'string)
+       (define token-start (LexerEntry-start token))
+       (define token-end (LexerEntry-end token))
+       (cond
+         [(or (= (sub1 cursor-pos) token-start)
+              (= (sub1 cursor-pos) (sub1 token-end)))
+          ""]
+         [else
+          (substring left-fragment 1)])]
+      [else left-fragment]))
   (define completions
     (append (send doc-trace get-completions)
-            (send doc-trace get-online-completions (doc-guess-token doc pos*))))
+            (send doc-trace get-online-completions online-prefix)))
   (define result
     (for/list ([completion (in-list completions)])
       (CompletionItem #:label (symbol->string completion))))
@@ -616,15 +662,14 @@
 ;; Document Symbols: returns a list of SymbolInformation.
 (define/contract (doc-symbols doc uri)
   (-> Doc? string? (listof SymbolInformation?))
-  (dict-map (doc-get-symbols doc)
-            (λ (key value)
-              (match-define (cons start end) key)
-              (match-define (list text kind) value)
-              (SymbolInformation
-                #:name text
-                #:kind kind
-                #:location (Location #:uri uri
-                                     #:range (abs-range->range doc start end))))))
+  (for/list ([entry (in-lexer-snapshot (doc-lexer-snapshot doc))]
+             #:when (symbol-information-lexer-entry? entry))
+    (define range (abs-range->range doc (LexerEntry-start entry) (LexerEntry-end entry)))
+    (SymbolInformation
+      #:name (LexerEntry-text entry)
+      #:kind (lexer-entry->symbol-kind entry)
+      #:location (Location #:uri uri
+                           #:range range))))
 
 (provide Doc?
          Doc-version
@@ -644,11 +689,11 @@
          doc-line-start-abs-pos
          doc-line-end-abs-pos
          doc-find-containing-paren
-         doc-get-symbols
          doc-get-definition-by-id
          doc-format-edits
          doc-range-tokens
-         doc-guess-token
+         doc-token-at
+         doc-token-prefix-at
          doc-expand
          doc-update-trace!
          doc-trace-latest?
