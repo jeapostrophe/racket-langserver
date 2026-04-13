@@ -325,6 +325,20 @@ END
     (doc-expand! d)
     (values d uri))
 
+  (define (make-doc-with-online-completions text prefix->completions)
+    (define uri "file:///tmp/completion-prefix-test.rkt")
+    (define d (make-doc uri text))
+    (define test-trace%
+      (class build-trace%
+        (super-new [src (string->path "/tmp/completion-prefix-test.rkt")]
+                   [doc-text (new lsp-editor%)]
+                   [indenter #f])
+        (define/override (get-completions) '())
+        (define/override (get-online-completions str-before-cursor)
+          (hash-ref prefix->completions str-before-cursor '()))))
+    (doc-update-trace! d (new test-trace%) (Doc-version d))
+    d)
+
   (test-case
     "doc-get-decl on a binding usage"
     (define-values (d _uri) (make-expanded-doc))
@@ -395,25 +409,55 @@ END
 
   (test-case
     "doc-completion at symbol buffer start does not consume the first character"
-    (define d (make-doc "file:///tmp/completion-buffer-start.rkt" "foo"))
-    (define test-trace%
-      (class build-trace%
-        (super-new [src (string->path "/tmp/completion-buffer-start.rkt")]
-                   [doc-text (new lsp-editor%)]
-                   [indenter #f])
-        (define/override (get-completions) '())
-        (define/override (get-online-completions str-before-cursor)
-          (cond
-            [(string=? str-before-cursor "")
-             '(alpha beta)]
-            [else
-             '()]))))
-    (doc-update-trace! d (new test-trace%) (Doc-version d))
+    (define d (make-doc-with-online-completions "foo"
+                                                (hash "" '(alpha beta))))
     (define result (doc-completion d (Pos 0 0)))
     (define items (CompletionList-items result))
     (check-equal? (map CompletionItem-label items)
                   '("alpha" "beta")
                   "buffer-start completion should pass an empty prefix to online completion lookup"))
+
+  (test-case
+    "doc-completion passes a symbol module-path prefix to online completion lookup"
+    (define d
+      (make-doc-with-online-completions
+        "#lang racket/base\n(require foo/bar)\n"
+        (hash "foo/bar" '(symbol-prefix))))
+    (define result (doc-completion d (Pos 1 16)))
+    (check-equal? (map CompletionItem-label (CompletionList-items result))
+                  '("symbol-prefix")))
+
+  (test-case
+    "doc-completion passes a string module-path prefix to online completion lookup"
+    (define d
+      (make-doc-with-online-completions
+        "#lang racket/base\n(require \"foo/bar\")\n"
+        (hash "foo/bar" '(string-prefix))))
+    (define result (doc-completion d (Pos 1 17)))
+    (check-equal? (map CompletionItem-label (CompletionList-items result))
+                  '("string-prefix")))
+
+  (test-case
+    "doc-completion ignores a quote token before a quoted module path"
+    (define d
+      (make-doc-with-online-completions
+        "#lang racket/base\n(require 'foo/bar)\n"
+        (hash "" '(empty-prefix)
+              "'" '(quote-prefix))))
+    (define result (doc-completion d (Pos 1 10)))
+    (check-equal? (map CompletionItem-label (CompletionList-items result))
+                  '("empty-prefix")))
+
+  (test-case
+    "doc-completion ignores require keywords for module-name completion"
+    (define d
+      (make-doc-with-online-completions
+        "#lang racket/base\n(require #:only-in racket/base)\n"
+        (hash "" '(empty-prefix)
+              "#:only-in" '(keyword-prefix))))
+    (define result (doc-completion d (Pos 1 18)))
+    (check-equal? (map CompletionItem-label (CompletionList-items result))
+                  '("empty-prefix")))
 
   (test-case
     "doc-definition for local x usage"

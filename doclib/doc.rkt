@@ -284,20 +284,6 @@
     (lambda ()
       (doc-build-lexer-snapshot doc))))
 
-(define (lexer-entry->symbol-kind entry)
-  (match (LexerEntry-type entry)
-    ['constant SymbolKind-Constant]
-    ['string SymbolKind-String]
-    ['symbol SymbolKind-Variable]))
-
-(define (symbol-information-lexer-entry? entry)
-  (memq (LexerEntry-type entry)
-        '(constant string symbol)))
-
-(define (completion-prefix-token? token)
-  (memq (LexerEntry-type token)
-        '(constant string symbol hash-colon-keyword no-color)))
-
 ;; definition BEG ;;
 
 (define (get-def path doc-text id)
@@ -543,6 +529,33 @@
         (abs-range->range doc (car range) (cdr range)))
       empty))
 
+(define (doc-completion-online-prefix token left-fragment cursor-pos)
+  ;; Only two token classes currently produce a useful module-path prefix in
+  ;; end-to-end completion behavior: `symbol` for ordinary path text such as
+  ;; `racket/base`, and `string` for quoted module paths such as
+  ;; `"racket/base"`.
+  ;;
+  ;; Other lexer classes either represent structural syntax or do not improve
+  ;; the prefix we can hand to the module-name completion backend, so we treat
+  ;; them the same as "no prefix".
+  (define (completion-prefix-token? token)
+    (memq (LexerEntry-type token)
+          '(string symbol)))
+
+  (cond
+    [(not token) left-fragment]
+    [(not (completion-prefix-token? token)) ""]
+    [(eq? (LexerEntry-type token) 'string)
+     (define token-start (LexerEntry-start token))
+     (define token-end (LexerEntry-end token))
+     (cond
+       [(or (= (sub1 cursor-pos) token-start)
+            (= (sub1 cursor-pos) (sub1 token-end)))
+        ""]
+       [else
+        (substring left-fragment 1)])]
+    [else left-fragment]))
+
 ;; Completion: returns a CompletionList.
 (define/contract (doc-completion doc pos)
   (-> Doc? Pos? CompletionList?)
@@ -556,20 +569,9 @@
     (if (zero? cursor-pos)
         ""
         (doc-token-prefix-at doc (sub1 cursor-pos))))
+
   (define online-prefix
-    (cond
-      [(not token) left-fragment]
-      [(not (completion-prefix-token? token)) ""]
-      [(eq? (LexerEntry-type token) 'string)
-       (define token-start (LexerEntry-start token))
-       (define token-end (LexerEntry-end token))
-       (cond
-         [(or (= (sub1 cursor-pos) token-start)
-              (= (sub1 cursor-pos) (sub1 token-end)))
-          ""]
-         [else
-          (substring left-fragment 1)])]
-      [else left-fragment]))
+    (doc-completion-online-prefix token left-fragment cursor-pos))
   (define completions
     (append (send doc-trace get-completions)
             (send doc-trace get-online-completions online-prefix)))
@@ -662,6 +664,17 @@
 ;; Document Symbols: returns a list of SymbolInformation.
 (define/contract (doc-symbols doc uri)
   (-> Doc? string? (listof SymbolInformation?))
+
+  (define (symbol-information-lexer-entry? entry)
+    (memq (LexerEntry-type entry)
+          '(constant string symbol)))
+
+  (define (lexer-entry->symbol-kind entry)
+    (match (LexerEntry-type entry)
+      ['constant SymbolKind-Constant]
+      ['string SymbolKind-String]
+      ['symbol SymbolKind-Variable]))
+
   (for/list ([entry (in-lexer-snapshot (doc-lexer-snapshot doc))]
              #:when (symbol-information-lexer-entry? entry))
     (define range (abs-range->range doc (LexerEntry-start entry) (LexerEntry-end entry)))
