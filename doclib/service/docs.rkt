@@ -26,14 +26,15 @@
     (define/override (contract start end)
       (interval-map-contract! docs start end))
 
-    (define/override (syncheck:add-docs-menu _text start finish _id _label path def-tag url-tag)
-      (when url
-        (when (= start finish)
-          (set! finish (add1 finish)))
+    (define/override (syncheck:add-docs-menu _src start end _id _label path def-tag url-tag)
+      ;; When start = end, it means the identifier is not found in the source file,
+      ;; but exists in expanded syntax. So we shouldn't add an item for it.
+      (when (< start end)
         (define path-url (path->url path))
-        (define link+tag (cond
-                           [url-tag (struct-copy url path-url [fragment url-tag])]
-                           [def-tag (struct-copy url path-url [fragment (def-tag->html-anchor-tag def-tag)])]
-                           [else path-url]))
-        (interval-map-set! docs start finish (list (url->string link+tag) def-tag))))))
+        (define link+tag
+          (cond
+            [url-tag (struct-copy url path-url [fragment url-tag])]
+            [def-tag (struct-copy url path-url [fragment (def-tag->html-anchor-tag def-tag)])]
+            [else path-url]))
+        (interval-map-set! docs start end (list (url->string link+tag) def-tag))))))
 
