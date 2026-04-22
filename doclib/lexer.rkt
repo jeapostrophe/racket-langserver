@@ -33,6 +33,12 @@
 ;; that language's `color-lexer`; when a colorer reports an attribute hash it
 ;; extracts the `'type` field.
 ;;
+;; This module normalizes token kinds so callers see stable shapes across
+;; valid and invalid inputs:
+;; - 'lang-directive: a leading `#lang`
+;; - 'reader-directive: a leading `#reader`
+;; - quote-family prefixes and `#;`
+;;
 ;; This module caches the full lexer stream so callers can distinguish any
 ;; token class at a given position while reconstructing public token strings on
 ;; demand.
@@ -54,12 +60,28 @@
 (define (normalize-lexer-pos pos)
   (max 0 (sub1 pos)))
 
+(define (make-lexer-span start end type)
+  (and (< start end)
+       (LexerTokenSpan start end type)))
+
 ;; Record one lexer span from the lexer stream.
 (define (record-lexer-entry type start end)
   (define normalized-start (normalize-lexer-pos start))
   (define normalized-end (normalize-lexer-pos end))
-  (and (< normalized-start normalized-end)
-       (LexerTokenSpan normalized-start normalized-end type)))
+  (make-lexer-span normalized-start normalized-end type))
+
+(define (normalize-token type text)
+  (match* (type text)
+    [((or 'other 'error) (regexp #px"^#lang(?:\\s|$)"))
+     'lang-directive]
+    [(_ (regexp #px"^#reader(?:\\s|$)"))
+     'reader-directive]
+    [(_ "'") 'quote]
+    [(_ "`") 'quasiquote]
+    [(_ ",") 'unquote]
+    [(_ ",@") 'unquote-splicing]
+    [(_ "#;") 'sexp-comment]
+    [(_ _) type]))
 
 (define (lexer-span->public snapshot span)
   (LexerEntry (LexerTokenSpan-start span)
@@ -231,16 +253,21 @@
   ;; the language-specific lexer selected above.
   (define initial-span
     (and (not (eof-object? initial-txt))
-         (record-lexer-entry initial-type initial-start initial-end)))
+         (record-lexer-entry (normalize-token initial-type initial-txt)
+                             initial-start
+                             initial-end)))
   (define token-spans
     (append (if initial-span (list initial-span) '())
             (for*/list ([lst (in-port (lexer-wrap lexer) in)]
                         [span (in-value
                                 (match lst
-                                  [(list _txt type _paren? start end)
-                                   (record-lexer-entry type start end)]))]
+                                  [(list txt type _paren? start end)
+                                   (record-lexer-entry (normalize-token type txt)
+                                                       start
+                                                       end)]))]
                         #:when span)
               span)))
+
   (LexerSnapshot text (list->vector token-spans)))
 
 (define/contract (lexer-snapshot-token-at snapshot pos)

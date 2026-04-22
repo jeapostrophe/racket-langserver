@@ -6,15 +6,20 @@
            "../../doclib/lexer.rkt"
            "../../common/interfaces.rkt")
 
+  (define (entry-summary entry)
+    (list (LexerEntry-start entry)
+          (LexerEntry-end entry)
+          (LexerEntry-text entry)
+          (LexerEntry-type entry)))
+
+  (define (snapshot-summaries text)
+    (for/list ([entry (in-lexer-snapshot (build-lexer-snapshot text))])
+      (entry-summary entry)))
+
   (test-case
     "build-lexer-snapshot enumerates public lexer entries"
     (define snapshot (build-lexer-snapshot "#lang racket\n(define x 1)\n"))
     (define entries (for/list ([entry (in-lexer-snapshot snapshot)]) entry))
-    (define (entry-summary entry)
-      (list (LexerEntry-start entry)
-            (LexerEntry-end entry)
-            (LexerEntry-text entry)
-            (LexerEntry-type entry)))
     ;; Cached lexer positions are normalized to the doc's 0-based offsets.
     (check-not-false (member (list 13 14 "(" 'parenthesis)
                              (map entry-summary entries)))
@@ -28,6 +33,49 @@
                              (map entry-summary entries)))
     (check-not-false (member (list 24 25 ")" 'parenthesis)
                              (map entry-summary entries))))
+
+  (test-case
+    "lexer snapshot normalizes a leading #lang directive"
+    (check-equal?
+      (take (snapshot-summaries "#lang racket/base\n(define x 1)\n") 2)
+      (list (list 0 17 "#lang racket/base" 'lang-directive)
+            (list 17 18 "\n" 'white-space))))
+
+  (test-case
+    "lexer snapshot keeps an invalid #lang payload in the same normalized shape"
+    (check-equal?
+      (take (snapshot-summaries "#lang not-a-real-language\n(define x 1)\n") 2)
+      (list (list 0 25 "#lang not-a-real-language" 'lang-directive)
+            (list 25 26 "\n" 'white-space))))
+
+  (test-case
+    "lexer snapshot normalizes #lang reader without collapsing the payload"
+    (check-equal?
+      (take (snapshot-summaries "#lang reader syntax/module-reader\nracket/base\n") 2)
+      (list (list 0 33 "#lang reader syntax/module-reader" 'lang-directive)
+            (list 33 34 "\n" 'white-space))))
+
+  (test-case
+    "lexer snapshot keeps a leading #reader token as one big token"
+    (check-equal?
+      (take (snapshot-summaries "#reader scribble/reader\n@title{demo}\n") 2)
+      (list (list 0 7 "#reader" 'reader-directive)
+            (list 7 8 " " 'white-space))))
+
+  (test-case
+    "lexer snapshot normalizes quote-family prefixes"
+    (define prefix-entries
+      (filter (lambda (summary)
+                (not (string=? (list-ref summary 2) " ")))
+              (snapshot-summaries "' ` , ,@ #; x")))
+    (check-equal?
+      prefix-entries
+      (list (list 0 1 "'" 'quote)
+            (list 2 3 "`" 'quasiquote)
+            (list 4 5 "," 'unquote)
+            (list 6 8 ",@" 'unquote-splicing)
+            (list 9 11 "#;" 'sexp-comment)
+            (list 12 13 "x" 'symbol))))
 
   (test-case
     "lexer snapshot position queries return token and symbol entries"
