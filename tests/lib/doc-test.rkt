@@ -106,17 +106,9 @@
     ;; Inside [ : pos 3 ' '. Previous is [.
     (check-equal? (doc-find-containing-paren d3 3) 2)
 
-    ;; Inside { : pos 5 '}'.
-    ;; The logic treats { as normal char, so it skips it.
-    ;; It sees ] at 6 (wait text index: 0:( 1:  2:[ 3:  4:{ 5:  6:] 7:  8:) )
-    ;; Let's re-index carefully:
-    ;; ( [ { ] )
-    ;; 012345678
-    ;; pos 5 is ' '. Before it is '{' at 4.
-    ;; It loops back. ] at 6 is AFTER 5.
-    ;; Loop goes 5->4->3->2. 2 is '['.
-    ;; So inside { (at 5) it finds [.
-    (check-equal? (doc-find-containing-paren d3 5) 2)
+    ;; Inside { : pos 5. The lexer normalizes { as an opening paren, so it is
+    ;; the enclosing delimiter here.
+    (check-equal? (doc-find-containing-paren d3 5) 4)
 
     ;; Unmatched close
     (define d4 (make-doc "file:///test.rkt" " ) ("))

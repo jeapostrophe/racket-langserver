@@ -1,6 +1,8 @@
 #lang racket/base
 
 (require "../common/interfaces.rkt"
+         "lexer/shared.rkt"
+         "lexer/token-tree.rkt"
          racket/contract
          racket/match
          syntax-color/module-lexer
@@ -37,18 +39,12 @@
 ;; valid and invalid inputs:
 ;; - 'lang-directive: a leading `#lang`
 ;; - 'reader-directive: a leading `#reader`
-;; - quote-family prefixes and `#;`
+;; - quote-family and syntax quote-family prefixes, plus `#;`
+;; - open-paren/close-paren direction for the internal span cache
 ;;
 ;; This module caches the full lexer stream so callers can distinguish any
 ;; token class at a given position while reconstructing public token strings on
 ;; demand.
-
-;; Cached lexer output for a document. Tokens are stored in source order so
-;; point lookups can binary-search by span start while reconstructing public
-;; token strings on demand.
-(struct LexerTokenSpan
-  (start end type)
-  #:transparent)
 
 (struct/contract LexerSnapshot
   ([text string?]
@@ -60,30 +56,14 @@
 (define (normalize-lexer-pos pos)
   (max 0 (sub1 pos)))
 
-(define (make-lexer-span start end type)
-  (and (< start end)
-       (LexerTokenSpan start end type)))
-
 ;; Record one lexer span from the lexer stream.
-(define (record-lexer-entry type start end)
+(define (record-lexer-span type start end)
   (define normalized-start (normalize-lexer-pos start))
   (define normalized-end (normalize-lexer-pos end))
   (make-lexer-span normalized-start normalized-end type))
 
-(define (normalize-token type text)
-  (match* (type text)
-    [((or 'other 'error) (regexp #px"^#lang(?:\\s|$)"))
-     'lang-directive]
-    [(_ (regexp #px"^#reader(?:\\s|$)"))
-     'reader-directive]
-    [(_ "'") 'quote]
-    [(_ "`") 'quasiquote]
-    [(_ ",") 'unquote]
-    [(_ ",@") 'unquote-splicing]
-    [(_ "#;") 'sexp-comment]
-    [(_ _) type]))
-
-(define (lexer-span->public snapshot span)
+(define/contract (lexer-snapshot-span->entry snapshot span)
+  (-> LexerSnapshot? LexerTokenSpan? LexerEntry?)
   (LexerEntry (LexerTokenSpan-start span)
               (LexerTokenSpan-end span)
               (substring (LexerSnapshot-text snapshot)
@@ -114,7 +94,7 @@
   (and idx
        (let ([span (vector-ref tokens idx)])
          (and (<= (LexerTokenSpan-start span) pos)
-              (lexer-span->public snapshot span)))))
+              (lexer-snapshot-span->entry snapshot span)))))
 
 ;; Find the token at `pos`, or the last token before `pos` when `pos` falls
 ;; between token spans.
@@ -133,24 +113,15 @@
 (define (lexer-layout-token? type)
   (memq type '(white-space comment sexp-comment)))
 
-(define (lexer-token-span-paren-kind snapshot span)
-  (and (eq? (LexerTokenSpan-type span) 'parenthesis)
-       (case (string-ref (LexerSnapshot-text snapshot) (LexerTokenSpan-start span))
-         [(#\() 'open]
-         [(#\[) 'open]
-         [(#\)) 'close]
-         [(#\]) 'close]
-         [else #f])))
-
 (define (scan-enclosing-paren snapshot tokens idx depth)
   (cond
     [(< idx 0) #f]
     [else
      (define span (vector-ref tokens idx))
-     (match (lexer-token-span-paren-kind snapshot span)
-       ['close
+     (match (LexerTokenSpan-type span)
+       ['close-paren
         (scan-enclosing-paren snapshot tokens (sub1 idx) (add1 depth))]
-       ['open
+       ['open-paren
         (if (positive? depth)
             (scan-enclosing-paren snapshot tokens (sub1 idx) (sub1 depth))
             (LexerTokenSpan-start span))]
@@ -167,7 +138,8 @@
         (cond
           [(= idx token-count) eof]
           [else
-           (define entry (lexer-span->public snapshot (vector-ref tokens idx)))
+           (define entry
+             (lexer-snapshot-span->entry snapshot (vector-ref tokens idx)))
            (set! idx (add1 idx))
            entry]))
       eof)))
@@ -199,8 +171,10 @@
       [else
        (define span (vector-ref tokens idx))
        (match (LexerTokenSpan-type span)
-         [(? lexer-layout-token?) (loop (add1 idx))]
-         ['symbol (LexerTokenSpan-start span)]
+         [(? lexer-layout-token?)
+          (loop (add1 idx))]
+         ['symbol
+          (LexerTokenSpan-start span)]
          [_ #f])])))
 
 (define (lexer-wrap lexer)
@@ -253,20 +227,21 @@
   ;; the language-specific lexer selected above.
   (define initial-span
     (and (not (eof-object? initial-txt))
-         (record-lexer-entry (normalize-token initial-type initial-txt)
-                             initial-start
-                             initial-end)))
+         (record-lexer-span (normalize-token initial-type initial-txt)
+                            initial-start
+                            initial-end)))
+  (define rest-token-spans
+    (for*/list ([lst (in-port (lexer-wrap lexer) in)]
+                [span (in-value
+                        (match lst
+                          [(list txt type _paren? start end)
+                           (record-lexer-span (normalize-token type txt) start end)]))]
+                #:when span)
+      span))
   (define token-spans
-    (append (if initial-span (list initial-span) '())
-            (for*/list ([lst (in-port (lexer-wrap lexer) in)]
-                        [span (in-value
-                                (match lst
-                                  [(list txt type _paren? start end)
-                                   (record-lexer-entry (normalize-token type txt)
-                                                       start
-                                                       end)]))]
-                        #:when span)
-              span)))
+    (if initial-span
+        (cons initial-span rest-token-spans)
+        rest-token-spans))
 
   (LexerSnapshot text (list->vector token-spans)))
 
@@ -281,8 +256,15 @@
        (eq? (LexerEntry-type entry) 'symbol)
        entry))
 
-(provide LexerSnapshot?
+(provide (struct-out LexerTokenSpan)
+         LexerSnapshot?
+         token-node?
+         sexp-comment-node?
+         (struct-out Token-Leaf)
+         (struct-out Token-Tree)
+         (struct-out Token-Prefix-Tree)
          build-lexer-snapshot
+         lexer-snapshot-span->entry
          in-lexer-snapshot
          for-each-lexer-snapshot-entry
          lexer-snapshot-enclosing-paren-start
