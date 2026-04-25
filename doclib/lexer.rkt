@@ -257,6 +257,7 @@
        entry))
 
 (provide (struct-out LexerTokenSpan)
+         (struct-out LexerSnapshot)
          LexerSnapshot?
          token-node?
          sexp-comment-node?

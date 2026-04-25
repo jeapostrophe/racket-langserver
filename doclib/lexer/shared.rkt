@@ -15,8 +15,10 @@
        (LexerTokenSpan start end type)))
 
 (define (lang-directive? txt)
-  (string-prefix? txt "#lang "))
+  (and (string? txt)
+       (string-prefix? txt "#lang ")))
 
+;; Normalize tokens types to more meaningful.
 (define (normalize-token type text)
   (match* (type text)
     [('parenthesis (or "(" "[" "{"))
@@ -33,7 +35,10 @@
     [(_ "#,") 'syntax-unquote]
     [(_ ",@") 'unquote-splicing]
     [(_ "#reader") 'reader-directive]
-    [(_ (? lang-directive?)) 'lang-directive]
+    ;; lexer uses `read-language` to detect lang directives.
+    ;; Correct lang line are assigned `other` type, incorrect ones are assigned `error` type.
+    ;; We only handle correct ones here.
+    [('other (? lang-directive?)) 'lang-directive]
     [(_ _) type]))
 
 (define (span-at spans idx)
