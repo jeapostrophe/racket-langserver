@@ -10,8 +10,7 @@
 
 (define path->uri (compose url->string path->url))
 
-(define (uri->path uri)
-  (path->string (url->path (string->url uri))))
+(define uri->path (compose path->string url->path string->url))
 
 (define (directory-contains? dir filepath)
   (define dir-parts (explode-path (simple-form-path dir)))
