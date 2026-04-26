@@ -247,7 +247,9 @@
 (define/contract (get-indenter text)
   (-> string? (or/c procedure? #f))
   (define maybe-language-info
-    (read-language (open-input-string text) (lambda () #f)))
+    (with-handlers ([exn:fail:read? (lambda (_e) #f)]
+                    [exn:missing-module? (lambda (_e) #f)])
+      (read-language (open-input-string text) (lambda () #f))))
   (and (procedure? maybe-language-info)
        (maybe-language-info 'drracket:indentation #f)))
 

@@ -187,4 +187,5 @@
   (test-case
     "get-indenter returns a procedure or false"
     (check-false (get-indenter "(define x 1)\n"))
-    (check-true (procedure? (get-indenter "#lang rhombus\nfun f(): 1\n")))))
+    (check-true (procedure? (get-indenter "#lang scribble/manual\n@title{demo}\n")))
+    (check-false (get-indenter "#lang does/not/exist\n1\n"))))
