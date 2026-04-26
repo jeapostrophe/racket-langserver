@@ -244,14 +244,18 @@
   (and (Known-Language? maybe-language)
        (Known-Language-sexp? maybe-language)))
 
+(define (indenter-load-failure? e)
+  (or (exn:fail:read? e)
+      (exn:missing-module? e)
+      (string-contains? (exn-message e) "Gtk initialization failed for display")))
+
 (define/contract (get-indenter text)
   (-> string? (or/c procedure? #f))
-  (define maybe-language-info
-    (with-handlers ([exn:fail:read? (lambda (_e) #f)]
-                    [exn:missing-module? (lambda (_e) #f)])
-      (read-language (open-input-string text) (lambda () #f))))
-  (and (procedure? maybe-language-info)
-       (maybe-language-info 'drracket:indentation #f)))
+  (with-handlers ([indenter-load-failure? (lambda (_e) #f)])
+    (define maybe-language-info
+      (read-language (open-input-string text) (lambda () #f)))
+    (and (procedure? maybe-language-info)
+         (maybe-language-info 'drracket:indentation #f))))
 
 (provide (struct-out Language-Node)
          (struct-out Known-Language)

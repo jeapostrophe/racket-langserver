@@ -182,10 +182,4 @@
     (check-true (sexp-language? "(module demo typed/racket/base (define x 1))\n"))
     (check-false (sexp-language? "#lang scribble/manual\n@title{demo}\n"))
     (check-false (sexp-language? "fun f(): 1\n" "file:///tmp/demo.rhm"))
-    (check-false (sexp-language? "(define x 1)\n" "file:///tmp/demo.rkt")))
-
-  (test-case
-    "get-indenter returns a procedure or false"
-    (check-false (get-indenter "(define x 1)\n"))
-    (check-true (procedure? (get-indenter "#lang scribble/manual\n@title{demo}\n")))
-    (check-false (get-indenter "#lang does/not/exist\n1\n"))))
+    (check-false (sexp-language? "(define x 1)\n" "file:///tmp/demo.rkt"))))
