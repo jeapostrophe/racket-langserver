@@ -150,6 +150,14 @@
                   'unrecognized-language))
 
   (test-case
+    "find-language-by-text matches known families"
+    (check-equal? (Known-Language-name (find-language-by-text "racket/base"))
+                  'racket)
+    (check-equal? (Known-Language-name (find-language-by-text "typed/racket/base"))
+                  'typed/racket)
+    (check-false (find-language-by-text "not-a-real-language")))
+
+  (test-case
     "parse-language can fall back to distinctive suffixes"
     (check-equal? (language-name "fun f(): 1\n" "file:///tmp/demo.rhm")
                   'rhombus)
@@ -174,4 +182,9 @@
     (check-true (sexp-language? "(module demo typed/racket/base (define x 1))\n"))
     (check-false (sexp-language? "#lang scribble/manual\n@title{demo}\n"))
     (check-false (sexp-language? "fun f(): 1\n" "file:///tmp/demo.rhm"))
-    (check-false (sexp-language? "(define x 1)\n" "file:///tmp/demo.rkt"))))
+    (check-false (sexp-language? "(define x 1)\n" "file:///tmp/demo.rkt")))
+
+  (test-case
+    "get-indenter returns a procedure or false"
+    (check-false (get-indenter "(define x 1)\n"))
+    (check-true (procedure? (get-indenter "#lang rhombus\nfun f(): 1\n")))))

@@ -6,6 +6,7 @@
          client-send
          client-wait-response
          client-wait-notification
+         client-has-diagnostic?
          make-request
          make-expected-response
          make-notification)
@@ -15,6 +16,7 @@
          racket/match
          racket/runtime-path
          json
+         "../common/json-util.rkt"
          "../lsp/methods.rkt")
 
 (define id 0)
@@ -109,6 +111,12 @@
 (define (client-wait-notification lsp)
   (async-channel-get (notification-channel)))
 
+(define/contract (client-has-diagnostic? notification expected-diagnostic)
+  (-> jsexpr? hash? boolean?)
+
+  (for/or ([diagnostic (in-list (jsexpr-ref notification '(params diagnostics)))])
+    (equal? diagnostic expected-diagnostic)))
+
 (define/contract (make-request lsp method params)
   (-> any/c string? jsexpr? jsexpr?)
 
@@ -136,4 +144,3 @@
             'method method))
   (cond [(not params) req]
         [else (hash-set req 'params params)]))
-

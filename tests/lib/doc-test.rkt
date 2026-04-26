@@ -4,6 +4,7 @@
   (require rackunit
            "../../doclib/doc.rkt"
            "../../doclib/doc-trace.rkt"
+           "../../doclib/check-syntax.rkt"
            "../../doclib/editor.rkt"
            "../../doclib/internal-types.rkt"
            "../../common/interfaces.rkt"
@@ -186,7 +187,7 @@
   (test-case
     "Formatting"
     ;; doc.rkt `doc-format-edits` delegates to the external formatter.
-    (define text "(define x\n1)")
+    (define text "#lang racket/base\n(define x\n1)")
     (define d (make-doc "file:///test.rkt" text))
     (define opts
       (FormattingOptions #:tab-size 2
@@ -243,8 +244,102 @@
       (list (TextEdit (Range (Pos 3 0) (Pos 3 0)) "  "))))
 
   (test-case
+    "Formatting language guard"
+    (define opts
+      (FormattingOptions #:tab-size 2
+                         #:insert-spaces #t
+                         #:trim-trailing-whitespace #t
+                         #:insert-final-newline #f
+                         #:trim-final-newlines #f
+                         #:key #f))
+
+    (define raw-doc
+      (make-doc "file:///test.rkt" "(define x\n1)"))
+    (check-equal?
+      (doc-format-edits raw-doc
+                        (Range (Pos 0 0) (Pos 2 0))
+                        #:formatting-options opts)
+      '())
+
+    (define rhombus-doc
+      (make-doc "file:///test.rhm"
+                "#lang rhombus\n  fun f():\n    1\n"))
+    (check-equal?
+      (doc-format-edits rhombus-doc
+                        (Range (Pos 0 0) (Pos 3 0))
+                        #:formatting-options opts)
+      '()))
+
+  (define (find-diagnostic-by-message diags expected-message)
+    (for/first ([diag (in-list diags)]
+                #:when (string=? (Diagnostic-message diag) expected-message))
+      diag))
+
+  (define (check-syntax-diagnostics uri text)
+    (define doc-text (new lsp-editor%))
+    (send doc-text insert text 0)
+    (set->list (send (CSResult-trace (check-syntax uri doc-text)) get-warn-diags)))
+
+  (test-case
+    "Document diagnostics report missing language declarations"
+    (define text "(define x 1)\n")
+    (define diags
+      (check-syntax-diagnostics "file:///tmp/missing-language-test.rkt"
+                                text))
+    (define diag
+      (find-diagnostic-by-message
+        diags
+        "Missing language declaration. Add a `#lang` line, `#reader`, or `(module ... <language> ...)` form."))
+    (check-not-false diag)
+    (check-equal? (Diagnostic-source diag) "Language Declaration Check")
+    (define range (Diagnostic-range diag))
+    (check-equal? (Pos-line (Range-start range)) 0)
+    (check-equal? (Pos-char (Range-start range)) 0)
+    (check-equal? (Pos-line (Range-end range)) 0)
+    (check-equal? (Pos-char (Range-end range))
+                  (string-length "(define x 1)")))
+
+  (test-case
+    "Document diagnostics report unrecognized language declarations"
+    (define text "#lang not-a-real-language\n1\n")
+    (define diags
+      (check-syntax-diagnostics "file:///tmp/unrecognized-language-test.rkt"
+                                text))
+    (define diag
+      (find-diagnostic-by-message
+        diags
+        "Unrecognized language declaration `not-a-real-language`. Check the language name or reader path."))
+    (check-not-false diag)
+    (check-equal? (Diagnostic-source diag) "Language Declaration Check")
+    (define range (Diagnostic-range diag))
+    (check-equal? (Pos-line (Range-start range)) 0)
+    (check-equal? (Pos-char (Range-start range)) 0)
+    (check-equal? (Pos-line (Range-end range)) 0)
+    (check-equal? (Pos-char (Range-end range))
+                  (string-length "#lang not-a-real-language")))
+
+  (test-case
+    "Document diagnostics use first line range for empty language spans"
+    (define text "#lang \n(define x 1)\n")
+    (define diags
+      (check-syntax-diagnostics "file:///tmp/empty-language-test.rkt"
+                                text))
+    (define diag
+      (find-diagnostic-by-message
+        diags
+        "Unrecognized language declaration. Check the language name after `#lang`, `#reader`, or in `(module ... <language> ...)`."))
+    (check-not-false diag)
+    (check-equal? (Diagnostic-source diag) "Language Declaration Check")
+    (define range (Diagnostic-range diag))
+    (check-equal? (Pos-line (Range-start range)) 0)
+    (check-equal? (Pos-char (Range-start range)) 0)
+    (check-equal? (Pos-line (Range-end range)) 0)
+    (check-equal? (Pos-char (Range-end range))
+                  (string-length "#lang ")))
+
+  (test-case
     "Apply TextEdits"
-    (define text "(define x\n1)")
+    (define text "#lang racket/base\n(define x\n1)")
     (define d (make-doc "file:///test.rkt" text))
     (define opts
       (FormattingOptions #:tab-size 2
@@ -256,12 +351,12 @@
     (define edits (doc-format-edits d (Range (Pos 0 0) (Pos 2 0)) #:formatting-options opts))
     (check-equal?
       edits
-      (list (TextEdit (Range (Pos 1 0) (Pos 1 2)) "  1)")))
-    (check-equal? (LexerEntry-type (doc-token-at d 1)) 'symbol)
+      (list (TextEdit (Range (Pos 2 0) (Pos 2 2)) "  1)")))
+    (check-equal? (LexerEntry-type (doc-token-at d 19)) 'symbol)
     (doc-apply-edits! d edits)
-    (check-equal? (doc-get-text d) "(define x\n  1)")
+    (check-equal? (doc-get-text d) "#lang racket/base\n(define x\n  1)")
     (define updated-token
-      (doc-token-at d (doc-pos->abs-pos d (Pos 1 2))))
+      (doc-token-at d (doc-pos->abs-pos d (Pos 2 2))))
     (check-true (LexerEntry? updated-token))
     (check-equal? (LexerEntry-type updated-token) 'constant)
     (check-equal? (LexerEntry-text updated-token) "1"))
@@ -323,8 +418,7 @@ END
     (define test-trace%
       (class build-trace%
         (super-new [src (string->path "/tmp/completion-prefix-test.rkt")]
-                   [doc-text (new lsp-editor%)]
-                   [indenter #f])
+                   [doc-text (new lsp-editor%)])
         (define/override (get-completions) '())
         (define/override (get-online-completions str-before-cursor)
           (hash-ref prefix->completions str-before-cursor '()))))

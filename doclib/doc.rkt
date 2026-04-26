@@ -13,6 +13,7 @@
          "formatting.rkt"
          "internal-types.rkt"
          "lexer.rkt"
+         "doc-lang.rkt"
          racket/match
          racket/contract
          racket/class
@@ -44,7 +45,7 @@
   (define doc-text (new lsp-editor%))
   (send doc-text insert text 0)
   ;; the init trace should not be #f
-  (define doc-trace (new build-trace% [src (uri->path uri)] [doc-text doc-text] [indenter #f]))
+  (define doc-trace (new build-trace% [src (uri->path uri)] [doc-text doc-text]))
   (Doc uri doc-text doc-trace version #f (list) (make-lazy-cache)))
 
 (define (invalidate-resyntax-results! doc)
@@ -337,11 +338,15 @@
   (define doc-text (Doc-text doc))
   (define-values (start-line end-line)
     (formatting-range->lines doc-text fmt-range))
-  (formatting (send doc-text get-text)
-              start-line
-              end-line
-              #:src-dir (doc-src-dir doc)
-              #:interactive? on-type?))
+  (define text (send doc-text get-text))
+  (cond
+    [(sexp-language? text (Doc-uri doc))
+     (formatting text
+                 start-line
+                 end-line
+                 #:src-dir (doc-src-dir doc)
+                 #:interactive? on-type?)]
+    [else '()]))
 
 ;; get the tokens whose range are contained in interval [pos-start, pos-end)
 ;; the tokens whose range intersects the given range is included.

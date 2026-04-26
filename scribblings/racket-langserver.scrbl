@@ -699,8 +699,8 @@ Exceptions are noted in individual entries.
                       [#:on-type? on-type? boolean? #f])
          (or/c (listof TextEdit?) #f)]{
   Computes formatting edits for the lines covered by @tt{fmt-range}.
-  Returns a list of @racket[TextEdit] values to apply, or @racket[#f] if no
-  indenter is available (e.g., the document lacks a @tt{#lang} line).
+  Returns a list of @racket[TextEdit] values to apply. For documents without
+  a recognized s-expression language, returns an empty list.
 
   When @tt{on-type?} is @racket[#t], blank lines are indented too. This mode is
   intended for on-type formatting triggered by pressing Enter.

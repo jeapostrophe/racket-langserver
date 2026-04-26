@@ -244,11 +244,20 @@
   (and (Known-Language? maybe-language)
        (Known-Language-sexp? maybe-language)))
 
+(define/contract (get-indenter text)
+  (-> string? (or/c procedure? #f))
+  (define maybe-language-info
+    (read-language (open-input-string text) (lambda () #f)))
+  (and (procedure? maybe-language-info)
+       (maybe-language-info 'drracket:indentation #f)))
+
 (provide (struct-out Language-Node)
          (struct-out Known-Language)
          Known-Language~kw
          known-languages
+         find-language-by-text
          parse-language-node
          parse-language
          guess-language-by-uri
-         sexp-language?)
+         sexp-language?
+         get-indenter)
