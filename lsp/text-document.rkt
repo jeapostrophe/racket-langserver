@@ -336,9 +336,7 @@
         (λ (signal)
           (cond
             [(signal-doc-close? signal)
-             (error-response id
-                             ErrorCode-RequestCancelled
-                             "textDocument/semanticTokens request was cancelled because the document closed")]
+             (success/enc id (hash 'data '()))]
             [else
              (define tokens
                (with-read-doc safe-doc
