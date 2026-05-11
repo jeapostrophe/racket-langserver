@@ -1,7 +1,7 @@
 #lang racket/base
 
 (require "../common/path-util.rkt"
-         "lexer.rkt"
+         "lexer/scan.rkt"
          "lexer/shared.rkt"
          "lexer/token-tree.rkt"
          racket/contract
@@ -10,7 +10,7 @@
          racket/path
          racket/string)
 
-(define language-node-source/c
+(define language-prefix-source/c
   (or/c
     ;; `#lang racket/base`
     'lang-directive
@@ -27,11 +27,12 @@
     ;; `(module name racket/base ...)`
     'raw-module))
 
-(struct/contract Language-Node
-  ([source language-node-source/c]
+(struct/contract Language-Prefix
+  ([source language-prefix-source/c]
    [text string?]
    [start exact-nonnegative-integer?]
-   [end exact-nonnegative-integer?])
+   [end exact-nonnegative-integer?]
+   [body-start-idx exact-nonnegative-integer?])
   #:transparent)
 
 (struct/contract Known-Language
@@ -66,32 +67,35 @@
                        #:suffixes '("rhm")
                        #:name-rx #px"^rhombus(?:/.*)?$")))
 
-(define (source->snapshot source)
+(define (source->text+spans source)
   (cond
-    [(LexerSnapshot? source) source]
-    [(string? source) (build-lexer-snapshot source)]))
+    [(LexerSnapshot? source)
+     (values (LexerSnapshot-text source) (LexerSnapshot-tokens source))]
+    [(string? source)
+     (values source (text->lexer-token-spans source))]))
 
-(define (span-text snapshot span)
-  (substring (LexerSnapshot-text snapshot)
+(define (span-text text span)
+  (substring text
              (LexerTokenSpan-start span)
              (LexerTokenSpan-end span)))
 
-(define (token-node-text snapshot node)
-  (substring (LexerSnapshot-text snapshot)
+(define (token-node-text text node)
+  (substring text
              (token-node-start node)
              (token-node-end node)))
 
-(define (make-language-node source text span)
-  (Language-Node source
-                 text
-                 (LexerTokenSpan-start span)
-                 (LexerTokenSpan-end span)))
+(define (make-language-prefix source text span body-start-idx)
+  (Language-Prefix source
+                   text
+                   (LexerTokenSpan-start span)
+                   (LexerTokenSpan-end span)
+                   body-start-idx))
 
-(define (parse-lang-directive-text text span)
-  (or (parse-reader-lang-directive-text text span)
-      (parse-plain-lang-directive-text text span)))
+(define (parse-lang-directive-text text span header-end)
+  (or (parse-reader-lang-directive-text text span header-end)
+      (parse-plain-lang-directive-text text span header-end)))
 
-(define (parse-reader-lang-directive-text text span)
+(define (parse-reader-lang-directive-text text span header-end)
   ;; `#lang reader` is the chaining-reader meta-language, so the payload after
   ;; `reader` is a module path, not just a single language name token. Once the
   ;; first line is known to be a `#lang` directive, keep the full text after
@@ -101,22 +105,22 @@
     [(regexp-match #px"^#lang\\s+reader[ \t]+([^\r\n]+)$" text)
      => (lambda (match-data)
           (define reader-payload (second match-data))
-          (make-language-node 'reader-lang reader-payload span))]
+          (make-language-prefix 'reader-lang reader-payload span header-end))]
     [else #f]))
 
-(define (parse-plain-lang-directive-text text span)
+(define (parse-plain-lang-directive-text text span header-end)
   (cond
     [(regexp-match #px"^#lang\\s+(\\S+)$" text)
      => (lambda (match-data)
           (define language-name (second match-data))
-          (make-language-node 'lang-directive language-name span))]
+          (make-language-prefix 'lang-directive language-name span header-end))]
     [else #f]))
 
 (define (malformed-lang-directive-text? text)
   (and (string? text)
        (string-prefix? text "#lang")))
 
-(define (parse-lang-directive-node snapshot node)
+(define (parse-lang-directive-node text node next-idx)
   ;; `module-lexer` uses `read-language` to classify language lines: resolved
   ;; `#lang` forms become `lang-directive`, while failed resolution stays
   ;; `error`. Preserve that distinction for plain `#lang`, but still recover
@@ -125,70 +129,70 @@
   (match node
     [(Token-Leaf span)
      #:when (eq? 'lang-directive (LexerTokenSpan-type span))
-     (parse-lang-directive-text (span-text snapshot span) span)]
+     (parse-lang-directive-text (span-text text span) span next-idx)]
     [(Token-Leaf span)
      #:when (eq? 'error (LexerTokenSpan-type span))
-     (define text (span-text snapshot span))
-     (or (parse-lang-directive-text text span)
+     (define token-text (span-text text span))
+     (or (parse-lang-directive-text token-text span next-idx)
          ;; Explicitly recognize `#lang` error tokens as malformed language
          ;; directives.
-         (and (malformed-lang-directive-text? text)
-              (make-language-node 'malformed-lang-directive "" span)))]
+         (and (malformed-lang-directive-text? token-text)
+              (make-language-prefix 'malformed-lang-directive "" span next-idx)))]
     [_ #f]))
 
-(define (leaf-symbol-text snapshot node)
+(define (leaf-symbol-text text node)
   (match node
     [(Token-Leaf span)
      #:when (eq? 'symbol (LexerTokenSpan-type span))
-     (span-text snapshot span)]
+     (span-text text span)]
     [_ #f]))
 
-(define (parse-reader-directive-node snapshot spans node next-idx)
+(define (parse-reader-directive-node text spans node next-idx)
   ;; `read-language` is only for `#lang` lines, so `#reader` lines are handled
   ;; syntactically. The lexer exposes the marker and the following reader name
   ;; separately; keep the next non-skippable node as the reader text.
   (match node
     [(Token-Leaf span)
      #:when (eq? 'reader-directive (LexerTokenSpan-type span))
-     (define-values (reader-nodes _reader-idx)
+     (define-values (reader-nodes reader-idx)
        (read-next-non-skippable-nodes/spans spans next-idx 1))
      (match reader-nodes
        [(list reader-node)
-        (Language-Node
-          'reader-directive
-          (token-node-text snapshot reader-node)
-          (LexerTokenSpan-start span)
-          (token-node-end reader-node))]
+        (Language-Prefix 'reader-directive
+                         (token-node-text text reader-node)
+                         (LexerTokenSpan-start span)
+                         (token-node-end reader-node)
+                         reader-idx)]
        ['()
-        (make-language-node 'malformed-reader-directive "" span)])]
+        (make-language-prefix 'malformed-reader-directive "" span reader-idx)])]
     [_ #f]))
 
-(define (parse-raw-module-node snapshot node)
+(define (parse-raw-module-node text node start-idx)
   ;; Raw `(module name lang ...)` forms do not go through `read-language` either,
   ;; so the language position is syntactic. If the first significant child is
   ;; `module`, keep the third significant child as the language text even when it
   ;; names an unknown module path; `parse-language` will decide whether it is
   ;; known.
-  (match node
-    [(Token-Tree open-span children _close-span)
+  (cond
+    [(Token-List? node)
+     (define children (token-node-children node))
      (define (node-symbol-text node)
-       (leaf-symbol-text snapshot node))
-
+       (leaf-symbol-text text node))
      (match (read-next-non-skippable-nodes children 3)
        [(list (app node-symbol-text "module") _mod-id mod-path-node)
-        (Language-Node
-          'raw-module
-          (token-node-text snapshot mod-path-node)
-          (LexerTokenSpan-start open-span)
-          (token-node-end mod-path-node))]
+        (Language-Prefix 'raw-module
+                         (token-node-text text mod-path-node)
+                         (token-node-start node)
+                         (token-node-end mod-path-node)
+                         start-idx)]
        [(list (app node-symbol-text "module") _ ...)
-        (Language-Node
-          'malformed-raw-module
-          ""
-          (token-node-start node)
-          (token-node-end node))]
+        (Language-Prefix 'malformed-raw-module
+                         ""
+                         (token-node-start node)
+                         (token-node-end node)
+                         start-idx)]
        [_ #f])]
-    [_ #f]))
+    [else #f]))
 
 (define (find-language-by-text text)
   (for/or ([language (in-list known-languages)])
@@ -208,12 +212,7 @@
          (and (member maybe-suffix (Known-Language-suffixes language))
               language))))
 
-(define/contract (parse-language-node source [idx 0])
-  (->* ((or/c string? LexerSnapshot?))
-       (exact-nonnegative-integer?)
-       (or/c Language-Node? #f))
-  (define snapshot (source->snapshot source))
-  (define spans (LexerSnapshot-tokens snapshot))
+(define (parse-language-prefix-from-spans text spans [idx 0])
   (define-values (_skippable-nodes start-idx)
     (parse-skippable-node spans idx))
   (cond
@@ -221,20 +220,55 @@
     [else
      (define-values (node next-idx)
        (parse-token-node spans start-idx))
-     (or (parse-lang-directive-node snapshot node)
-         (parse-reader-directive-node snapshot spans node next-idx)
-         (parse-raw-module-node snapshot node))]))
+     (or (parse-lang-directive-node text node next-idx)
+         (parse-reader-directive-node text spans node next-idx)
+         (parse-raw-module-node text node start-idx))]))
+
+(define/contract (parse-language-prefix source [idx 0])
+  (->* ((or/c string? LexerSnapshot?))
+       (exact-nonnegative-integer?)
+       (or/c Language-Prefix? #f))
+  (define-values (text spans)
+    (source->text+spans source))
+  (parse-language-prefix-from-spans text spans idx))
+
+(define (language-prefix->language language-prefix uri)
+  (cond
+    [language-prefix
+     (or (find-language-by-text (Language-Prefix-text language-prefix))
+         'unrecognized-language)]
+    [else (guess-language-by-uri uri)]))
 
 (define/contract (parse-language source [uri #f])
   (->* ((or/c string? LexerSnapshot?))
        ((or/c #f string?))
        (or/c Known-Language? 'unrecognized-language #f))
-  (define language-node* (parse-language-node source))
-  (cond
-    [language-node*
-     (or (find-language-by-text (Language-Node-text language-node*))
-         'unrecognized-language)]
-    [else (guess-language-by-uri uri)]))
+  (define prefix (parse-language-prefix source))
+  (language-prefix->language prefix uri))
+
+(struct/contract Language-Info
+  ([prefix (or/c Language-Prefix? #f)]
+   [language (or/c Known-Language? 'unrecognized-language #f)]
+   [body-mode (or/c 'sexp 'non-sexp 'unknown)])
+  #:transparent)
+
+(define/contract (lexer-language-info text spans [uri #f])
+  (->* (string? (vectorof LexerTokenSpan?))
+       ((or/c #f string?))
+       Language-Info?)
+  (define maybe-prefix (parse-language-prefix-from-spans text spans))
+  (define maybe-language (language-prefix->language maybe-prefix uri))
+  (define body-mode
+    (cond
+      [(and (Known-Language? maybe-language)
+            (Known-Language-sexp? maybe-language))
+       'sexp]
+      [(Known-Language? maybe-language)
+       'non-sexp]
+      [else 'unknown]))
+  (Language-Info maybe-prefix
+                 maybe-language
+                 body-mode))
 
 (define/contract (sexp-language? source [uri #f])
   (->* ((or/c string? LexerSnapshot?))
@@ -257,13 +291,20 @@
     (and (procedure? maybe-language-info)
          (maybe-language-info 'drracket:indentation #f))))
 
-(provide (struct-out Language-Node)
+(provide (struct-out Language-Prefix)
+         language-prefix-source/c
          (struct-out Known-Language)
+         Language-Info
+         Language-Info?
+         Language-Info-prefix
+         Language-Info-language
+         Language-Info-body-mode
          Known-Language~kw
          known-languages
          find-language-by-text
-         parse-language-node
+         parse-language-prefix
          parse-language
          guess-language-by-uri
+         lexer-language-info
          sexp-language?
          get-indenter)

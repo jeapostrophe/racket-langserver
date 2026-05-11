@@ -5,8 +5,8 @@
            "../../doclib/doc-lang.rkt"
            "../../doclib/lexer.rkt")
 
-  (define (parse-node text)
-    (parse-language-node (build-lexer-snapshot text)))
+  (define (parse-prefix text)
+    (parse-language-prefix (build-lexer-snapshot text)))
 
   (define (parse-known-language text [uri #f])
     (parse-language (build-lexer-snapshot text) uri))
@@ -16,8 +16,8 @@
     (and (Known-Language? language)
          (Known-Language-name language)))
 
-  (define (node source text end)
-    (Language-Node source text 0 end))
+  (define (prefix source text end body-start-idx)
+    (Language-Prefix source text 0 end body-start-idx))
 
   (test-case
     "Known-Language has a keyword constructor"
@@ -29,108 +29,123 @@
       (Known-Language 'demo #t '("demo") #px"^demo$")))
 
   (test-case
-    "parse-language-node recognizes an ordinary #lang line"
+    "parse-language-prefix recognizes an ordinary #lang line"
     (check-equal?
-      (parse-node "#lang racket/base\n(define x 1)\n")
-      (node 'lang-directive "racket/base" (string-length "#lang racket/base"))))
+      (parse-prefix "#lang racket/base\n(define x 1)\n")
+      (prefix 'lang-directive "racket/base" (string-length "#lang racket/base") 1)))
 
   (test-case
-    "parse-language-node recognizes #lang reader wrappers"
+    "parse-language-prefix recognizes #lang reader wrappers"
     (check-equal?
-      (parse-node "#lang reader syntax/module-reader\nracket/base\n")
-      (node 'reader-lang
-            "syntax/module-reader"
-            (string-length "#lang reader syntax/module-reader"))))
+      (parse-prefix "#lang reader syntax/module-reader\nracket/base\n")
+      (prefix 'reader-lang
+              "syntax/module-reader"
+              (string-length "#lang reader syntax/module-reader")
+              1)))
 
   (test-case
-    "parse-language-node keeps the full payload after #lang reader"
+    "parse-language-prefix keeps the full payload after #lang reader"
     (check-equal?
-      (parse-node "#lang reader \"literal.rkt\"\nhello\n")
-      (node 'reader-lang
-            "\"literal.rkt\""
-            (string-length "#lang reader \"literal.rkt\"")))
+      (parse-prefix "#lang reader \"literal.rkt\"\nhello\n")
+      (prefix 'reader-lang
+              "\"literal.rkt\""
+              (string-length "#lang reader \"literal.rkt\"")
+              1))
     (check-equal?
-      (parse-node
+      (parse-prefix
         "#lang reader (submod syntax/module-reader reader)\n1\n")
-      (node 'reader-lang
-            "(submod syntax/module-reader reader)"
-            (string-length
-              "#lang reader (submod syntax/module-reader reader)")))
+      (prefix 'reader-lang
+              "(submod syntax/module-reader reader)"
+              (string-length
+                "#lang reader (submod syntax/module-reader reader)")
+              1))
     (check-equal?
-      (parse-node "#lang reader (foo)\n1\n")
-      (node 'reader-lang
-            "(foo)"
-            (string-length "#lang reader (foo)"))))
+      (parse-prefix "#lang reader (foo)\n1\n")
+      (prefix 'reader-lang
+              "(foo)"
+              (string-length "#lang reader (foo)")
+              1)))
 
   (test-case
-    "parse-language-node recognizes #reader directives"
+    "parse-language-prefix recognizes #reader directives"
     (check-equal?
-      (parse-node "#reader scribble/reader\n@title{demo}\n")
-      (node 'reader-directive
-            "scribble/reader"
-            (string-length "#reader scribble/reader")))
+      (parse-prefix "#reader scribble/reader\n@title{demo}\n")
+      (prefix 'reader-directive
+              "scribble/reader"
+              (string-length "#reader scribble/reader")
+              3))
     (check-equal?
-      (parse-node "#reader (reader demo)\nbody\n")
-      (node 'reader-directive
-            "(reader demo)"
-            (string-length "#reader (reader demo)"))))
+      (parse-prefix "#reader (reader demo)\nbody\n")
+      (prefix 'reader-directive
+              "(reader demo)"
+              (string-length "#reader (reader demo)")
+              7)))
 
   (test-case
-    "parse-language-node recognizes raw modules"
+    "parse-language-prefix recognizes raw modules"
     (check-equal?
-      (parse-node "(module demo typed/racket/base (define x 1))\n")
-      (node 'raw-module
-            "typed/racket/base"
-            (string-length "(module demo typed/racket/base")))
+      (parse-prefix "(module demo typed/racket/base (define x 1))\n")
+      (prefix 'raw-module
+              "typed/racket/base"
+              (string-length "(module demo typed/racket/base")
+              0))
     (check-equal?
-      (parse-node "(module demo (lib \"racket/base\") (define x 1))\n")
-      (node 'raw-module
-            "(lib \"racket/base\")"
-            (string-length "(module demo (lib \"racket/base\")")))
+      (parse-prefix "(module demo (lib \"racket/base\") (define x 1))\n")
+      (prefix 'raw-module
+              "(lib \"racket/base\")"
+              (string-length "(module demo (lib \"racket/base\")")
+              0))
     (check-equal?
-      (parse-node "(module demo \"literal.rkt\" (define x 1))\n")
-      (node 'raw-module
-            "\"literal.rkt\""
-            (string-length "(module demo \"literal.rkt\""))))
+      (parse-prefix "(module demo \"literal.rkt\" (define x 1))\n")
+      (prefix 'raw-module
+              "\"literal.rkt\""
+              (string-length "(module demo \"literal.rkt\"")
+              0)))
 
   (test-case
-    "parse-language-node skips leading comments and sexp comments"
+    "parse-language-prefix skips leading comments and sexp comments"
     (check-equal?
-      (parse-node "; preamble\n#; (define ignored 1)\n#lang rhombus\nfun f(): 1\n")
-      (Language-Node 'lang-directive "rhombus" 33 46)))
+      (parse-prefix "; preamble\n#; (define ignored 1)\n#lang rhombus\nfun f(): 1\n")
+      (Language-Prefix 'lang-directive "rhombus" 33 46 13)))
 
   (test-case
-    "parse-language-node reports present but unrecognized selectors"
-    (check-equal? (parse-node "#lang \n(define x 1)\n")
-                  (node 'malformed-lang-directive "" (string-length "#lang ")))
-    (check-equal? (parse-node "#lang reader\n(define x 1)\n")
-                  (node 'malformed-lang-directive ""
-                        (string-length "#lang reader\n(define x 1)")))
-    (check-equal? (parse-node "#lang not-a-real-language\n1\n")
-                  (node 'lang-directive
-                        "not-a-real-language"
-                        (string-length "#lang not-a-real-language")))
-    (check-equal? (parse-node "#reader\n")
-                  (node 'malformed-reader-directive "" (string-length "#reader")))
-    (check-equal? (parse-node "#reader does/not/exist\n")
-                  (node 'reader-directive
-                        "does/not/exist"
-                        (string-length "#reader does/not/exist")))
-    (check-equal? (parse-node "(module demo does/not/exist (define x 1))\n")
-                  (node 'raw-module
-                        "does/not/exist"
-                        (string-length "(module demo does/not/exist")))
-    (check-equal? (parse-node "(module demo 1 (define x 1))\n")
-                  (node 'raw-module
-                        "1"
-                        (string-length "(module demo 1")))
-    (check-equal? (parse-node "(module demo)\n")
-                  (Language-Node
+    "parse-language-prefix reports present but unrecognized selectors"
+    (check-equal? (parse-prefix "#lang \n(define x 1)\n")
+                  (prefix 'malformed-lang-directive "" (string-length "#lang ") 1))
+    (check-equal? (parse-prefix "#lang reader\n(define x 1)\n")
+                  (prefix 'malformed-lang-directive ""
+                          (string-length "#lang reader\n(define x 1)")
+                          1))
+    (check-equal? (parse-prefix "#lang not-a-real-language\n1\n")
+                  (prefix 'lang-directive
+                          "not-a-real-language"
+                          (string-length "#lang not-a-real-language")
+                          1))
+    (check-equal? (parse-prefix "#reader\n")
+                  (prefix 'malformed-reader-directive "" (string-length "#reader") 2))
+    (check-equal? (parse-prefix "#reader does/not/exist\n")
+                  (prefix 'reader-directive
+                          "does/not/exist"
+                          (string-length "#reader does/not/exist")
+                          3))
+    (check-equal? (parse-prefix "(module demo does/not/exist (define x 1))\n")
+                  (prefix 'raw-module
+                          "does/not/exist"
+                          (string-length "(module demo does/not/exist")
+                          0))
+    (check-equal? (parse-prefix "(module demo 1 (define x 1))\n")
+                  (prefix 'raw-module
+                          "1"
+                          (string-length "(module demo 1")
+                          0))
+    (check-equal? (parse-prefix "(module demo)\n")
+                  (Language-Prefix
                     'malformed-raw-module
                     ""
                     0
-                    (string-length "(module demo)")))
-    (check-false (parse-node "(define x 1)\n(module demo racket/base x)\n")))
+                    (string-length "(module demo)")
+                    0))
+    (check-false (parse-prefix "(define x 1)\n(module demo racket/base x)\n")))
 
   (test-case
     "parse-language matches explicit known language families"

@@ -100,17 +100,17 @@
 ;; Return a diagnostic for a missing or unrecognized source language declaration.
 (define (language-diagnostic doc-text)
   (define text (send doc-text get-text))
-  (define maybe-language-node (parse-language-node text))
+  (define maybe-language-prefix (parse-language-prefix text))
   (cond
-    [(not maybe-language-node)
+    [(not maybe-language-prefix)
      (language-error-diag
        (first-line-range doc-text)
        "Missing language declaration. Add a `#lang` line, `#reader`, or `(module ... <language> ...)` form.")]
-    [(find-language-by-text (Language-Node-text maybe-language-node)) #f]
+    [(find-language-by-text (Language-Prefix-text maybe-language-prefix)) #f]
     [else
      (language-error-diag
-       (language-node-range doc-text maybe-language-node)
-       (unrecognized-language-message maybe-language-node))]))
+       (language-prefix-range doc-text maybe-language-prefix)
+       (unrecognized-language-message maybe-language-prefix))]))
 
 (define (language-error-diag range message)
   (Diagnostic #:range range
@@ -135,14 +135,14 @@
   (Range #:start (abs-pos->Pos doc-text start)
          #:end (abs-pos->Pos doc-text end)))
 
-(define (language-node-range doc-text language-node)
+(define (language-prefix-range doc-text language-prefix)
   (nonempty-diagnostic-range
     doc-text
-    (Range #:start (abs-pos->Pos doc-text (Language-Node-start language-node))
-           #:end (abs-pos->Pos doc-text (Language-Node-end language-node)))))
+    (Range #:start (abs-pos->Pos doc-text (Language-Prefix-start language-prefix))
+           #:end (abs-pos->Pos doc-text (Language-Prefix-end language-prefix)))))
 
-(define (unrecognized-language-message language-node)
-  (define language-text (Language-Node-text language-node))
+(define (unrecognized-language-message language-prefix)
+  (define language-text (Language-Prefix-text language-prefix))
   (cond
     [(not (string=? "" language-text))
      (format

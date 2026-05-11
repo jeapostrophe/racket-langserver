@@ -1,8 +1,10 @@
 #lang racket/base
 
-(require racket/contract
-         racket/match
-         racket/string)
+(require racket/contract)
+
+;; Shared lexer data shapes. Keep this module independent from scanning and
+;; token-tree parsing so the rest of the lexer stack can depend on common data
+;; without forming cycles.
 
 (struct/contract LexerTokenSpan
   ([start exact-nonnegative-integer?]
@@ -10,36 +12,14 @@
    [type symbol?])
   #:transparent)
 
+(struct/contract LexerSnapshot
+  ([text string?]
+   [tokens (vectorof LexerTokenSpan?)])
+  #:transparent)
+
 (define (make-lexer-span start end type)
   (and (< start end)
        (LexerTokenSpan start end type)))
-
-(define (lang-directive? txt)
-  (and (string? txt)
-       (string-prefix? txt "#lang ")))
-
-;; Normalize tokens types to more meaningful.
-(define (normalize-token type text)
-  (match* (type text)
-    [('parenthesis (or "(" "[" "{"))
-     'open-paren]
-    [('parenthesis (or ")" "]" "}"))
-     'close-paren]
-    [(_ "'") 'quote]
-    [(_ "`") 'quasiquote]
-    [(_ ",") 'unquote]
-    [(_ "#;") 'sexp-comment]
-    [(_ "#'") 'syntax-quote]
-    [(_ "#`") 'syntax-quasiquote]
-    [(_ "#,@") 'syntax-unquote-splicing]
-    [(_ "#,") 'syntax-unquote]
-    [(_ ",@") 'unquote-splicing]
-    [(_ "#reader") 'reader-directive]
-    ;; lexer uses `read-language` to detect lang directives.
-    ;; Correct lang line are assigned `other` type, incorrect ones are assigned `error` type.
-    ;; We only handle correct ones here.
-    [('other (? lang-directive?)) 'lang-directive]
-    [(_ _) type]))
 
 (define (span-at spans idx)
   (and (<= 0 idx)
@@ -47,6 +27,6 @@
        (vector-ref spans idx)))
 
 (provide (struct-out LexerTokenSpan)
+         (struct-out LexerSnapshot)
          make-lexer-span
-         normalize-token
          span-at)
