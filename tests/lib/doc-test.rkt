@@ -89,6 +89,8 @@
     (check-equal? (doc-find-containing-paren d 2) 0)
     ;; at 1 (just after open paren)
     (check-equal? (doc-find-containing-paren d 1) 0)
+    ;; at last position (close-paren at buffer end, still inside the form)
+    (check-equal? (doc-find-containing-paren d 9) 0)
 
     (define text2 "((a) b)")
     (define d2 (make-doc "file:///test.rkt" text2))
@@ -171,6 +173,33 @@
                   (list 0 3 "foo" 'symbol)))
 
   (test-case
+    "doc-token-at works on a non-sexp document without depending on body forest"
+    (define text "#lang scribble/manual\n@section{Hi}\n")
+    (define d (make-doc "file:///test.scrbl" text))
+    ;; Flat token queries should work even for non-sexp languages.
+    (check-equal? (LexerEntry-text (doc-token-at d 6)) "#lang scribble/manual")
+    (check-equal? (LexerEntry-type (doc-token-at d 6)) 'lang-directive)
+    (check-equal? (doc-token-prefix-at d 6) "#lang s"))
+
+  (test-case
+    "doc-body-forest builds a forest for unknown languages"
+    (define text "#lang not-a-real-language\n(define x 1)\n")
+    (define d (make-doc "file:///test.unknown" text))
+    (check-not-false (doc-body-forest d)))
+
+  (test-case
+    "doc-find-containing-paren works for unknown languages"
+    (define text "#lang not-a-real-language\n(define x 1)\n")
+    (define d (make-doc "file:///test.unknown" text))
+    (check-equal? (doc-find-containing-paren d 28) 26))
+
+  (test-case
+    "doc-find-containing-paren fallback keeps the first form without a language header"
+    (define d (make-doc "file:///test.rkt" "(first x)\n(second y)\n"))
+    (check-equal? (doc-find-containing-paren d 2) 0)
+    (check-equal? (doc-find-containing-paren d 12) 10))
+
+  (test-case
     "Range tokens (Semantic Tokens)"
     (define text "#lang racket\n(define x 1)")
     (define d (make-doc "file:///test.rkt" text))
@@ -183,6 +212,33 @@
     (check-false (empty? after-expand) "tokens should exist after doc-expand!")
 
     (check-true (andmap SemanticToken? after-expand)))
+
+  (test-case
+    "Range tokens include sexp comment semantic tokens"
+    (define text "#lang racket\n#; (define x 1)\n(+ 1 2)")
+    (define d (make-doc "file:///test.rkt" text))
+    (define comment-range (first (regexp-match-positions #px"#; \\(define x 1\\)" text)))
+    (define tokens (doc-range-tokens d (Range (Pos 0 0) (Pos 2 7))))
+    (define comment-token
+      (findf (lambda (token)
+               (eq? (SemanticToken-type token) SemanticTokenType-comment))
+             tokens))
+    (check-true (SemanticToken? comment-token))
+    (check-equal? (SemanticToken-start comment-token) (car comment-range))
+    (check-equal? (SemanticToken-end comment-token) (cdr comment-range)))
+
+  (test-case
+    "Range tokens split multi-line sexp comment semantic tokens"
+    (define text "#lang racket\n#;\n(define x 1)\n(+ 1 2)")
+    (define d (make-doc "file:///test.rkt" text))
+    (define tokens (doc-range-tokens d (Range (Pos 0 0) (Pos 3 7))))
+    (define comment-ranges
+      (for/list ([token (in-list tokens)]
+                 #:when (eq? (SemanticToken-type token) SemanticTokenType-comment))
+        (cons (SemanticToken-start token) (SemanticToken-end token))))
+    (check-equal? comment-ranges
+                  (list (first (regexp-match-positions #px"#;" text))
+                        (first (regexp-match-positions #px"\\(define x 1\\)" text)))))
 
   (test-case
     "Formatting"
@@ -753,6 +809,57 @@ END
     (define first-sig (first sigs))
     (check-true (string-contains? (SignatureInformation-label first-sig) "list")
                 "label should contain 'list'"))
+
+  (test-case
+    "Document signature help outside a closed top-level form returns #f"
+    (define text
+#<<END
+#lang racket/base
+
+(list)
+END
+      )
+    (define uri "file:///tmp/signature-help-close-paren-test.rkt")
+    (define d (make-doc uri text))
+    (doc-expand! d)
+
+    (check-false (doc-signature-help d (Pos 2 6))))
+
+  (test-case
+    "Document signature help after nested closing paren moves to the surrounding call"
+    (define text
+#<<END
+#lang racket/base
+
+(list (+ 1 2))
+END
+      )
+    (define uri "file:///tmp/signature-help-nested-close-paren-test.rkt")
+    (define d (make-doc uri text))
+    (doc-expand! d)
+
+    (define help (doc-signature-help d (Pos 2 13)))
+    (check-not-false help "help should not be #f after the inner closing paren")
+    (define sigs (SignatureHelp-signatures help))
+    (check-false (empty? sigs) "signatures should not be empty")
+    (define first-sig (first sigs))
+    (check-true (string-contains? (SignatureInformation-label first-sig) "list")
+                "label should contain 'list'"))
+
+  (test-case
+    "Document signature help ignores non-symbol callee expressions"
+    (define text
+#<<END
+#lang racket/base
+
+((lambda (x) x) )
+END
+      )
+    (define uri "file:///tmp/signature-help-callee-expression-test.rkt")
+    (define d (make-doc uri text))
+    (doc-expand! d)
+
+    (check-false (doc-signature-help d (Pos 2 16))))
 
   (test-case
     "Document signature help at buffer start returns #f"

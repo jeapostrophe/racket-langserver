@@ -447,10 +447,9 @@ indices into the document text) as well as LSP @racket[Pos] structs (line/charac
 @defproc[(doc-find-containing-paren [doc Doc?]
                                     [pos exact-nonnegative-integer?])
          (or/c exact-nonnegative-integer? #f)]{
-  Scans backward from @tt{pos} and returns the absolute offset of the nearest
-  unmatched opening parenthesis or bracket (@tt{(} or @tt{[}), or @racket[#f] if
-  none is found.
-  This is a character-level heuristic, not a full parse.
+  Returns the absolute offset of the opening delimiter of the innermost
+  parsed form (parenthesized or bracketed s-expression) that contains @tt{pos},
+  or @racket[#f] if @tt{pos} is outside any parsed form.
 }
 
 @subsection{Trace and Expansion}

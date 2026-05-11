@@ -262,8 +262,16 @@
     (Range (doc-abs-pos->pos doc current-line-start-pos)
            (doc-abs-pos->pos doc current-line-end-pos)))
 
+  ;; TODO: Gate this sexp-structure lookup to sexp languages, or keep
+  ;; non-sexp documents on current-line formatting only.
   (define (containing-form-range)
-    (define maybe-paren-pos (doc-find-containing-paren doc (max 0 (sub1 ch-pos))))
+    (define raw-pos (max 0 (sub1 ch-pos)))
+    (define token (doc-token-at doc raw-pos))
+    (define query-pos
+      (if (and token (eq? 'close-paren (LexerEntry-type token)))
+          (add1 raw-pos)
+          raw-pos))
+    (define maybe-paren-pos (doc-find-containing-paren doc query-pos))
     (define start-pos (if (false? maybe-paren-pos) 0 maybe-paren-pos))
     (Range (doc-abs-pos->pos doc start-pos)
            (doc-abs-pos->pos doc current-line-end-pos)))
