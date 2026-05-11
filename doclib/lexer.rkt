@@ -1,12 +1,14 @@
 #lang racket/base
 
 (require "../common/interfaces.rkt"
+         "doc-lang.rkt"
+         "lazy-cache.rkt"
+         "lexer/scan.rkt"
          "lexer/shared.rkt"
          "lexer/token-tree.rkt"
+         "lexer/tree-query.rkt"
          racket/contract
-         racket/match
-         syntax-color/module-lexer
-         syntax-color/racket-lexer)
+         racket/match)
 
 ;; Upstream lexer type docs:
 ;;   https://docs.racket-lang.org/syntax-color/Racket_Lexer.html
@@ -35,32 +37,15 @@
 ;; that language's `color-lexer`; when a colorer reports an attribute hash it
 ;; extracts the `'type` field.
 ;;
-;; This module normalizes token kinds so callers see stable shapes across
+;; The scan layer normalizes token kinds so callers see stable shapes across
 ;; valid and invalid inputs:
 ;; - 'lang-directive: a leading `#lang`
 ;; - 'reader-directive: a leading `#reader`
 ;; - quote-family and syntax quote-family prefixes, plus `#;`
 ;; - open-paren/close-paren direction for the internal span cache
 ;;
-;; This module caches the full lexer stream so callers can distinguish any
-;; token class at a given position while reconstructing public token strings on
-;; demand.
-
-(struct/contract LexerSnapshot
-  ([text string?]
-   [tokens (vectorof LexerTokenSpan?)])
-  #:transparent)
-
-;; Racket lexers report 1-based positions. Normalize to zero-based offsets and
-;; clamp at zero so synthetic positions do not go negative.
-(define (normalize-lexer-pos pos)
-  (max 0 (sub1 pos)))
-
-;; Record one lexer span from the lexer stream.
-(define (record-lexer-span type start end)
-  (define normalized-start (normalize-lexer-pos start))
-  (define normalized-end (normalize-lexer-pos end))
-  (make-lexer-span normalized-start normalized-end type))
+;; This module is the public lexer facade. It builds snapshots from normalized
+;; token spans, attaches a token forest, and exposes position-oriented queries.
 
 (define/contract (lexer-snapshot-span->entry snapshot span)
   (-> LexerSnapshot? LexerTokenSpan? LexerEntry?)
@@ -71,10 +56,13 @@
                          (LexerTokenSpan-end span))
               (LexerTokenSpan-type span)))
 
-;; Binary search returns the first token whose end is strictly after `pos`.
-;; That token is only a candidate, because spans may have gaps, so the caller
-;; still checks the start bound to confirm `pos` is inside the span.
-(define (find-first-token-ending-after tokens pos)
+(define (lexer-token-span-contains-pos? span pos)
+  (and (<= (LexerTokenSpan-start span) pos)
+       (< pos (LexerTokenSpan-end span))))
+
+;; Find the token at `pos`, or the next token after `pos` when `pos` falls
+;; between token spans. Returns #f when `pos` is after the last token.
+(define (find-token-index-at-or-after tokens pos)
   (define token-count (vector-length tokens))
   (let loop ([low 0]
              [high token-count])
@@ -88,45 +76,54 @@
            (loop (add1 mid) high)
            (loop low mid))])))
 
-(define (lookup-lexer-entry snapshot pos)
-  (define tokens (LexerSnapshot-tokens snapshot))
-  (define idx (find-first-token-ending-after tokens pos))
+(define (find-token-index-at tokens pos)
+  (define idx (find-token-index-at-or-after tokens pos))
   (and idx
        (let ([span (vector-ref tokens idx)])
-         (and (<= (LexerTokenSpan-start span) pos)
-              (lexer-snapshot-span->entry snapshot span)))))
+         (and (lexer-token-span-contains-pos? span pos) idx))))
+
+(define (lookup-lexer-entry snapshot pos)
+  (define tokens (LexerSnapshot-tokens snapshot))
+  (define idx (find-token-index-at tokens pos))
+  (and idx
+       (lexer-snapshot-span->entry snapshot (vector-ref tokens idx))))
 
 ;; Find the token at `pos`, or the last token before `pos` when `pos` falls
-;; between token spans.
+;; between token spans. Returns #f when `pos` is before the first token.
 (define (find-token-index-at-or-before tokens pos)
   (define token-count (vector-length tokens))
-  (define idx (find-first-token-ending-after tokens pos))
+  (define idx (find-token-index-at-or-after tokens pos))
   (cond
     [(not idx)
      (and (positive? token-count) (sub1 token-count))]
     [else
      (define span (vector-ref tokens idx))
-     (if (<= (LexerTokenSpan-start span) pos)
-         idx
-         (sub1 idx))]))
+     (cond
+       [(lexer-token-span-contains-pos? span pos) idx]
+       [(zero? idx) #f]
+       [else (sub1 idx)])]))
 
-(define (lexer-layout-token? type)
-  (memq type '(white-space comment sexp-comment)))
-
-(define (scan-enclosing-paren snapshot tokens idx depth)
-  (cond
-    [(< idx 0) #f]
-    [else
-     (define span (vector-ref tokens idx))
-     (match (LexerTokenSpan-type span)
-       ['close-paren
-        (scan-enclosing-paren snapshot tokens (sub1 idx) (add1 depth))]
-       ['open-paren
-        (if (positive? depth)
-            (scan-enclosing-paren snapshot tokens (sub1 idx) (sub1 depth))
-            (LexerTokenSpan-start span))]
-       [_
-        (scan-enclosing-paren snapshot tokens (sub1 idx) depth)])]))
+;; Build a token forest from token spans. Uses language info to decide what
+;; portion of the spans to parse: for non-sexp languages only the prefix is
+;; parsed; for sexp languages, the body starting at body-start-idx is parsed.
+(define (build-snapshot-token-forest text uri spans)
+  (define info (lexer-language-info text spans uri))
+  (define total (vector-length spans))
+  (define body-start-idx
+    (cond [(Language-Info-prefix info)
+           => Language-Prefix-body-start-idx]
+          [else 0]))
+  (define-values (start end)
+    (cond
+      [(eq? 'non-sexp (Language-Info-body-mode info))
+       (values 0 body-start-idx)]
+      [else
+       (values (if (and (< body-start-idx total)
+                        (span-at spans body-start-idx))
+                   body-start-idx
+                   0)
+               total)]))
+  (parse-token-forest spans start end))
 
 (define/contract (in-lexer-snapshot snapshot)
   (-> LexerSnapshot? sequence?)
@@ -149,101 +146,7 @@
   (for ([entry (in-lexer-snapshot snapshot)])
     (proc entry)))
 
-(define/contract (lexer-snapshot-enclosing-paren-start snapshot pos)
-  (-> LexerSnapshot? exact-nonnegative-integer? (or/c exact-nonnegative-integer? #f))
-  (define tokens (LexerSnapshot-tokens snapshot))
-  (define token-count (vector-length tokens))
-  (cond
-    [(or (zero? token-count)
-         (>= pos (string-length (LexerSnapshot-text snapshot))))
-     #f]
-    [else
-     (define idx (find-token-index-at-or-before tokens pos))
-     (scan-enclosing-paren snapshot tokens idx 0)]))
-
-(define/contract (lexer-snapshot-next-symbol-start snapshot pos)
-  (-> LexerSnapshot? exact-nonnegative-integer? (or/c exact-nonnegative-integer? #f))
-  (define tokens (LexerSnapshot-tokens snapshot))
-  (let loop ([idx (find-first-token-ending-after tokens pos)])
-    (cond
-      [(not idx) #f]
-      [(>= idx (vector-length tokens)) #f]
-      [else
-       (define span (vector-ref tokens idx))
-       (match (LexerTokenSpan-type span)
-         [(? lexer-layout-token?)
-          (loop (add1 idx))]
-         ['symbol
-          (LexerTokenSpan-start span)]
-         [_ #f])])))
-
-(define (lexer-wrap lexer)
-  (define (eof-or-list txt type paren? start end)
-    (if (eof-object? txt)
-        eof
-        (list txt type paren? start end)))
-
-  (cond
-    [(procedure? lexer)
-     (lambda (in)
-       (define-values (txt type paren? start end)
-         (lexer in))
-       (eof-or-list txt type paren? start end))]
-    [(pair? lexer)
-     (define lexer-proc (car lexer))
-     (define mode (cdr lexer))
-     (lambda (in)
-       (define-values (txt type paren? start end _backup next-mode)
-         (lexer-proc in 0 mode))
-       ;; Preserve the updated lexer mode so the next call continues where
-       ;; this one left off.
-       (set! mode next-mode)
-       (eof-or-list txt type paren? start end))]))
-
-;; `module-lexer` can return a procedure, a `(procedure . mode)` pair, or a
-;; sentinel value. That is how language-specific lexers are surfaced for
-;; `#lang` modules such as Rhombus. For the pair case, `car` is the lexer
-;; procedure and `cdr` is the lexer-specific state to pass back on the next
-;; call.
-(define (module-lexer->lexer lexer)
-  (if (or (procedure? lexer) (pair? lexer))
-      lexer
-      racket-lexer))
-
-(define (get-initial-lexer-state in)
-  (define-values (txt type paren? start end _backup lexer)
-    (module-lexer in 0 #f))
-  (values txt type paren? start end (module-lexer->lexer lexer)))
-
-(define/contract (build-lexer-snapshot text)
-  (-> string? LexerSnapshot?)
-  ;; Count lines before lexing so the lexer reports stable source locations for
-  ;; the entire document snapshot.
-  (define in (open-input-string text))
-  (port-count-lines! in)
-  (define-values (initial-txt initial-type _initial-paren? initial-start initial-end lexer)
-    (get-initial-lexer-state in))
-  ;; The initial token comes from `module-lexer`; subsequent tokens come from
-  ;; the language-specific lexer selected above.
-  (define initial-span
-    (and (not (eof-object? initial-txt))
-         (record-lexer-span (normalize-token initial-type initial-txt)
-                            initial-start
-                            initial-end)))
-  (define rest-token-spans
-    (for*/list ([lst (in-port (lexer-wrap lexer) in)]
-                [span (in-value
-                        (match lst
-                          [(list txt type _paren? start end)
-                           (record-lexer-span (normalize-token type txt) start end)]))]
-                #:when span)
-      span))
-  (define token-spans
-    (if initial-span
-        (cons initial-span rest-token-spans)
-        rest-token-spans))
-
-  (LexerSnapshot text (list->vector token-spans)))
+;; Flat token queries — these never need a token forest.
 
 (define/contract (lexer-snapshot-token-at snapshot pos)
   (-> LexerSnapshot? exact-nonnegative-integer? (or/c LexerEntry? #f))
@@ -256,19 +159,78 @@
        (eq? (LexerEntry-type entry) 'symbol)
        entry))
 
+;; Structural tree queries — these require a token forest.
+;; Callers should ensure the document is in a sexp-compatible body mode.
+
+(define/contract (build-lexer-snapshot text [uri #f])
+  (->* (string?) ((or/c #f string?)) LexerSnapshot?)
+  (define token-span-vector (text->lexer-token-spans text))
+  (LexerSnapshot text token-span-vector))
+
+;; LexerState groups the flat snapshot, language metadata, and a lazy body-forest
+;; cache. Documents keep one LexerState instead of separate caches for snapshot,
+;; language, and forest. The forest covers whatever portion of the token spans is
+;; relevant for the language's body mode (full file for sexp/unknown, header-only
+;; for non-sexp).
+(struct/contract LexerState
+  ([snapshot LexerSnapshot?]
+   [language-info Language-Info?]
+   [body-forest-cache (lazy-cache-of Token-Forest?)])
+  #:transparent)
+
+(define (build-lexer-state text uri)
+  (define snapshot (build-lexer-snapshot text uri))
+  (define info (lexer-language-info (LexerSnapshot-text snapshot)
+                                    (LexerSnapshot-tokens snapshot)
+                                    uri))
+  (LexerState snapshot info (make-lazy-cache)))
+
+(define (lexer-state-body-forest state text uri)
+  (call-with-lazy-cache!
+    (LexerState-body-forest-cache state)
+    (lambda ()
+      (build-snapshot-token-forest text
+                                   uri
+                                   (LexerSnapshot-tokens (LexerState-snapshot state))))))
+
 (provide (struct-out LexerTokenSpan)
          (struct-out LexerSnapshot)
          LexerSnapshot?
          token-node?
          sexp-comment-node?
+         token-node-children
+         token-node-span
+         parse-token-forest
+         token-forest-flattened-nodes
+         token-forest-node-path
+         token-node-parent/path
+         token-forest-ancestors-at-pos
+         token-forest-deepest-enclosing-list
+         token-forest-form-head
+         token-forest-sexp-comment-spans
          (struct-out Token-Leaf)
-         (struct-out Token-Tree)
+         (struct-out Token-List)
          (struct-out Token-Prefix-Tree)
+         (struct-out Token-Forest)
          build-lexer-snapshot
+         build-lexer-state
+         build-snapshot-token-forest
+         LexerState?
+         LexerState-snapshot
+         LexerState-language-info
+         lexer-state-body-forest
+         lexer-language-info
+         Language-Info
+         Language-Info?
+         Language-Info-prefix
+         Language-Info-language
+         Language-Info-body-mode
          lexer-snapshot-span->entry
+         lexer-token-span-contains-pos?
          in-lexer-snapshot
          for-each-lexer-snapshot-entry
-         lexer-snapshot-enclosing-paren-start
-         lexer-snapshot-next-symbol-start
+         find-token-index-at
+         find-token-index-at-or-before
+         find-token-index-at-or-after
          lexer-snapshot-token-at
          lexer-snapshot-symbol-at)

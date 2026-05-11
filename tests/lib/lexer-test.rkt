@@ -23,6 +23,42 @@
     (for/list ([entry (in-lexer-snapshot (build-lexer-snapshot text))])
       entry))
 
+  (define (match-range rx text)
+    (match (regexp-match-positions rx text)
+      [(list (cons start end)) (CharRange start end)]))
+
+  (test-case
+    "find-token-index-at-or-before returns false before the first token"
+    (define tokens
+      (vector (make-lexer-span 2 4 'symbol)
+              (make-lexer-span 6 8 'symbol)))
+    (check-false (find-token-index-at-or-before tokens 1))
+    (check-equal? (find-token-index-at-or-before tokens 2) 0)
+    (check-equal? (find-token-index-at-or-before tokens 5) 0)
+    (check-equal? (find-token-index-at-or-before tokens 9) 1))
+
+  (test-case
+    "find-token-index-at-or-after returns false after the last token"
+    (define tokens
+      (vector (make-lexer-span 2 4 'symbol)
+              (make-lexer-span 6 8 'symbol)))
+    (check-equal? (find-token-index-at-or-after tokens 1) 0)
+    (check-equal? (find-token-index-at-or-after tokens 2) 0)
+    (check-equal? (find-token-index-at-or-after tokens 5) 1)
+    (check-false (find-token-index-at-or-after tokens 8)))
+
+  (test-case
+    "find-token-index-at returns false outside token spans"
+    (define tokens
+      (vector (make-lexer-span 2 4 'symbol)
+              (make-lexer-span 6 8 'symbol)))
+    (check-false (find-token-index-at tokens 1))
+    (check-equal? (find-token-index-at tokens 2) 0)
+    (check-false (find-token-index-at tokens 4))
+    (check-false (find-token-index-at tokens 5))
+    (check-equal? (find-token-index-at tokens 7) 1)
+    (check-false (find-token-index-at tokens 8)))
+
   (test-case
     "build-lexer-snapshot enumerates public lexer entries"
     (define snapshot (build-lexer-snapshot "#lang racket\n(define x 1)\n"))
@@ -142,10 +178,11 @@
           (Token-Leaf-span (first (Token-Prefix-Tree-skippable-nodes node))))
         'white-space)
       (check-true (Token-Leaf? (Token-Prefix-Tree-child node)))
+      (check-equal? (Token-Prefix-Tree-end node) 4)
       (check-equal? next-index 3)))
 
   (test-case
-    "token tree end uses the last child for unclosed lists"
+    "token tree end is cached for unclosed lists"
     (define-values (non-empty-node non-empty-next-index)
       (parse-token-node
         (vector (make-lexer-span 0 1 'open-paren)
@@ -155,13 +192,15 @@
         0))
     (check-equal? non-empty-next-index 4)
     (check-equal? (token-node-end non-empty-node) 13)
+    (check-equal? (Token-List-end non-empty-node) 13)
 
     (define-values (empty-node empty-next-index)
       (parse-token-node
         (vector (make-lexer-span 0 1 'open-paren))
         0))
     (check-equal? empty-next-index 1)
-    (check-equal? (token-node-end empty-node) 1))
+    (check-equal? (token-node-end empty-node) 1)
+    (check-equal? (Token-List-end empty-node) 1))
 
   (test-case
     "token tree skips leading trivia and sexp comments"
@@ -176,15 +215,168 @@
     (check-equal? next-index 5)
     (check-equal? (length nodes) 3)
     (check-true (Token-Leaf? (first nodes)))
-    (check-equal? (LexerTokenSpan-type (Token-Leaf-span (first nodes)))
-                  'white-space)
+    (check-true (token-leaf-type? (first nodes) 'white-space))
     (check-true (Token-Leaf? (second nodes)))
-    (check-equal? (LexerTokenSpan-type (Token-Leaf-span (second nodes)))
-                  'comment)
+    (check-true (token-leaf-type? (second nodes) 'comment))
     (check-true (Token-Prefix-Tree? (third nodes)))
     (check-equal? (LexerTokenSpan-type
                     (Token-Prefix-Tree-prefix-span (third nodes)))
                   'sexp-comment))
+
+  (test-case
+    "snapshot token forest is built separately from flat snapshot"
+    (define snapshot (build-lexer-snapshot "(outer (inner x))"))
+    (define forest (build-snapshot-token-forest (LexerSnapshot-text snapshot)
+                                                #f
+                                                (LexerSnapshot-tokens snapshot)))
+    (define inner-list (token-forest-deepest-enclosing-list forest 9))
+    (check-true (Token-List? inner-list))
+    (check-equal? (LexerTokenSpan-start (Token-List-open-span inner-list)) 7)
+    (let-values ([(parent path) (token-node-parent/path forest inner-list)])
+      (check-true (Token-List? parent))
+      (check-equal? (LexerTokenSpan-start (Token-List-open-span parent)) 0)
+      (check-equal? (length path) 2)))
+
+  (test-case
+    "token forest keeps sexp comment ranges"
+    (define text "#lang racket\n#; (define x 1)\n(+ 1 2)\n")
+    (define snapshot (build-lexer-snapshot text))
+    (define forest (build-snapshot-token-forest (LexerSnapshot-text snapshot)
+                                                #f
+                                                (LexerSnapshot-tokens snapshot)))
+    (check-equal?
+      (token-forest-sexp-comment-spans forest)
+      (list (match-range #px"#; \\(define x 1\\)" text))))
+
+  (test-case
+    "token forest does not parse non-sexp body"
+    (define text "#lang scribble/manual\n@section{Hi}\n")
+    (define snapshot (build-lexer-snapshot text "file:///tmp/demo.scrbl"))
+    (define forest (build-snapshot-token-forest (LexerSnapshot-text snapshot)
+                                                "file:///tmp/demo.scrbl"
+                                                (LexerSnapshot-tokens snapshot)))
+    (define header-end (CharRange-end (match-range #px"#lang scribble/manual" text)))
+    (check-false
+      (for/or ([node (in-list (token-forest-flattened-nodes forest))])
+        (> (token-node-end node) header-end)))
+    ;; The truncated forest contains no lists, so tree queries return #f.
+    (check-false (token-forest-deepest-enclosing-list forest 28)))
+
+  (test-case
+    "parse-token-forest respects start-idx and excludes earlier tokens"
+    (define spans (vector (make-lexer-span 0 1 'open-paren)
+                          (make-lexer-span 1 2 'symbol)
+                          (make-lexer-span 2 3 'close-paren)
+                          (make-lexer-span 3 4 'symbol)))
+    (define forest0 (parse-token-forest spans))
+    (check-equal? (length (Token-Forest-nodes forest0)) 2)
+    (define forest1 (parse-token-forest spans 3))
+    (check-equal? (length (Token-Forest-nodes forest1)) 1)
+    (define leaf (first (Token-Forest-nodes forest1)))
+    (check-true (Token-Leaf? leaf))
+    (check-true (token-leaf-type? leaf 'symbol)))
+
+  (test-case
+    "build-snapshot-token-forest for sexp docs starts after language header"
+    (define text "#lang racket\n(define x 1)\n")
+    (define snapshot (build-lexer-snapshot text))
+    (define forest (build-snapshot-token-forest (LexerSnapshot-text snapshot)
+                                                #f
+                                                (LexerSnapshot-tokens snapshot)))
+    ;; The #lang token should not appear in the body forest.
+    (check-false
+      (for/or ([node (in-list (token-forest-flattened-nodes forest))])
+        (<= (token-node-start node) 0 (token-node-end node))))
+    ;; The body form (define x 1) should be present.
+    (check-not-false
+      (token-forest-deepest-enclosing-list forest 15)))
+
+  (test-case
+    "build-snapshot-token-forest keeps first form without a language header"
+    (define text "(first x)\n(second y)\n")
+    (define snapshot (build-lexer-snapshot text))
+    (define forest (build-snapshot-token-forest (LexerSnapshot-text snapshot)
+                                                #f
+                                                (LexerSnapshot-tokens snapshot)))
+    (check-equal?
+      (for/list ([node (in-list (Token-Forest-nodes forest))]
+                 #:when (Token-List? node))
+        (token-node-span node))
+      (list (match-range #px"\\(first x\\)" text)
+            (match-range #px"\\(second y\\)" text))))
+
+  (test-case
+    "build-snapshot-token-forest keeps raw module body in sexp docs"
+    (define text "(module demo racket/base (define x 1))\n")
+    (define snapshot (build-lexer-snapshot text))
+    (define forest (build-snapshot-token-forest (LexerSnapshot-text snapshot)
+                                                #f
+                                                (LexerSnapshot-tokens snapshot)))
+    (define body-range (match-range #px"\\(define x 1\\)" text))
+    (check-not-false
+      (token-forest-deepest-enclosing-list forest
+                                           (CharRange-start body-range))))
+
+  (test-case
+    "lexer-state-body-forest caches result"
+    (define text "#lang racket\n(define x 1)\n")
+    (define state (build-lexer-state text #f))
+    (define first (lexer-state-body-forest state text #f))
+    (define second (lexer-state-body-forest state text #f))
+    (check-eq? first second))
+
+  (test-case
+    "flat token queries work on non-sexp documents without a meaningful body forest"
+    (define text "#lang scribble/manual\n@section{Hi}\n")
+    (define snapshot (build-lexer-snapshot text "file:///tmp/demo.scrbl"))
+    ;; token-at and symbol-at are flat queries: they should work even when
+    ;; the document body is not sexp.
+    (check-equal?
+      (LexerEntry-text (lexer-snapshot-token-at snapshot 6))
+      "#lang scribble/manual")
+    (check-equal?
+      (LexerEntry-type (lexer-snapshot-token-at snapshot 6))
+      'lang-directive)
+    (check-false (lexer-snapshot-symbol-at snapshot 6))
+    ;; `section` is a symbol token in the body.
+    (check-equal?
+      (LexerEntry-text (lexer-snapshot-symbol-at snapshot 23))
+      "section")
+    (check-equal?
+      (LexerEntry-type (lexer-snapshot-symbol-at snapshot 23))
+      'symbol))
+
+  (test-case
+    "unknown-language body mode is unknown"
+    (define text "#lang not-a-real-language\n(define x 1)\n")
+    (define snapshot (build-lexer-snapshot text))
+    (define info (lexer-language-info (LexerSnapshot-text snapshot)
+                                      (LexerSnapshot-tokens snapshot)))
+    (check-equal? (Language-Info-body-mode info) 'unknown))
+
+  (test-case
+    "unknown-language still builds a forest for editor affordances"
+    (define text "#lang not-a-real-language\n(define x 1)\n")
+    (define state (build-lexer-state text #f))
+    (check-not-false (lexer-state-body-forest state text #f))
+    (check-equal?
+      (token-forest-sexp-comment-spans
+        (lexer-state-body-forest state text #f))
+      '()))
+
+  (test-case
+    "unknown #reader and raw modules also produce unknown language info"
+    (define reader-text "#reader does/not/exist\nbody\n")
+    (define reader-snapshot (build-lexer-snapshot reader-text))
+    (define reader-info (lexer-language-info (LexerSnapshot-text reader-snapshot)
+                                             (LexerSnapshot-tokens reader-snapshot)))
+    (check-equal? (Language-Info-body-mode reader-info) 'unknown)
+
+    (define module-text "(module demo does/not/exist (define x 1))\n")
+    (define module-snapshot (build-lexer-snapshot module-text))
+    (define module-info (lexer-language-info (LexerSnapshot-text module-snapshot)
+                                             (LexerSnapshot-tokens module-snapshot)))
+    (check-equal? (Language-Info-body-mode module-info) 'unknown))
 
   (test-case
     "lexer snapshot position queries return token and symbol entries"
@@ -224,21 +416,33 @@
                   (list 25 26 " " 'white-space)))
 
   (test-case
-    "lexer snapshot next symbol start skips whitespace tokens"
+    "tree query first meaningful symbol skips whitespace tokens"
     (define snapshot
       (build-lexer-snapshot "#lang racket/base\n(  list)\n(+ 1 2)\n"))
-    (check-equal? (lexer-snapshot-next-symbol-start snapshot 20) 21)
-    (check-equal? (lexer-snapshot-next-symbol-start snapshot 21) 21)
-    (check-equal? (lexer-snapshot-next-symbol-start snapshot 27) #f))
+    (define forest
+      (build-snapshot-token-forest (LexerSnapshot-text snapshot)
+                                   #f
+                                   (LexerSnapshot-tokens snapshot)))
+    (check-equal?
+      (LexerTokenSpan-start (token-forest-form-head forest 20))
+      21)
+    (check-equal?
+      (LexerTokenSpan-start (token-forest-form-head forest 21))
+      21)
+    (check-false (token-forest-form-head forest 27)))
 
   (test-case
-    "lexer snapshot next symbol start skips comments"
+    "tree query first meaningful symbol skips comments"
     (define text "#lang racket/base\n( ; comment\n  list)\n")
     (define snapshot (build-lexer-snapshot text))
+    (define forest
+      (build-snapshot-token-forest (LexerSnapshot-text snapshot)
+                                   #f
+                                   (LexerSnapshot-tokens snapshot)))
     (define d (make-doc "file:///comment-test.rkt" text))
     (check-equal?
-      (lexer-snapshot-next-symbol-start snapshot
-                                        (doc-pos->abs-pos d (Pos 1 1)))
+      (LexerTokenSpan-start (token-forest-form-head forest
+                                                    (doc-pos->abs-pos d (Pos 1 1))))
       (doc-pos->abs-pos d (Pos 2 2))))
 
   (test-case
