@@ -369,18 +369,53 @@
   (-> Doc? Range? (listof SemanticToken?))
   (define pos-start (doc-pos->abs-pos doc (Range-start range)))
   (define pos-end (doc-pos->abs-pos doc (Range-end range)))
-  (define tokens
-    (append (send (Doc-trace doc) get-semantic-tokens)
-            (doc-sexp-comment-semantic-tokens doc)))
   (split-semantic-tokens-by-line
     doc
-    (filter-not (λ (tok) (or (<= (SemanticToken-end tok) pos-start)
-                             (>= (SemanticToken-start tok) pos-end)))
-                (sort tokens < #:key SemanticToken-start))))
+    (filter (λ (token)
+              (char-range-intersect?
+                (SemanticToken-start token)
+                (SemanticToken-end token)
+                pos-start pos-end))
+            (doc-semantic-tokens doc))))
 
 (define (doc-sexp-comment-semantic-tokens doc)
   (for/list ([span (in-list (lexer-state-sexp-comment-spans (doc-lexer-state doc)))])
     (SemanticToken (CharRange-start span) (CharRange-end span) SemanticTokenType-comment '())))
+
+(define (doc-semantic-tokens doc)
+  (define trace-tokens
+    (sort (send (Doc-trace doc) get-semantic-tokens) < #:key SemanticToken-start))
+  (define sexp-comment-tokens
+    (sort (doc-sexp-comment-semantic-tokens doc) < #:key SemanticToken-start))
+  (merge-semantic-tokens trace-tokens sexp-comment-tokens))
+
+(define (merge-semantic-tokens tokens high-priority-tokens [merged '()])
+  (define (continue-merge tokens merged)
+    (cond [(empty? tokens)
+           (reverse merged)]
+          [else
+           (continue-merge (rest tokens) (cons (car tokens) merged))]))
+
+  (define (merge-non-empty-stream tokens high-priority-tokens merged)
+    (define ht (car high-priority-tokens))
+    (define t (car tokens))
+    (define ht-start (SemanticToken-start ht))
+    (define ht-end (SemanticToken-end ht))
+    (define t-start (SemanticToken-start t))
+    (define t-end (SemanticToken-end t))
+    (cond [(<= t-end ht-start)
+           (merge-semantic-tokens (cdr tokens) high-priority-tokens (cons t merged))]
+          [(<= ht-end t-start)
+           (merge-semantic-tokens tokens (cdr high-priority-tokens) (cons ht merged))]
+          [else
+           (merge-semantic-tokens (cdr tokens) high-priority-tokens merged)]))
+
+  (cond [(empty? high-priority-tokens)
+         (continue-merge tokens merged)]
+        [(empty? tokens)
+         (continue-merge high-priority-tokens merged)]
+        [else
+         (merge-non-empty-stream tokens high-priority-tokens merged)]))
 
 (define (split-semantic-tokens-by-line doc tokens)
   (for*/list ([token (in-list tokens)]

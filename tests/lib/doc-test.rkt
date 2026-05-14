@@ -241,6 +241,55 @@
                         (first (regexp-match-positions #px"\\(define x 1\\)" text)))))
 
   (test-case
+    "Range tokens remove stale trace tokens inside current sexp comments"
+    (define text "#lang racket\n(define x 1)\nx\n")
+    (define d (make-doc "file:///test.rkt" text))
+    (check-true (doc-expand! d))
+
+    (doc-apply-edit! d (Range (Pos 1 0) (Pos 1 0)) "#; ")
+
+    (define updated-text (doc-get-text d))
+    (define comment-range
+      (first (regexp-match-positions #px"#; \\(define x 1\\)" updated-text)))
+    (define tokens (doc-range-tokens d (Range (Pos 0 0) (Pos 3 0))))
+    (define-values (comment-start comment-end)
+      (values (car comment-range) (cdr comment-range)))
+    (define (token-intersects-comment? token)
+      (char-range-intersect? (SemanticToken-start token)
+                             (SemanticToken-end token)
+                             comment-start
+                             comment-end))
+    (define (comment-token? token)
+      (eq? (SemanticToken-type token) SemanticTokenType-comment))
+    (define (token-starts-before? left right)
+      (<= (SemanticToken-start left) (SemanticToken-start right)))
+
+    (define comment-token
+      (findf (λ (token)
+               (and (comment-token? token)
+                    (= (SemanticToken-start token) comment-start)
+                    (= (SemanticToken-end token) comment-end)))
+             tokens))
+    (define non-comment-tokens
+      (filter-not comment-token? tokens))
+
+    (check-true (SemanticToken? comment-token))
+    (check-false
+      (ormap token-intersects-comment? non-comment-tokens)
+      "current sexp-comment span should mask intersecting stale trace tokens")
+    (check-not-false
+      (findf (λ (token)
+               (and (not (comment-token? token))
+                    (not (token-intersects-comment? token))))
+             tokens)
+      "stale trace tokens outside the comment should be preserved")
+    (check-true
+      (for/and ([left (in-list tokens)]
+                [right (in-list (rest tokens))])
+        (token-starts-before? left right))
+      "semantic tokens should remain monotonic for LSP relative encoding"))
+
+  (test-case
     "Formatting"
     ;; doc.rkt `doc-format-edits` delegates to the external formatter.
     (define text "#lang racket/base\n(define x\n1)")
