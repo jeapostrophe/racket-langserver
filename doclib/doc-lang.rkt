@@ -2,7 +2,7 @@
 
 (require "../common/path-util.rkt"
          "lexer/scan.rkt"
-         "lexer/shared.rkt"
+         "lexer/snapshot.rkt"
          "lexer/token-tree.rkt"
          racket/contract
          racket/list

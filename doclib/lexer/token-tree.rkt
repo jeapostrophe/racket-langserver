@@ -1,6 +1,6 @@
 #lang racket/base
 
-(require "shared.rkt"
+(require "snapshot.rkt"
          "../../common/interfaces.rkt"
          racket/list
          racket/match)

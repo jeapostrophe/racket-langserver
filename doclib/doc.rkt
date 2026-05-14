@@ -13,6 +13,8 @@
          "formatting.rkt"
          "internal-types.rkt"
          "lexer.rkt"
+         (only-in "lexer/state.rkt"
+                  lexer-state-body-forest)
          "doc-lang.rkt"
          racket/match
          racket/contract
@@ -20,7 +22,6 @@
          racket/set
          racket/list
          racket/string
-         srfi/2
          data/interval-map
          "check-syntax.rkt"
          "external/resyntax.rkt"
@@ -275,9 +276,7 @@
 ;; that contains `pos`, or #f when `pos` is outside any parsed form.
 (define/contract (doc-find-containing-paren doc pos)
   (-> Doc? exact-nonnegative-integer? (or/c exact-nonnegative-integer? #f))
-  (and-let* ([forest (doc-body-forest doc)]
-             [enclosing-list (token-forest-deepest-enclosing-list forest pos)])
-    (LexerTokenSpan-start (Token-List-open-span enclosing-list))))
+  (lexer-state-containing-open-paren (doc-lexer-state doc) pos))
 
 ;; Cache lexer-derived state lazily. Query paths may build a cache miss while
 ;; the caller already holds whatever lock stabilizes the document state.
@@ -297,8 +296,7 @@
   (LexerState-language-info (doc-lexer-state doc)))
 
 (define (doc-body-forest doc)
-  (define state (doc-lexer-state doc))
-  (lexer-state-body-forest state (send (Doc-text doc) get-text) (Doc-uri doc)))
+  (lexer-state-body-forest (doc-lexer-state doc)))
 
 ;; definition BEG ;;
 
@@ -381,7 +379,7 @@
                 (sort tokens < #:key SemanticToken-start))))
 
 (define (doc-sexp-comment-semantic-tokens doc)
-  (for/list ([span (in-list (token-forest-sexp-comment-spans (doc-body-forest doc)))])
+  (for/list ([span (in-list (lexer-state-sexp-comment-spans (doc-lexer-state doc)))])
     (SemanticToken (CharRange-start span) (CharRange-end span) SemanticTokenType-comment '())))
 
 (define (split-semantic-tokens-by-line doc tokens)
@@ -491,8 +489,7 @@
   (append trace-actions resyntax-actions))
 
 (define (doc-signature-form-head-pos doc query-pos)
-  (define forest (doc-body-forest doc))
-  (define maybe-head (token-forest-form-head forest query-pos))
+  (define maybe-head (lexer-state-form-head-at (doc-lexer-state doc) query-pos))
   (and maybe-head (LexerTokenSpan-start maybe-head)))
 
 (define (doc-signature-tag doc-trace snapshot callee-pos)

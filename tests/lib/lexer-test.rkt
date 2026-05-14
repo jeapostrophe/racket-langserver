@@ -4,9 +4,16 @@
   (require rackunit
            "../../doclib/doc.rkt"
            "../../doclib/lexer.rkt"
-           (only-in "../../doclib/lexer/shared.rkt"
-                    make-lexer-span)
+           (only-in "../../doclib/lexer/snapshot.rkt"
+                    make-lexer-span
+                    find-token-index-at
+                    find-token-index-at-or-before
+                    find-token-index-at-or-after)
+           (only-in "../../doclib/lexer/state.rkt"
+                    build-snapshot-token-forest
+                    lexer-state-body-forest)
            "../../doclib/lexer/token-tree.rkt"
+           "../../doclib/lexer/tree-query.rkt"
            "../../common/interfaces.rkt")
 
   (define (entry-summary entry)
@@ -321,8 +328,8 @@
     "lexer-state-body-forest caches result"
     (define text "#lang racket\n(define x 1)\n")
     (define state (build-lexer-state text #f))
-    (define first (lexer-state-body-forest state text #f))
-    (define second (lexer-state-body-forest state text #f))
+    (define first (lexer-state-body-forest state))
+    (define second (lexer-state-body-forest state))
     (check-eq? first second))
 
   (test-case
@@ -358,10 +365,10 @@
     "unknown-language still builds a forest for editor affordances"
     (define text "#lang not-a-real-language\n(define x 1)\n")
     (define state (build-lexer-state text #f))
-    (check-not-false (lexer-state-body-forest state text #f))
+    (check-not-false (lexer-state-body-forest state))
     (check-equal?
       (token-forest-sexp-comment-spans
-        (lexer-state-body-forest state text #f))
+        (lexer-state-body-forest state))
       '()))
 
   (test-case

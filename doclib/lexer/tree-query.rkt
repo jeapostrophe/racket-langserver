@@ -1,6 +1,6 @@
 #lang racket/base
 
-(require "shared.rkt"
+(require "snapshot.rkt"
          "token-tree.rkt")
 
 ;; Structural queries over a Token-Forest. This module depends on the node

@@ -1,6 +1,6 @@
 #lang racket/base
 
-(require "shared.rkt"
+(require "snapshot.rkt"
          racket/contract
          racket/match
          racket/string
