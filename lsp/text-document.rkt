@@ -331,25 +331,28 @@
       (λ (pos) (doc-abs-pos->pos doc pos))
       (doc-range-tokens doc range)))
 
+  (define (current-tokens sd)
+    (define doc (SafeDoc-doc sd))
+    (if (or (doc-trace-latest? doc)
+            (not (safedoc-check-syntax-running? sd)))
+        (get-tokens-encoding doc)
+        #f))
+
+  (define (respond-to-signal signal)
+    (cond
+      [(signal-doc-close? signal)
+       (success/enc id (hash 'data '()))]
+      [else
+       (define tokens
+         (with-read-doc safe-doc get-tokens-encoding))
+       (success/enc id (hash 'data tokens))]))
+
   (define tokens
-    (with-read-doc safe-doc
-      (λ (doc)
-        (if (doc-trace-latest? doc)
-            (get-tokens-encoding doc)
-            #f))))
+    (with-read-safedoc safe-doc current-tokens))
+
   (if tokens
       (success/enc id (hash 'data tokens))
-      (async-query-wait
-        (SafeDoc-token safe-doc)
-        (λ (signal)
-          (cond
-            [(signal-doc-close? signal)
-             (success/enc id (hash 'data '()))]
-            [else
-             (define tokens
-               (with-read-doc safe-doc
-                 get-tokens-encoding))
-             (success/enc id (hash 'data tokens))])))))
+      (async-query-wait (SafeDoc-token safe-doc) respond-to-signal)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
