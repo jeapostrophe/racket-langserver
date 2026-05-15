@@ -22,14 +22,10 @@
       (client-send lsp didopen-req)
       (let ([resp (client-wait-notification lsp)])
         (check-true (jsexpr-has-key? resp '(params diagnostics)))
-        (define diagnostics-msg (jsexpr-ref resp '(params diagnostics)))
-        (check-false (null? diagnostics-msg))
-        (define dm (with-input-from-string
-                     (jsexpr->string (car diagnostics-msg))
-                     (lambda () (read-json))))
-        (define resp-no-message (hash-remove dm 'message))
-        (check-equal? (jsexpr->string resp-no-message)
-                      (jsexpr->string (read-json (open-input-file "diagnostics.json")))))
+        (check-false (null? (jsexpr-ref resp '(params diagnostics))))
+        (check-true
+          (client-has-diagnostic? resp
+                                  (read-json (open-input-file "diagnostics.json")))))
 
 
       (define didchange-req

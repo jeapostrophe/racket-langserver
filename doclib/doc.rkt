@@ -13,6 +13,9 @@
          "formatting.rkt"
          "internal-types.rkt"
          "lexer.rkt"
+         (only-in "lexer/state.rkt"
+                  lexer-state-body-forest)
+         "doc-lang.rkt"
          racket/match
          racket/contract
          racket/class
@@ -34,7 +37,7 @@
    [version exact-nonnegative-integer?]
    [trace-version (or/c false/c exact-nonnegative-integer?)]
    [resyntax-results (listof Resyntax-Result?)]
-   [lexer-snapshot (lazy-cache-of LexerSnapshot?)])
+   [lexer-state (lazy-cache-of LexerState?)])
   #:mutable)
 
 (define/contract (make-doc uri text [version 0])
@@ -44,14 +47,14 @@
   (define doc-text (new lsp-editor%))
   (send doc-text insert text 0)
   ;; the init trace should not be #f
-  (define doc-trace (new build-trace% [src (uri->path uri)] [doc-text doc-text] [indenter #f]))
+  (define doc-trace (new build-trace% [src (uri->path uri)] [doc-text doc-text]))
   (Doc uri doc-text doc-trace version #f (list) (make-lazy-cache)))
 
 (define (invalidate-resyntax-results! doc)
   (set-Doc-resyntax-results! doc (list)))
 
-(define (invalidate-lexer-snapshot! doc)
-  (lazy-cache-invalidate! (Doc-lexer-snapshot doc)))
+(define (invalidate-lexer-state! doc)
+  (lazy-cache-invalidate! (Doc-lexer-state doc)))
 
 (define/contract (doc-get-resyntax-results doc)
   (-> Doc? (listof Resyntax-Result?))
@@ -114,7 +117,7 @@
   (define doc-trace (Doc-trace doc))
 
   (invalidate-resyntax-results! doc)
-  (invalidate-lexer-snapshot! doc)
+  (invalidate-lexer-state! doc)
   (send doc-text erase)
   (send doc-trace reset)
   (send doc-text insert new-text 0))
@@ -162,7 +165,7 @@
 (define/contract (doc-apply-edit! doc range text)
   (-> Doc? Range? string? void?)
   (invalidate-resyntax-results! doc)
-  (invalidate-lexer-snapshot! doc)
+  (invalidate-lexer-state! doc)
   (define start (doc-pos->abs-pos doc (Range-start range)))
   (define end (doc-pos->abs-pos doc (Range-end range)))
   (doc-apply-absolute-edit! doc start end text))
@@ -171,7 +174,7 @@
   (-> Doc? (listof TextEdit?) void?)
   (unless (empty? edits)
     (invalidate-resyntax-results! doc)
-    (invalidate-lexer-snapshot! doc)
+    (invalidate-lexer-state! doc)
     ;; Apply from the end of the document so earlier edits do not shift
     ;; the positions of later edits.
     (define edits-descending-by-start
@@ -269,20 +272,31 @@
            (loop (interval-map-iterate-next intervals iter)
                  (cons (interval-map-iterate-value intervals iter) values)))])))
 
+;; Return the absolute position of the opening delimiter of the innermost form
+;; that contains `pos`, or #f when `pos` is outside any parsed form.
 (define/contract (doc-find-containing-paren doc pos)
   (-> Doc? exact-nonnegative-integer? (or/c exact-nonnegative-integer? #f))
-  (lexer-snapshot-enclosing-paren-start (doc-lexer-snapshot doc) pos))
+  (lexer-state-containing-open-paren (doc-lexer-state doc) pos))
 
-;; Cache lexer-derived token ranges lazily. Query paths may build a cache miss
-;; while the caller already holds whatever lock stabilizes the document state.
-(define (doc-build-lexer-snapshot doc)
-  (build-lexer-snapshot (send (Doc-text doc) get-text)))
+;; Cache lexer-derived state lazily. Query paths may build a cache miss while
+;; the caller already holds whatever lock stabilizes the document state.
+(define (doc-build-lexer-state doc)
+  (build-lexer-state (send (Doc-text doc) get-text) (Doc-uri doc)))
+
+(define (doc-lexer-state doc)
+  (call-with-lazy-cache!
+    (Doc-lexer-state doc)
+    (lambda ()
+      (doc-build-lexer-state doc))))
 
 (define (doc-lexer-snapshot doc)
-  (call-with-lazy-cache!
-    (Doc-lexer-snapshot doc)
-    (lambda ()
-      (doc-build-lexer-snapshot doc))))
+  (LexerState-snapshot (doc-lexer-state doc)))
+
+(define (doc-language-info doc)
+  (LexerState-language-info (doc-lexer-state doc)))
+
+(define (doc-body-forest doc)
+  (lexer-state-body-forest (doc-lexer-state doc)))
 
 ;; definition BEG ;;
 
@@ -337,11 +351,15 @@
   (define doc-text (Doc-text doc))
   (define-values (start-line end-line)
     (formatting-range->lines doc-text fmt-range))
-  (formatting (send doc-text get-text)
-              start-line
-              end-line
-              #:src-dir (doc-src-dir doc)
-              #:interactive? on-type?))
+  (define text (send doc-text get-text))
+  (cond
+    [(sexp-language? text (Doc-uri doc))
+     (formatting text
+                 start-line
+                 end-line
+                 #:src-dir (doc-src-dir doc)
+                 #:interactive? on-type?)]
+    [else '()]))
 
 ;; get the tokens whose range are contained in interval [pos-start, pos-end)
 ;; the tokens whose range intersects the given range is included.
@@ -349,12 +367,68 @@
 ;; has line number 0 and character position 0.
 (define/contract (doc-range-tokens doc range)
   (-> Doc? Range? (listof SemanticToken?))
-  (define tokens (send (Doc-trace doc) get-semantic-tokens))
   (define pos-start (doc-pos->abs-pos doc (Range-start range)))
   (define pos-end (doc-pos->abs-pos doc (Range-end range)))
-  (filter-not (λ (tok) (or (<= (SemanticToken-end tok) pos-start)
-                           (>= (SemanticToken-start tok) pos-end)))
-              tokens))
+  (split-semantic-tokens-by-line
+    doc
+    (filter (λ (token)
+              (char-range-intersect?
+                (SemanticToken-start token)
+                (SemanticToken-end token)
+                pos-start pos-end))
+            (doc-semantic-tokens doc))))
+
+(define (doc-sexp-comment-semantic-tokens doc)
+  (for/list ([span (in-list (lexer-state-sexp-comment-spans (doc-lexer-state doc)))])
+    (SemanticToken (CharRange-start span) (CharRange-end span) SemanticTokenType-comment '())))
+
+(define (doc-semantic-tokens doc)
+  (define trace-tokens
+    (sort (send (Doc-trace doc) get-semantic-tokens) < #:key SemanticToken-start))
+  (define sexp-comment-tokens
+    (sort (doc-sexp-comment-semantic-tokens doc) < #:key SemanticToken-start))
+  (merge-semantic-tokens trace-tokens sexp-comment-tokens))
+
+(define (merge-semantic-tokens tokens high-priority-tokens [merged '()])
+  (define (continue-merge tokens merged)
+    (cond [(empty? tokens)
+           (reverse merged)]
+          [else
+           (continue-merge (rest tokens) (cons (car tokens) merged))]))
+
+  (define (merge-non-empty-stream tokens high-priority-tokens merged)
+    (define ht (car high-priority-tokens))
+    (define t (car tokens))
+    (define ht-start (SemanticToken-start ht))
+    (define ht-end (SemanticToken-end ht))
+    (define t-start (SemanticToken-start t))
+    (define t-end (SemanticToken-end t))
+    (cond [(<= t-end ht-start)
+           (merge-semantic-tokens (cdr tokens) high-priority-tokens (cons t merged))]
+          [(<= ht-end t-start)
+           (merge-semantic-tokens tokens (cdr high-priority-tokens) (cons ht merged))]
+          [else
+           (merge-semantic-tokens (cdr tokens) high-priority-tokens merged)]))
+
+  (cond [(empty? high-priority-tokens)
+         (continue-merge tokens merged)]
+        [(empty? tokens)
+         (continue-merge high-priority-tokens merged)]
+        [else
+         (merge-non-empty-stream tokens high-priority-tokens merged)]))
+
+(define (split-semantic-tokens-by-line doc tokens)
+  (for*/list ([token (in-list tokens)]
+              [tstart (in-value (SemanticToken-start token))]
+              [tend (in-value (SemanticToken-end token))]
+              [type (in-value (SemanticToken-type token))]
+              [modifiers (in-value (SemanticToken-modifiers token))]
+              [start-line (in-value (Pos-line (doc-abs-pos->pos doc tstart)))]
+              [end-line (in-value (Pos-line (doc-abs-pos->pos doc (sub1 tend))))]
+              [line (in-range start-line (add1 end-line))]
+              [start (in-value (max tstart (doc-line-start-abs-pos doc line)))]
+              [end (in-value (min tend (doc-line-end-abs-pos doc line)))])
+    (SemanticToken start end type modifiers)))
 
 (define/contract (doc-token-at doc pos)
   (-> Doc? exact-nonnegative-integer? (or/c LexerEntry? #f))
@@ -449,46 +523,39 @@
 
   (append trace-actions resyntax-actions))
 
+(define (doc-signature-form-head-pos doc query-pos)
+  (define maybe-head (lexer-state-form-head-at (doc-lexer-state doc) query-pos))
+  (and maybe-head (LexerTokenSpan-start maybe-head)))
+
+(define (doc-signature-tag doc-trace snapshot callee-pos)
+  (define maybe-docs-entry
+    (interval-map-ref (send doc-trace get-docs) callee-pos #f))
+  (cond
+    [maybe-docs-entry (last maybe-docs-entry)]
+    [else
+     (define maybe-symbol (lexer-snapshot-symbol-at snapshot callee-pos))
+     (and maybe-symbol
+          (id-to-tag (LexerEntry-text maybe-symbol) doc-trace))]))
+
+(define (tag->signature-help tag)
+  (match-define (list signatures docs) (get-docs-for-tag tag))
+  (and signatures
+       (SignatureHelp
+         #:signatures
+         (for/list ([signature (in-list signatures)])
+           (SignatureInformation
+             #:label signature
+             #:documentation (or docs ""))))))
+
 (define/contract (doc-signature-help doc pos)
   (-> Doc? Pos? (or/c SignatureHelp? #f))
   (define doc-trace (Doc-trace doc))
-
   (define pos* (doc-pos->abs-pos doc pos))
-  (define pos-before-cursor (sub1 pos*))
-  (define new-pos
-    (and (not (negative? pos-before-cursor))
-         (doc-find-containing-paren doc pos-before-cursor)))
-  (define result
-    (cond [new-pos
-           (define maybe-callee-pos
-             (lexer-snapshot-next-symbol-start (doc-lexer-snapshot doc) (add1 new-pos)))
-           (define maybe-tag
-             (and maybe-callee-pos
-                  (interval-map-ref (send doc-trace get-docs) maybe-callee-pos #f)))
-           (define tag
-             (cond [maybe-tag (last maybe-tag)]
-                   [else
-                    (define symbol
-                      (and maybe-callee-pos
-                           (lexer-snapshot-symbol-at (doc-lexer-snapshot doc)
-                                                     maybe-callee-pos)))
-                    (cond [symbol
-                           (id-to-tag (LexerEntry-text symbol) doc-trace)]
-                          [else #f])]))
-           (cond [tag
-                  (match-define (list sigs docs) (get-docs-for-tag tag))
-                  (if sigs
-                      (SignatureHelp
-                        #:signatures
-                        (map (lambda (sig)
-                               (SignatureInformation
-                                 #:label sig
-                                 #:documentation (or docs "")))
-                             sigs))
-                      #f)]
-                 [else #f])]
-          [else #f]))
-  result)
+  (define callee-pos (doc-signature-form-head-pos doc pos*))
+  (define tag
+    (and callee-pos
+         (doc-signature-tag doc-trace (doc-lexer-snapshot doc) callee-pos)))
+  (and tag (tag->signature-help tag)))
 
 ;; Get the declaration at a given position in the document.
 ;; Returns (values start end decl) where decl is a Decl or #f.
@@ -707,6 +774,8 @@
          doc-range-tokens
          doc-token-at
          doc-token-prefix-at
+         doc-language-info
+         doc-body-forest
          doc-expand
          doc-update-trace!
          doc-trace-latest?

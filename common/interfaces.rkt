@@ -14,7 +14,8 @@
          racket/match
          "json-util.rkt")
 
-(provide (json-type-out Pos)
+(provide (struct-out CharRange)
+         (json-type-out Pos)
          (json-type-out Range)
          char-range-intersect?
          (json-type-out TextEdit)
@@ -252,6 +253,13 @@
   [trim-final-newlines (optional boolean?) #:json trimFinalNewlines]
   [key (or/c false/c (optional/c hash?))])
 
+;; Character-offset range. Distinct from the protocol-level `Range`
+;; (which uses line/char positions); this one uses zero-based absolute
+;; character offsets.
+(struct CharRange
+  (start end)
+  #:transparent)
+
 ;; Public query result for cached lexer tokens. Positions are zero-based
 ;; absolute character offsets; callers still need to convert them to line /
 ;; character pairs for LSP positions.
@@ -267,7 +275,8 @@
   [function "function"]
   [string "string"]
   [number "number"]
-  [regexp "regexp"])
+  [regexp "regexp"]
+  [comment "comment"])
 
 (define-json-enum SemanticTokenModifier
   [definition "definition"])
@@ -287,7 +296,8 @@
         SemanticTokenType-function
         SemanticTokenType-string
         SemanticTokenType-number
-        SemanticTokenType-regexp))
+        SemanticTokenType-regexp
+        SemanticTokenType-comment))
 
 ;; The order of this list is irrelevant, similar to *semantic-token-types*.
 (define *semantic-token-modifiers*

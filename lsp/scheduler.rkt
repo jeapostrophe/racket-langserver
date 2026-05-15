@@ -110,14 +110,14 @@
   ())
 
 (define *doc-change-signal* (QuerySignal))
-(define *new-trace-signal* (QuerySignal))
+(define *check-syntax-finished-signal* (QuerySignal))
 (define *doc-close-signal* (QuerySignal))
 
 (define (signal-doc-change? s)
   (eq? s *doc-change-signal*))
 
-(define (signal-new-trace? s)
-  (eq? s *new-trace-signal*))
+(define (signal-check-syntax-finished? s)
+  (eq? s *check-syntax-finished-signal*))
 
 (define (signal-doc-close? s)
   (eq? s *doc-close-signal*))
@@ -148,13 +148,13 @@
     (λ ()
       (run-and-remove-queries token *doc-change-signal*))))
 
-;; send new trace signal (when check syntax completed) and waiting for all waiting queries
-;; to be processed.
-(define (clear-old-queries/new-trace token)
+;; Send check-syntax completion signal and wait for all waiting queries to be
+;; processed.
+(define (clear-old-queries/check-syntax-finished token)
   (call-with-semaphore
     *await-queries-semaphore*
     (λ ()
-      (run-and-remove-queries token *new-trace-signal*))))
+      (run-and-remove-queries token *check-syntax-finished-signal*))))
 
 ;; send doc close signal so waiting query threads can finish and release any
 ;; document state they captured.
@@ -166,9 +166,9 @@
 
 (provide async-query-wait
          signal-doc-change?
-         signal-new-trace?
+         signal-check-syntax-finished?
          signal-doc-close?
          clear-old-queries/doc-change
-         clear-old-queries/new-trace
+         clear-old-queries/check-syntax-finished
          clear-old-queries/doc-close)
 

@@ -4,6 +4,7 @@
   (require rackunit
            "../../doclib/doc.rkt"
            "../../doclib/doc-trace.rkt"
+           "../../doclib/check-syntax.rkt"
            "../../doclib/editor.rkt"
            "../../doclib/internal-types.rkt"
            "../../common/interfaces.rkt"
@@ -88,6 +89,8 @@
     (check-equal? (doc-find-containing-paren d 2) 0)
     ;; at 1 (just after open paren)
     (check-equal? (doc-find-containing-paren d 1) 0)
+    ;; at last position (close-paren at buffer end, still inside the form)
+    (check-equal? (doc-find-containing-paren d 9) 0)
 
     (define text2 "((a) b)")
     (define d2 (make-doc "file:///test.rkt" text2))
@@ -106,17 +109,9 @@
     ;; Inside [ : pos 3 ' '. Previous is [.
     (check-equal? (doc-find-containing-paren d3 3) 2)
 
-    ;; Inside { : pos 5 '}'.
-    ;; The logic treats { as normal char, so it skips it.
-    ;; It sees ] at 6 (wait text index: 0:( 1:  2:[ 3:  4:{ 5:  6:] 7:  8:) )
-    ;; Let's re-index carefully:
-    ;; ( [ { ] )
-    ;; 012345678
-    ;; pos 5 is ' '. Before it is '{' at 4.
-    ;; It loops back. ] at 6 is AFTER 5.
-    ;; Loop goes 5->4->3->2. 2 is '['.
-    ;; So inside { (at 5) it finds [.
-    (check-equal? (doc-find-containing-paren d3 5) 2)
+    ;; Inside { : pos 5. The lexer normalizes { as an opening paren, so it is
+    ;; the enclosing delimiter here.
+    (check-equal? (doc-find-containing-paren d3 5) 4)
 
     ;; Unmatched close
     (define d4 (make-doc "file:///test.rkt" " ) ("))
@@ -178,6 +173,33 @@
                   (list 0 3 "foo" 'symbol)))
 
   (test-case
+    "doc-token-at works on a non-sexp document without depending on body forest"
+    (define text "#lang scribble/manual\n@section{Hi}\n")
+    (define d (make-doc "file:///test.scrbl" text))
+    ;; Flat token queries should work even for non-sexp languages.
+    (check-equal? (LexerEntry-text (doc-token-at d 6)) "#lang scribble/manual")
+    (check-equal? (LexerEntry-type (doc-token-at d 6)) 'lang-directive)
+    (check-equal? (doc-token-prefix-at d 6) "#lang s"))
+
+  (test-case
+    "doc-body-forest builds a forest for unknown languages"
+    (define text "#lang not-a-real-language\n(define x 1)\n")
+    (define d (make-doc "file:///test.unknown" text))
+    (check-not-false (doc-body-forest d)))
+
+  (test-case
+    "doc-find-containing-paren works for unknown languages"
+    (define text "#lang not-a-real-language\n(define x 1)\n")
+    (define d (make-doc "file:///test.unknown" text))
+    (check-equal? (doc-find-containing-paren d 28) 26))
+
+  (test-case
+    "doc-find-containing-paren fallback keeps the first form without a language header"
+    (define d (make-doc "file:///test.rkt" "(first x)\n(second y)\n"))
+    (check-equal? (doc-find-containing-paren d 2) 0)
+    (check-equal? (doc-find-containing-paren d 12) 10))
+
+  (test-case
     "Range tokens (Semantic Tokens)"
     (define text "#lang racket\n(define x 1)")
     (define d (make-doc "file:///test.rkt" text))
@@ -192,9 +214,85 @@
     (check-true (andmap SemanticToken? after-expand)))
 
   (test-case
+    "Range tokens include sexp comment semantic tokens"
+    (define text "#lang racket\n#; (define x 1)\n(+ 1 2)")
+    (define d (make-doc "file:///test.rkt" text))
+    (define comment-range (first (regexp-match-positions #px"#; \\(define x 1\\)" text)))
+    (define tokens (doc-range-tokens d (Range (Pos 0 0) (Pos 2 7))))
+    (define comment-token
+      (findf (lambda (token)
+               (eq? (SemanticToken-type token) SemanticTokenType-comment))
+             tokens))
+    (check-true (SemanticToken? comment-token))
+    (check-equal? (SemanticToken-start comment-token) (car comment-range))
+    (check-equal? (SemanticToken-end comment-token) (cdr comment-range)))
+
+  (test-case
+    "Range tokens split multi-line sexp comment semantic tokens"
+    (define text "#lang racket\n#;\n(define x 1)\n(+ 1 2)")
+    (define d (make-doc "file:///test.rkt" text))
+    (define tokens (doc-range-tokens d (Range (Pos 0 0) (Pos 3 7))))
+    (define comment-ranges
+      (for/list ([token (in-list tokens)]
+                 #:when (eq? (SemanticToken-type token) SemanticTokenType-comment))
+        (cons (SemanticToken-start token) (SemanticToken-end token))))
+    (check-equal? comment-ranges
+                  (list (first (regexp-match-positions #px"#;" text))
+                        (first (regexp-match-positions #px"\\(define x 1\\)" text)))))
+
+  (test-case
+    "Range tokens remove stale trace tokens inside current sexp comments"
+    (define text "#lang racket\n(define x 1)\nx\n")
+    (define d (make-doc "file:///test.rkt" text))
+    (check-true (doc-expand! d))
+
+    (doc-apply-edit! d (Range (Pos 1 0) (Pos 1 0)) "#; ")
+
+    (define updated-text (doc-get-text d))
+    (define comment-range
+      (first (regexp-match-positions #px"#; \\(define x 1\\)" updated-text)))
+    (define tokens (doc-range-tokens d (Range (Pos 0 0) (Pos 3 0))))
+    (define-values (comment-start comment-end)
+      (values (car comment-range) (cdr comment-range)))
+    (define (token-intersects-comment? token)
+      (char-range-intersect? (SemanticToken-start token)
+                             (SemanticToken-end token)
+                             comment-start
+                             comment-end))
+    (define (comment-token? token)
+      (eq? (SemanticToken-type token) SemanticTokenType-comment))
+    (define (token-starts-before? left right)
+      (<= (SemanticToken-start left) (SemanticToken-start right)))
+
+    (define comment-token
+      (findf (λ (token)
+               (and (comment-token? token)
+                    (= (SemanticToken-start token) comment-start)
+                    (= (SemanticToken-end token) comment-end)))
+             tokens))
+    (define non-comment-tokens
+      (filter-not comment-token? tokens))
+
+    (check-true (SemanticToken? comment-token))
+    (check-false
+      (ormap token-intersects-comment? non-comment-tokens)
+      "current sexp-comment span should mask intersecting stale trace tokens")
+    (check-not-false
+      (findf (λ (token)
+               (and (not (comment-token? token))
+                    (not (token-intersects-comment? token))))
+             tokens)
+      "stale trace tokens outside the comment should be preserved")
+    (check-true
+      (for/and ([left (in-list tokens)]
+                [right (in-list (rest tokens))])
+        (token-starts-before? left right))
+      "semantic tokens should remain monotonic for LSP relative encoding"))
+
+  (test-case
     "Formatting"
     ;; doc.rkt `doc-format-edits` delegates to the external formatter.
-    (define text "(define x\n1)")
+    (define text "#lang racket/base\n(define x\n1)")
     (define d (make-doc "file:///test.rkt" text))
     (define opts
       (FormattingOptions #:tab-size 2
@@ -251,8 +349,102 @@
       (list (TextEdit (Range (Pos 3 0) (Pos 3 0)) "  "))))
 
   (test-case
+    "Formatting language guard"
+    (define opts
+      (FormattingOptions #:tab-size 2
+                         #:insert-spaces #t
+                         #:trim-trailing-whitespace #t
+                         #:insert-final-newline #f
+                         #:trim-final-newlines #f
+                         #:key #f))
+
+    (define raw-doc
+      (make-doc "file:///test.rkt" "(define x\n1)"))
+    (check-equal?
+      (doc-format-edits raw-doc
+                        (Range (Pos 0 0) (Pos 2 0))
+                        #:formatting-options opts)
+      '())
+
+    (define rhombus-doc
+      (make-doc "file:///test.rhm"
+                "#lang rhombus\n  fun f():\n    1\n"))
+    (check-equal?
+      (doc-format-edits rhombus-doc
+                        (Range (Pos 0 0) (Pos 3 0))
+                        #:formatting-options opts)
+      '()))
+
+  (define (find-diagnostic-by-message diags expected-message)
+    (for/first ([diag (in-list diags)]
+                #:when (string=? (Diagnostic-message diag) expected-message))
+      diag))
+
+  (define (check-syntax-diagnostics uri text)
+    (define doc-text (new lsp-editor%))
+    (send doc-text insert text 0)
+    (set->list (send (CSResult-trace (check-syntax uri doc-text)) get-warn-diags)))
+
+  (test-case
+    "Document diagnostics report missing language declarations"
+    (define text "(define x 1)\n")
+    (define diags
+      (check-syntax-diagnostics "file:///tmp/missing-language-test.rkt"
+                                text))
+    (define diag
+      (find-diagnostic-by-message
+        diags
+        "Missing language declaration. Add a `#lang` line, `#reader`, or `(module ... <language> ...)` form."))
+    (check-not-false diag)
+    (check-equal? (Diagnostic-source diag) "Language Declaration Check")
+    (define range (Diagnostic-range diag))
+    (check-equal? (Pos-line (Range-start range)) 0)
+    (check-equal? (Pos-char (Range-start range)) 0)
+    (check-equal? (Pos-line (Range-end range)) 0)
+    (check-equal? (Pos-char (Range-end range))
+                  (string-length "(define x 1)")))
+
+  (test-case
+    "Document diagnostics report unrecognized language declarations"
+    (define text "#lang not-a-real-language\n1\n")
+    (define diags
+      (check-syntax-diagnostics "file:///tmp/unrecognized-language-test.rkt"
+                                text))
+    (define diag
+      (find-diagnostic-by-message
+        diags
+        "Unrecognized language declaration `not-a-real-language`. Check the language name or reader path."))
+    (check-not-false diag)
+    (check-equal? (Diagnostic-source diag) "Language Declaration Check")
+    (define range (Diagnostic-range diag))
+    (check-equal? (Pos-line (Range-start range)) 0)
+    (check-equal? (Pos-char (Range-start range)) 0)
+    (check-equal? (Pos-line (Range-end range)) 0)
+    (check-equal? (Pos-char (Range-end range))
+                  (string-length "#lang not-a-real-language")))
+
+  (test-case
+    "Document diagnostics use first line range for empty language spans"
+    (define text "#lang \n(define x 1)\n")
+    (define diags
+      (check-syntax-diagnostics "file:///tmp/empty-language-test.rkt"
+                                text))
+    (define diag
+      (find-diagnostic-by-message
+        diags
+        "Unrecognized language declaration. Check the language name after `#lang`, `#reader`, or in `(module ... <language> ...)`."))
+    (check-not-false diag)
+    (check-equal? (Diagnostic-source diag) "Language Declaration Check")
+    (define range (Diagnostic-range diag))
+    (check-equal? (Pos-line (Range-start range)) 0)
+    (check-equal? (Pos-char (Range-start range)) 0)
+    (check-equal? (Pos-line (Range-end range)) 0)
+    (check-equal? (Pos-char (Range-end range))
+                  (string-length "#lang ")))
+
+  (test-case
     "Apply TextEdits"
-    (define text "(define x\n1)")
+    (define text "#lang racket/base\n(define x\n1)")
     (define d (make-doc "file:///test.rkt" text))
     (define opts
       (FormattingOptions #:tab-size 2
@@ -264,12 +456,12 @@
     (define edits (doc-format-edits d (Range (Pos 0 0) (Pos 2 0)) #:formatting-options opts))
     (check-equal?
       edits
-      (list (TextEdit (Range (Pos 1 0) (Pos 1 2)) "  1)")))
-    (check-equal? (LexerEntry-type (doc-token-at d 1)) 'symbol)
+      (list (TextEdit (Range (Pos 2 0) (Pos 2 2)) "  1)")))
+    (check-equal? (LexerEntry-type (doc-token-at d 19)) 'symbol)
     (doc-apply-edits! d edits)
-    (check-equal? (doc-get-text d) "(define x\n  1)")
+    (check-equal? (doc-get-text d) "#lang racket/base\n(define x\n  1)")
     (define updated-token
-      (doc-token-at d (doc-pos->abs-pos d (Pos 1 2))))
+      (doc-token-at d (doc-pos->abs-pos d (Pos 2 2))))
     (check-true (LexerEntry? updated-token))
     (check-equal? (LexerEntry-type updated-token) 'constant)
     (check-equal? (LexerEntry-text updated-token) "1"))
@@ -331,8 +523,7 @@ END
     (define test-trace%
       (class build-trace%
         (super-new [src (string->path "/tmp/completion-prefix-test.rkt")]
-                   [doc-text (new lsp-editor%)]
-                   [indenter #f])
+                   [doc-text (new lsp-editor%)])
         (define/override (get-completions) '())
         (define/override (get-online-completions str-before-cursor)
           (hash-ref prefix->completions str-before-cursor '()))))
@@ -667,6 +858,57 @@ END
     (define first-sig (first sigs))
     (check-true (string-contains? (SignatureInformation-label first-sig) "list")
                 "label should contain 'list'"))
+
+  (test-case
+    "Document signature help outside a closed top-level form returns #f"
+    (define text
+#<<END
+#lang racket/base
+
+(list)
+END
+      )
+    (define uri "file:///tmp/signature-help-close-paren-test.rkt")
+    (define d (make-doc uri text))
+    (doc-expand! d)
+
+    (check-false (doc-signature-help d (Pos 2 6))))
+
+  (test-case
+    "Document signature help after nested closing paren moves to the surrounding call"
+    (define text
+#<<END
+#lang racket/base
+
+(list (+ 1 2))
+END
+      )
+    (define uri "file:///tmp/signature-help-nested-close-paren-test.rkt")
+    (define d (make-doc uri text))
+    (doc-expand! d)
+
+    (define help (doc-signature-help d (Pos 2 13)))
+    (check-not-false help "help should not be #f after the inner closing paren")
+    (define sigs (SignatureHelp-signatures help))
+    (check-false (empty? sigs) "signatures should not be empty")
+    (define first-sig (first sigs))
+    (check-true (string-contains? (SignatureInformation-label first-sig) "list")
+                "label should contain 'list'"))
+
+  (test-case
+    "Document signature help ignores non-symbol callee expressions"
+    (define text
+#<<END
+#lang racket/base
+
+((lambda (x) x) )
+END
+      )
+    (define uri "file:///tmp/signature-help-callee-expression-test.rkt")
+    (define d (make-doc uri text))
+    (doc-expand! d)
+
+    (check-false (doc-signature-help d (Pos 2 16))))
 
   (test-case
     "Document signature help at buffer start returns #f"

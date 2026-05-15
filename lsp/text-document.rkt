@@ -262,8 +262,16 @@
     (Range (doc-abs-pos->pos doc current-line-start-pos)
            (doc-abs-pos->pos doc current-line-end-pos)))
 
+  ;; TODO: Gate this sexp-structure lookup to sexp languages, or keep
+  ;; non-sexp documents on current-line formatting only.
   (define (containing-form-range)
-    (define maybe-paren-pos (doc-find-containing-paren doc (max 0 (sub1 ch-pos))))
+    (define raw-pos (max 0 (sub1 ch-pos)))
+    (define token (doc-token-at doc raw-pos))
+    (define query-pos
+      (if (and token (eq? 'close-paren (LexerEntry-type token)))
+          (add1 raw-pos)
+          raw-pos))
+    (define maybe-paren-pos (doc-find-containing-paren doc query-pos))
     (define start-pos (if (false? maybe-paren-pos) 0 maybe-paren-pos))
     (Range (doc-abs-pos->pos doc start-pos)
            (doc-abs-pos->pos doc current-line-end-pos)))
@@ -323,27 +331,28 @@
       (λ (pos) (doc-abs-pos->pos doc pos))
       (doc-range-tokens doc range)))
 
+  (define (current-tokens sd)
+    (define doc (SafeDoc-doc sd))
+    (if (or (doc-trace-latest? doc)
+            (not (safedoc-check-syntax-running? sd)))
+        (get-tokens-encoding doc)
+        #f))
+
+  (define (respond-to-signal signal)
+    (cond
+      [(signal-doc-close? signal)
+       (success/enc id (hash 'data '()))]
+      [else
+       (define tokens
+         (with-read-doc safe-doc get-tokens-encoding))
+       (success/enc id (hash 'data tokens))]))
+
   (define tokens
-    (with-read-doc safe-doc
-      (λ (doc)
-        (if (doc-trace-latest? doc)
-            (get-tokens-encoding doc)
-            #f))))
+    (with-read-safedoc safe-doc current-tokens))
+
   (if tokens
       (success/enc id (hash 'data tokens))
-      (async-query-wait
-        (SafeDoc-token safe-doc)
-        (λ (signal)
-          (cond
-            [(signal-doc-close? signal)
-             (error-response id
-                             ErrorCode-RequestCancelled
-                             "textDocument/semanticTokens request was cancelled because the document closed")]
-            [else
-             (define tokens
-               (with-read-doc safe-doc
-                 get-tokens-encoding))
-             (success/enc id (hash 'data tokens))])))))
+      (async-query-wait (SafeDoc-token safe-doc) respond-to-signal)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 

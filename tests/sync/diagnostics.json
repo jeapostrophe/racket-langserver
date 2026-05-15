@@ -1,7 +1,7 @@
 {
     "range": {
         "end": {
-            "character": 0,
+            "character": 11,
             "line": 0
         },
         "start": {
@@ -10,5 +10,6 @@
         }
     },
     "severity": 1,
-    "source": "Racket"
+    "source": "Language Declaration Check",
+    "message": "Unrecognized language declaration `racke`. Check the language name or reader path."
 }
