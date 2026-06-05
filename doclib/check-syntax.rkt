@@ -4,6 +4,7 @@
          racket/contract
          racket/logging
          syntax/modread
+         racket/path
          racket/port
          "editor.rkt"
          "doc-trace.rkt"
@@ -28,7 +29,7 @@
     [else #f]))
 
 ;; TODO: cache the namespace with some strategy
-(define (expand-source path in collector)
+(define (expand-source path in collector #:expand? [expand? #t])
   (define-values (src-dir _1 _2) (split-path path))
   (define ns (make-base-namespace))
   (define-values (add-syntax done)
@@ -50,7 +51,7 @@
         (λ ()
           (with-handlers ([exn:fail? (λ (exn) exn)])
             (parameterize ([current-output-port (open-output-nowhere)])
-              (if (syntax? stx)
+              (if (and expand? (syntax? stx))
                   (expand stx)
                   #f))))
         'info))
@@ -71,19 +72,26 @@
 (define (check-syntax uri doc-text)
   (define path (uri->path uri))
   (define text (send doc-text get-text))
-  (define indenter (get-indenter text))
+  ; rktd <-> rkt is just like JSON <-> js
+  (define data-file? (equal? (path-get-extension path) #".rktd"))
+  (define indenter (if data-file? #f (get-indenter text)))
   (define new-trace (new build-trace% [src path] [doc-text doc-text] [indenter indenter]))
 
   (define in (open-input-string text))
-  (define er (expand-source path in new-trace))
+  (define er (expand-source path in new-trace #:expand? (not data-file?)))
 
   (send new-trace walk-stx er)
   (send new-trace walk-log (ExpandResult-logs er))
-  (CSResult new-trace text (ExpandResult-all-succeed? er)))
+  (CSResult new-trace text
+            (if data-file?
+                (and (ExpandResult-pre-syntax er) #t)
+                (ExpandResult-all-succeed? er))))
 
 (provide
   (struct-out CSResult)
   (contract-out
-    [expand-source (-> path? input-port? (is-a?/c syncheck-annotations<%>) ExpandResult?)]
+    [expand-source (->* (path? input-port? (is-a?/c syncheck-annotations<%>))
+                        (#:expand? boolean?)
+                        ExpandResult?)]
     [check-syntax (-> string? (is-a?/c lsp-editor%) CSResult?)]))
 
