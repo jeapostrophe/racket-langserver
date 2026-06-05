@@ -18,6 +18,7 @@
   (success-response id (if (false? result) (json-null) (->jsexpr result))))
 
 (define client-capability-workspace/configuration? (make-parameter #f))
+(define client-capability-hierarchical-document-symbol? (make-parameter #f))
 (define (fetch-configuration request-client uri)
   (when (client-capability-workspace/configuration?)
     (request-client "workspace/configuration"
@@ -205,7 +206,11 @@
      (define safe-doc (lsp-get-doc uri))
      (define results
        (with-read-doc safe-doc
-         (λ (doc) (doc-symbols doc uri))))
+         (λ (doc)
+           (cond
+             [(client-capability-hierarchical-document-symbol?)
+              (doc-symbols-hierarchical doc)]
+             [else (doc-symbols doc uri)]))))
      (success/enc id results)]
     [_
      (error-response id ErrorCode-InvalidParams "textDocument/documentSymbol failed")]))
@@ -346,5 +351,6 @@
     [full-semantic-tokens (exact-nonnegative-integer? jsexpr? . -> . (or/c jsexpr? (-> jsexpr?)))]
     [range-semantic-tokens (exact-nonnegative-integer? jsexpr? . -> . (or/c jsexpr? (-> jsexpr?)))])
 
-  client-capability-workspace/configuration?)
+  client-capability-workspace/configuration?
+  client-capability-hierarchical-document-symbol?)
 

@@ -83,6 +83,15 @@
        [(zero? idx) #f]
        [else (sub1 idx)])]))
 
+(define/contract (lexer-entry-paren-kind entry)
+  (-> LexerEntry? (or/c 'open 'close #f))
+  (case (LexerEntry-type entry)
+    [(open-paren)
+     (and (memv (string-ref (LexerEntry-text entry) 0) '(#\( #\[ #\{)) 'open)]
+    [(close-paren)
+     (and (memv (string-ref (LexerEntry-text entry) 0) '(#\) #\] #\})) 'close)]
+    [else #f]))
+
 (define/contract (in-lexer-snapshot snapshot)
   (-> LexerSnapshot? sequence?)
   (define tokens (LexerSnapshot-tokens snapshot))
@@ -125,6 +134,7 @@
          find-token-index-at-or-before
          find-token-index-at-or-after
          in-lexer-snapshot
+         lexer-entry-paren-kind
          for-each-lexer-snapshot-entry
          lexer-snapshot-token-at
          lexer-snapshot-symbol-at)

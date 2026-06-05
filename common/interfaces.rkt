@@ -28,6 +28,7 @@
          (json-type-out DocumentHighlight)
          (json-type-out SymbolKind)
          (json-type-out SymbolInformation)
+         (json-type-out DocumentSymbol)
          (json-type-out Hover)
          (json-type-out SignatureInformation)
          (json-type-out SignatureHelp)
@@ -156,6 +157,17 @@
   [name string?]
   [kind SymbolKind]
   [location Location])
+
+;; Hierarchical document symbol. `range` covers the whole form (including its
+;; body) while `selectionRange` only covers the name. `children` is a list of
+;; DocumentSymbol, typed as list? because define-json-struct cannot express
+;; self-referential field types; encoding still recurses via ->jsexpr.
+(define-json-struct DocumentSymbol
+  [name string?]
+  [kind SymbolKind]
+  [range Range]
+  [selectionRange Range]
+  [children list?])
 
 (define-json-struct Hover
   [contents string?]
