@@ -58,6 +58,70 @@
                        #:sexp? #t
                        #:suffixes '()
                        #:name-rx #px"^typed/racket(?:/.*)?$")
+    (Known-Language~kw #:name 'scheme
+                       #:sexp? #t
+                       #:suffixes '()
+                       #:name-rx #px"^scheme(?:/.*)?$")
+    (Known-Language~kw #:name 'mzscheme
+                       #:sexp? #t
+                       #:suffixes '()
+                       #:name-rx #px"^mzscheme$")
+    (Known-Language~kw #:name 'r5rs
+                       #:sexp? #t
+                       #:suffixes '()
+                       #:name-rx #px"^r5rs$")
+    (Known-Language~kw #:name 'r6rs
+                       #:sexp? #t
+                       #:suffixes '()
+                       #:name-rx #px"^r6rs$")
+    (Known-Language~kw #:name 'r7rs
+                       #:sexp? #t
+                       #:suffixes '()
+                       #:name-rx #px"^r7rs$")
+    (Known-Language~kw #:name 'lazy
+                       #:sexp? #t
+                       #:suffixes '()
+                       #:name-rx #px"^lazy$")
+    (Known-Language~kw #:name 'slideshow
+                       #:sexp? #t
+                       #:suffixes '()
+                       #:name-rx #px"^slideshow$")
+    (Known-Language~kw #:name 'plai
+                       #:sexp? #t
+                       #:suffixes '()
+                       #:name-rx #px"^plai(?:-typed|-lazy)?$")
+    (Known-Language~kw #:name 'plait
+                       #:sexp? #t
+                       #:suffixes '()
+                       #:name-rx #px"^plait$")
+    (Known-Language~kw #:name 'htdp
+                       #:sexp? #t
+                       #:suffixes '()
+                       #:name-rx #px"^htdp/(?:bsl\\+?|isl\\+?|asl)$")
+    (Known-Language~kw #:name 'eopl
+                       #:sexp? #t
+                       #:suffixes '()
+                       #:name-rx #px"^eopl$")
+    (Known-Language~kw #:name 'sicp
+                       #:sexp? #t
+                       #:suffixes '()
+                       #:name-rx #px"^sicp$")
+    (Known-Language~kw #:name 'swindle
+                       #:sexp? #t
+                       #:suffixes '()
+                       #:name-rx #px"^swindle$")
+    (Known-Language~kw #:name 'frtime
+                       #:sexp? #t
+                       #:suffixes '()
+                       #:name-rx #px"^frtime$")
+    (Known-Language~kw #:name 'rosette
+                       #:sexp? #t
+                       #:suffixes '()
+                       #:name-rx #px"^rosette(?:/safe)?$")
+    (Known-Language~kw #:name 'pie
+                       #:sexp? #t
+                       #:suffixes '()
+                       #:name-rx #px"^pie$")
     (Known-Language~kw #:name 'scribble
                        #:sexp? #f
                        #:suffixes '("scrbl")
