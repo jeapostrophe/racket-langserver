@@ -504,6 +504,24 @@
   ;; "x" usage:      line 2, char 0, abs pos 26..27
   ;; "define":       line 1, char 1..7, abs pos 14..20
 
+  (test-case
+    "rktd data file: no missing #lang or expansion diagnostics"
+    (define d (make-doc "file:///tmp/doc-test-data.rktd" "((a . 1) (b . 2))"))
+    (check-true (doc-expand! d))
+    (check-equal? (doc-diagnostics d) '()))
+
+  (test-case
+    "rktd data file: read errors are still reported"
+    (define d (make-doc "file:///tmp/doc-test-data.rktd" "((a . 1)"))
+    (check-false (doc-expand! d)))
+
+  (test-case
+    "rkt file without #lang still reports missing #lang"
+    (define d (make-doc "file:///tmp/doc-test-nolang.rkt" "1234"))
+    (check-true (doc-expand! d))
+    (check-true (for/or ([diag (in-list (doc-diagnostics d))])
+                  (regexp-match? #rx"#lang" (Diagnostic-message diag)))))
+
   (define (make-expanded-doc)
     (define text
 #<<END

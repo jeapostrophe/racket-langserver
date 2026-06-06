@@ -4,6 +4,7 @@
          racket/class
          racket/string
          racket/set
+         racket/path
          racket/match
          racket/list
          setup/path-to-relative
@@ -42,7 +43,9 @@
     (define/override (walk-stx expand-result)
       (define pre-exn (ExpandResult-pre-exn expand-result))
       (define post-exn (ExpandResult-post-exn expand-result))
-      (define maybe-language-diag (language-diagnostic doc-text))
+      (define maybe-language-diag
+        (and (not (equal? (path-get-extension src) #".rktd"))
+             (language-diagnostic doc-text)))
       (when maybe-language-diag
         (add-diag! maybe-language-diag))
       (when pre-exn
