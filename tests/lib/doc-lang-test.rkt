@@ -233,6 +233,20 @@
     (check-false (guess-language-by-uri "file:///tmp/demo.rkt")))
 
   (test-case
+    "rktd files are Racket data, not expandable modules"
+    (define path (string->path "/tmp/demo.rktd"))
+    (check-true (racket-data-file-path? path))
+    (check-false (requires-expansion? path))
+    (check-false (requires-language-declaration? path)))
+
+  (test-case
+    "rkt files still require module policy"
+    (define path (string->path "/tmp/demo.rkt"))
+    (check-false (racket-data-file-path? path))
+    (check-true (requires-expansion? path))
+    (check-true (requires-language-declaration? path)))
+
+  (test-case
     "sexp-language? is true only for known sexp families"
     (check-true (sexp-language? "#lang racket/base\n(define x 1)\n"))
     (check-true (sexp-language? "(module demo typed/racket/base (define x 1))\n"))

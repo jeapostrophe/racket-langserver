@@ -263,6 +263,18 @@
     (and (regexp-match? (Known-Language-name-rx language) text)
          language)))
 
+(define/contract (racket-data-file-path? path)
+  (-> path-string? boolean?)
+  (equal? (path-get-extension path) #".rktd"))
+
+(define/contract (requires-expansion? path)
+  (-> path-string? boolean?)
+  (not (racket-data-file-path? path)))
+
+(define/contract (requires-language-declaration? path)
+  (-> path-string? boolean?)
+  (not (racket-data-file-path? path)))
+
 (define (uri->suffix uri)
   (define extension (path-get-extension (uri->path uri)))
   (bytes->string/utf-8 (subbytes extension 1)))
@@ -366,6 +378,9 @@
          Known-Language~kw
          known-languages
          find-language-by-text
+         racket-data-file-path?
+         requires-expansion?
+         requires-language-declaration?
          parse-language-prefix
          parse-language
          guess-language-by-uri
