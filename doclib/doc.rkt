@@ -341,6 +341,37 @@
   ;; even though the LSP range end itself is exclusive.
   (values start-line (max start-line (min requested-end-line last-line))))
 
+(define (doc-sexp-language? doc)
+  (eq? 'sexp (Language-Info-body-mode (doc-language-info doc))))
+
+(define (doc-on-type-formatting-range doc pos ch)
+  (define ch-pos (max 0 (sub1 (doc-pos->abs-pos doc pos))))
+  (define current-line (Pos-line pos))
+  (define current-line-start-pos (doc-line-start-abs-pos doc current-line))
+  (define current-line-end-pos (doc-line-end-abs-pos doc current-line))
+
+  (define (current-line-range)
+    (Range (doc-abs-pos->pos doc current-line-start-pos)
+           (doc-abs-pos->pos doc current-line-end-pos)))
+
+  (define (containing-form-range)
+    (define raw-pos (max 0 (sub1 ch-pos)))
+    (define token (doc-token-at doc raw-pos))
+    (define query-pos
+      (if (and token (eq? 'close-paren (LexerEntry-type token)))
+          (add1 raw-pos)
+          raw-pos))
+    (define maybe-paren-pos (doc-find-containing-paren doc query-pos))
+    (define start-pos (if maybe-paren-pos maybe-paren-pos 0))
+    (Range (doc-abs-pos->pos doc start-pos)
+           (doc-abs-pos->pos doc current-line-end-pos)))
+
+  (match ch
+    ["\n" (current-line-range)]
+    [")" (containing-form-range)]
+    ["]" (containing-form-range)]
+    [_ (current-line-range)]))
+
 ;; Shared path for all formatting requests
 (define/contract (doc-format-edits doc fmt-range
                                    #:formatting-options _opts
@@ -359,6 +390,19 @@
                  end-line
                  #:src-dir (doc-src-dir doc)
                  #:interactive? on-type?)]
+    [else '()]))
+
+(define/contract (doc-on-type-format-edits doc pos ch
+                                           #:formatting-options opts)
+  (->* (Doc? Pos? string? #:formatting-options FormattingOptions?)
+       ()
+       (or/c (listof TextEdit?) #f))
+  (cond
+    [(doc-sexp-language? doc)
+     (doc-format-edits doc
+                       (doc-on-type-formatting-range doc pos ch)
+                       #:on-type? #t
+                       #:formatting-options opts)]
     [else '()]))
 
 ;; get the tokens whose range are contained in interval [pos-start, pos-end)
@@ -771,6 +815,7 @@
          doc-find-containing-paren
          doc-get-definition-by-id
          doc-format-edits
+         doc-on-type-format-edits
          doc-range-tokens
          doc-token-at
          doc-token-prefix-at
