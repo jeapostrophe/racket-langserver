@@ -4,13 +4,13 @@
          racket/class
          racket/string
          racket/set
-         racket/sandbox
          racket/match
          racket/list
          setup/path-to-relative
          data/interval-map
          "../../common/interfaces.rkt"
          "../internal-types.rkt"
+         "../doc-lang.rkt"
          "../../common/path-util.rkt"
          drracket/check-syntax)
 
@@ -18,7 +18,7 @@
 
 (define diag%
   (class base-service%
-    (init-field src doc-text indenter)
+    (init-field src doc-text)
     (super-new)
 
     (define diags (mutable-seteq))
@@ -42,13 +42,11 @@
     (define/override (walk-stx expand-result)
       (define pre-exn (ExpandResult-pre-exn expand-result))
       (define post-exn (ExpandResult-post-exn expand-result))
-      (when (eq? indenter 'missing)
-        (add-diag!
-          (Diagnostic #:range (Range #:start (Pos #:line 0 #:char 0)
-                                     #:end (Pos #:line 0 #:char 0))
-                      #:severity DiagnosticSeverity-Error
-                      #:source "Racket"
-                      #:message "Missing or invalid #lang line")))
+      (define maybe-language-diag
+        (and (requires-language-declaration? src)
+             (language-diagnostic doc-text)))
+      (when maybe-language-diag
+        (add-diag! maybe-language-diag))
       (when pre-exn
         (add-diags! (error-diagnostics doc-text pre-exn)))
       (when post-exn
@@ -61,7 +59,8 @@
           (add-diags! result))))
 
     (define/override (syncheck:add-mouse-over-status src-obj start finish text)
-      (when (string=? "no bound occurrences" text)
+      (when (and (< start finish)
+                 (string=? "no bound occurrences" text))
         (hint-unused-variable src-obj start finish)))
 
     ;; Mouse-over status
@@ -98,20 +97,73 @@
                                #:message "unused require"))
       (add-diag! diag))))
 
+(define language-diagnostic-source "Language Declaration Check")
+
+;; Return a diagnostic for a missing or unrecognized source language declaration.
+(define (language-diagnostic doc-text)
+  (define text (send doc-text get-text))
+  (define maybe-language-prefix (parse-language-prefix text))
+  (cond
+    [(not maybe-language-prefix)
+     (language-error-diag
+       (first-line-range doc-text)
+       "Missing language declaration. Add a `#lang` line, `#reader`, or `(module ... <language> ...)` form.")]
+    [(find-language-by-text (Language-Prefix-text maybe-language-prefix)) #f]
+    [else
+     (language-error-diag
+       (language-prefix-range doc-text maybe-language-prefix)
+       (unrecognized-language-message maybe-language-prefix))]))
+
+(define (language-error-diag range message)
+  (Diagnostic #:range range
+              #:severity DiagnosticSeverity-Error
+              #:source language-diagnostic-source
+              #:message message))
+
+(define (empty-range? range)
+  (define start (Range-start range))
+  (define end (Range-end range))
+  (and (= (Pos-line start) (Pos-line end))
+       (= (Pos-char start) (Pos-char end))))
+
+(define (nonempty-diagnostic-range doc-text range)
+  (if (empty-range? range)
+      (first-line-range doc-text)
+      range))
+
+(define (first-line-range doc-text)
+  (define start (send doc-text line-start-pos 0))
+  (define end (send doc-text line-end-pos 0))
+  (Range #:start (abs-pos->Pos doc-text start)
+         #:end (abs-pos->Pos doc-text end)))
+
+(define (language-prefix-range doc-text language-prefix)
+  (nonempty-diagnostic-range
+    doc-text
+    (Range #:start (abs-pos->Pos doc-text (Language-Prefix-start language-prefix))
+           #:end (abs-pos->Pos doc-text (Language-Prefix-end language-prefix)))))
+
+(define (unrecognized-language-message language-prefix)
+  (define language-text (Language-Prefix-text language-prefix))
+  (cond
+    [(not (string=? "" language-text))
+     (format
+       "Unrecognized language declaration `~a`. Check the language name or reader path."
+       language-text)]
+    [else
+     "Unrecognized language declaration. Check the language name after `#lang`, `#reader`, or in `(module ... <language> ...)`."]))
+
 (define (error-diagnostics doc-text exn)
   (define msg (exn-message exn))
   (cond
-    ;; typed racket support: don't report error summaries
+    ;; Typed Racket reports each type error separately, then emits a final
+    ;; "Type Checker: Summary" message that repeats the error count. The
+    ;; per-error diagnostics are more useful, so do not publish the summary.
     [(string-prefix? msg "Type Checker: Summary") (list)]
-    [(exn:fail:resource? exn)
-     (list (Diagnostic #:range (Range #:start (Pos #:line 0 #:char 0)
-                                      #:end (Pos #:line 0 #:char 0))
-                       #:severity DiagnosticSeverity-Hint
-                       #:source "Expander"
-                       #:message "the expand time has exceeded the 90s limit.\
-                        Check if your macro is infinitely expanding"))]
+    ;; A .zo file was compiled by a different Racket version. The original
+    ;; reader error is hard to act on, so rewrite it into a recompilation
+    ;; suggestion for the library or compiled file named in the message.
     [(and (exn:fail:read? exn)
-          ;; Looking for the pattern '... version mismatch ... .zo ... raco setup ...'
           (regexp-match? #rx"version mismatch.*\\.zo.*raco setup" msg))
      (define maybe-error-source-mtchs/f
        (regexp-match #rx"in: (.*\\.zo)" msg))
@@ -142,42 +194,45 @@
                   msg)]
          [else msg]))
      ;; stub range -- see the comments in exn:missing-module?
-     (list (Diagnostic #:range (Range #:start (Pos #:line 0 #:char 0)
-                                      #:end (Pos #:line 0 #:char 0))
+     (list (Diagnostic #:range (first-line-range doc-text)
                        #:severity DiagnosticSeverity-Error
                        #:source "Racket"
                        #:message expanded-msg))]
+    ;; Most reader, expander, and typechecker errors carry one or more srclocs.
+    ;; Turn each reported srcloc into a diagnostic, falling back to the first
+    ;; line only when Racket reports the error without a usable position.
     [(exn:srclocs? exn)
      (define srclocs ((exn:srclocs-accessor exn) exn))
      (for/list ([sl (in-list srclocs)])
        (match-define (srcloc src line col pos span) sl)
        (if (and (number? line) (number? col) (number? span))
-           (Diagnostic #:range (Range #:start (Pos #:line (sub1 line) #:char col)
-                                      #:end (Pos #:line (sub1 line) #:char (+ col span)))
+           (Diagnostic #:range (nonempty-diagnostic-range
+                                 doc-text
+                                 (Range #:start (Pos #:line (sub1 line) #:char col)
+                                        #:end (Pos #:line (sub1 line) #:char (+ col span))))
                        #:severity DiagnosticSeverity-Error
                        #:source "Racket"
                        #:message msg)
            ;; Some reader exceptions don't report a position
-           ;; Use end of file as a reasonable guess
-           (let ([end-of-file (abs-pos->Pos doc-text (send doc-text end-pos))])
-             (Diagnostic #:range (Range #:start end-of-file
-                                        #:end end-of-file)
-                         #:severity DiagnosticSeverity-Error
-                         #:source "Racket"
-                         #:message msg))))]
+           (Diagnostic #:range (first-line-range doc-text)
+                       #:severity DiagnosticSeverity-Error
+                       #:source "Racket"
+                       #:message msg)))]
+    ;; Missing module exceptions tell us which module could not be loaded, but
+    ;; not which `require` form in the user's file triggered the lookup. Publish
+    ;; the message at a document-level range instead of guessing the require.
     [(exn:missing-module? exn)
      ;; Hack:
      ;; We do not have any source location for the offending `require`, but the language
-     ;; server protocol requires a valid range object.  So we punt and just highlight the
-     ;; first character.
+     ;; server protocol requires a valid range object. So highlight the first line.
      ;; This is very close to DrRacket's behavior:  it also has no source location to work with,
      ;; however it simply doesn't highlight any code.
-     (define silly-range
-       (Range #:start (Pos #:line 0 #:char 0) #:end (Pos #:line 0 #:char 0)))
-     (list (Diagnostic #:range silly-range
+     (list (Diagnostic #:range (first-line-range doc-text)
                        #:severity DiagnosticSeverity-Error
                        #:source "Racket"
                        #:message msg))]
+    ;; If a new kind of expansion failure reaches this point, fail loudly so we
+    ;; can decide how to map it into an LSP diagnostic.
     [else (error 'error-diagnostics "unexpected failure: ~a" exn)]))
 
 (define (check-typed-racket-log doc-text log)
@@ -197,4 +252,3 @@
                           #:severity DiagnosticSeverity-Error
                           #:source "Typed Racket"
                           #:message msg))))))
-

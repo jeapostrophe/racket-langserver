@@ -8,25 +8,9 @@
          racket/port
          "editor.rkt"
          "doc-trace.rkt"
+         "doc-lang.rkt"
          "../common/path-util.rkt"
          "internal-types.rkt")
-
-(define (get-indenter text)
-  (define lang-info
-    (with-handlers ([exn:fail:read? (lambda (e) 'missing)]
-                    [exn:missing-module? (lambda (e) #f)])
-      (read-language (open-input-string text) (lambda () 'missing))))
-  (cond
-    [(procedure? lang-info)
-     (lang-info 'drracket:indentation #f)]
-    [(eq? lang-info 'missing)
-     ; check for a #reader directive at start of file, ignoring comments
-     ; the ^ anchor here matches start-of-string, not start-of-line
-     (if (regexp-match #rx"^(;[^\n]*\n)*#reader" text)
-         #f ; most likely a drracket file, use default indentation
-         ; (https://github.com/jeapostrophe/racket-langserver/issues/86)
-         'missing)]
-    [else #f]))
 
 ;; TODO: cache the namespace with some strategy
 (define (expand-source path in collector #:expand? [expand? #t])
@@ -72,20 +56,18 @@
 (define (check-syntax uri doc-text)
   (define path (uri->path uri))
   (define text (send doc-text get-text))
-  ; rktd <-> rkt is just like JSON <-> js
-  (define data-file? (equal? (path-get-extension path) #".rktd"))
-  (define indenter (if data-file? #f (get-indenter text)))
-  (define new-trace (new build-trace% [src path] [doc-text doc-text] [indenter indenter]))
+  (define expand? (requires-expansion? path))
+  (define new-trace (new build-trace% [src path] [doc-text doc-text]))
 
   (define in (open-input-string text))
-  (define er (expand-source path in new-trace #:expand? (not data-file?)))
+  (define er (expand-source path in new-trace #:expand? expand?))
 
   (send new-trace walk-stx er)
   (send new-trace walk-log (ExpandResult-logs er))
   (CSResult new-trace text
-            (if data-file?
-                (and (ExpandResult-pre-syntax er) #t)
-                (ExpandResult-all-succeed? er))))
+            (if expand?
+                (ExpandResult-all-succeed? er)
+                (and (ExpandResult-pre-syntax er) #t))))
 
 (provide
   (struct-out CSResult)
@@ -94,4 +76,3 @@
                         (#:expand? boolean?)
                         ExpandResult?)]
     [check-syntax (-> string? (is-a?/c lsp-editor%) CSResult?)]))
-

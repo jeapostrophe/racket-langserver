@@ -28,26 +28,55 @@ racket -l racket-langserver
 
 You may need to restart your LSP runtime or your editor for `racket-langserver` to start.
 
-## Capabilities
+## Language Support
 
-#### *Currently Supported:*
+The server recognizes language families and provides different levels of
+support depending on whether the language uses s-expression syntax.
 
-- **Hover** (textDocument/hover)
-- **Jump to Definition** (textDocument/definition)
-- **Find References** (textDocument/references)
-  - *Note:* Currently only considers references from opened files within the workspace.
-- **Document Highlight** (textDocument/documentHighlight)
-- **Diagnostics** (textDocument/publishDiagnostics)
-- **Code Formatting** (textDocument/formatting & textDocument/rangeFormatting & textDocument/onTypeFormatting)
-- **Code Action** (textDocument/codeAction)
-- **Signature Help** (textDocument/signatureHelp)
-- **Rename** (textDocument/rename & textDocument/prepareRename)
-  - *Note:* Currently only allows renaming symbols defined within the current file.
-- **Code completion** (textDocument/completion)
+- Racket - The standard Racket language (`#lang racket`, `#lang racket/*`, etc.).
+- Typed Racket - (`#lang typed/racket`, `#lang typed/racket/*`, etc.).
+- Other sexp - Predefined s-expression language families beyond Racket and Typed Racket.
+- Scribble - (`#lang scribble`, `#lang scribble/*`, etc.).
+- Rhombus - (`#lang rhombus`, `#lang rhombus/*`, etc.).
+- Unknown - Language declaration found and parsed, but not in the predefined list.
+- Unrecognized - No language declaration found (missing `#lang`, `#reader`, or `(module ...)` form).
 
-#### *Work in Progress:*
+### Legend
 
-- **Document Outline** (textDocument/documentSymbol)
+| Mark | Meaning |
+|---|---|
+| ✅ | Feature works well and produces useful results. |
+| ⚠️ | Partial support - the feature runs but may produce incomplete or imprecise results. |
+| ❌ | Not implemented or intentionally filtered out for this language family. |
+
+The matrix rates expected usefulness for each language family. Expansion-based features are marked supported when they only depend on successful expansion and `check-syntax` data. Features are marked partial when they have additional syntax-family limits, lexer limits, or intentionally noisy results.
+
+### Support Matrix
+
+| Feature | Racket | Typed Racket | Other sexp | Scribble | Rhombus | Unknown | Unrecognized |
+|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
+| Completion | ✅ | ✅ | ✅ | ⚠️ | ⚠️ | ⚠️ | ⚠️ |
+| Definition | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ |
+| Hover | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ |
+| Signature Help | ✅ | ✅ | ✅ | ❌ | ❌ | ⚠️ | ❌ |
+| References | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ |
+| Document Highlight | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ |
+| Rename | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ |
+| Prepare Rename | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ |
+| Code Action | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ |
+| Diagnostics | ✅ | ✅ | ✅ | ✅ | ✅ | ⚠️ | ✅ |
+| Document Symbols | ⚠️ | ⚠️ | ⚠️ | ⚠️ | ⚠️ | ⚠️ | ⚠️ |
+| Semantic Tokens, Delta | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| Semantic Tokens, Full | ✅ | ✅ | ✅ | ⚠️ | ⚠️ | ⚠️ | ⚠️ |
+| Semantic Tokens, Range | ✅ | ✅ | ✅ | ⚠️ | ⚠️ | ⚠️ | ⚠️ |
+| Formatting | ✅ | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ |
+| Range Formatting | ✅ | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ |
+| On-Type Formatting | ✅ | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ |
+| Inlay Hints | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
+
+### Features
+
+See [features.md](features.md) for a detailed breakdown of each feature.
 
 ## Development
 

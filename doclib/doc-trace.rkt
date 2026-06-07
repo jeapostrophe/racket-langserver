@@ -14,13 +14,13 @@
 
 (define build-trace%
   (class (annotations-mixin object%)
-    (init-field src doc-text indenter)
+    (init-field src doc-text)
     (define hovers (new hover%))
     (define docs (new docs%))
     (define completions (new completion%))
     (define requires (new require%))
     (define definitions (new definition% [src src]))
-    (define diag (new diag% [src src] [doc-text doc-text] [indenter indenter]))
+    (define diag (new diag% [src src] [doc-text doc-text]))
     (define decls (new declaration%))
     (define workspace-references (new workspace-references% [src src] [doc-text doc-text]))
     (define semantic-tokens (new highlight% [src src] [doc-text doc-text]))
@@ -57,7 +57,6 @@
         (send s walk-log text)))
 
     ;; Getters
-    (define/public (get-indenter) indenter)
     (define/public (get-warn-diags) (car (send diag get)))
     (define/public (get-hovers) (send hovers get))
     (define/public (get-docs) (send docs get))
