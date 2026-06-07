@@ -252,36 +252,6 @@
     [_
      (error-response id ErrorCode-InvalidParams "textDocument/rangeFormatting failed")]))
 
-(define (on-type-formatting-range doc pos ch)
-  (define ch-pos (max 0 (sub1 (doc-pos->abs-pos doc pos))))
-  (define current-line (Pos-line pos))
-  (define current-line-start-pos (doc-line-start-abs-pos doc current-line))
-  (define current-line-end-pos (doc-line-end-abs-pos doc current-line))
-
-  (define (current-line-range)
-    (Range (doc-abs-pos->pos doc current-line-start-pos)
-           (doc-abs-pos->pos doc current-line-end-pos)))
-
-  ;; TODO: Gate this sexp-structure lookup to sexp languages, or keep
-  ;; non-sexp documents on current-line formatting only.
-  (define (containing-form-range)
-    (define raw-pos (max 0 (sub1 ch-pos)))
-    (define token (doc-token-at doc raw-pos))
-    (define query-pos
-      (if (and token (eq? 'close-paren (LexerEntry-type token)))
-          (add1 raw-pos)
-          raw-pos))
-    (define maybe-paren-pos (doc-find-containing-paren doc query-pos))
-    (define start-pos (if (false? maybe-paren-pos) 0 maybe-paren-pos))
-    (Range (doc-abs-pos->pos doc start-pos)
-           (doc-abs-pos->pos doc current-line-end-pos)))
-
-  (match ch
-    ["\n" (current-line-range)]
-    [")" (containing-form-range)]
-    ["]" (containing-form-range)]
-    [_ (current-line-range)]))
-
 ;; On-type formatting request
 (define (on-type-formatting! id params)
   (match params
@@ -296,12 +266,10 @@
 
      (with-read-doc safe-doc
        (λ (doc)
-         (define range (on-type-formatting-range doc pos ch))
          (success/enc
            id
-           (doc-format-edits doc range
-                             #:on-type? #t
-                             #:formatting-options opts))))]
+           (doc-on-type-format-edits doc pos ch
+                                     #:formatting-options opts))))]
     [_
      (error-response id ErrorCode-InvalidParams "textDocument/onTypeFormatting failed")]))
 

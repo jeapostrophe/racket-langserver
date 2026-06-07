@@ -375,6 +375,46 @@
                         #:formatting-options opts)
       '()))
 
+  (test-case
+    "On-type formatting delegates language policy to doclib"
+    (define opts
+      (FormattingOptions #:tab-size 2
+                         #:insert-spaces #t
+                         #:trim-trailing-whitespace #t
+                         #:insert-final-newline #f
+                         #:trim-final-newlines #f
+                         #:key #f))
+
+    (define sexp-doc
+      (make-doc "file:///test.rkt"
+                "#lang racket/base\n(define x\n1)"))
+    (check-equal?
+      (doc-on-type-format-edits sexp-doc
+                                (Pos 2 2)
+                                ")"
+                                #:formatting-options opts)
+      (list (TextEdit (Range (Pos 2 0) (Pos 2 2)) "  1)")))
+
+    (define rhombus-doc
+      (make-doc "file:///test.rhm"
+                "#lang rhombus\n  fun f():\n    1)\n"))
+    (check-equal?
+      (doc-on-type-format-edits rhombus-doc
+                                (Pos 2 6)
+                                ")"
+                                #:formatting-options opts)
+      '())
+
+    (define unknown-doc
+      (make-doc "file:///unknown.rkt"
+                "#lang not-a-real-language\n(define x\n1)"))
+    (check-equal?
+      (doc-on-type-format-edits unknown-doc
+                                (Pos 2 2)
+                                ")"
+                                #:formatting-options opts)
+      '()))
+
   (define (find-diagnostic-by-message diags expected-message)
     (for/first ([diag (in-list diags)]
                 #:when (string=? (Diagnostic-message diag) expected-message))
