@@ -30,8 +30,8 @@
 
 (define-runtime-path rootFolder "./")
 
-(define/contract (with-racket-lsp proc)
-  (-> (-> any/c any/c) void?)
+(define/contract (with-racket-lsp proc #:capabilities [capabilities (hasheq)])
+  (->* ((-> any/c any/c)) (#:capabilities jsexpr?) void?)
   (parameterize ([response-channel (make-async-channel)]
                  [request-channel (make-async-channel)]
                  [notification-channel (make-async-channel)])
@@ -63,7 +63,7 @@
     (define init-req
       (make-request lsp "initialize"
                     (hasheq 'processId (getpid)
-                            'capabilities (hasheq)
+                            'capabilities capabilities
                             'rootPath (path->string (normalize-path rootFolder))
                             'rootUri (string-append "file://" (path->string (normalize-path rootFolder))))))
     (client-send lsp init-req)

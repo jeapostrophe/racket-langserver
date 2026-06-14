@@ -795,6 +795,236 @@
       #:location (Location #:uri uri
                            #:range range))))
 
+;; Hierarchical Document Symbols: returns a tree of DocumentSymbol.
+;;
+;; The tree is built from the lexer token stream by tracking paren nesting.
+;; Definition-like forms (define, struct, module+, ...) become symbols whose
+;; `range` spans the whole form and whose `selectionRange` covers the defined
+;; name; any other form is transparent and passes nested definitions up to the
+;; enclosing symbol. Working on the lexer snapshot keeps this robust while the
+;; buffer holds incomplete code: forms left open mid-edit are closed at the end
+;; of the document.
+
+;; Maps the head symbol of a form to how its SymbolKind is chosen. 'fn-or-var
+;; picks Function when the defined name uses the function shorthand
+;; (define (f x) ...) and Variable otherwise.
+(define *definition-form-kinds*
+  (hash "define" 'fn-or-var
+        "define/contract" 'fn-or-var
+        "define/public" 'fn-or-var
+        "define/private" 'fn-or-var
+        "define/override" 'fn-or-var
+        "define/augment" 'fn-or-var
+        "define-values" 'variable
+        "define-syntax" 'fn-or-var
+        "define-syntax-rule" 'function
+        "define-syntaxes" 'variable
+        "define-match-expander" 'function
+        "define-struct" 'struct
+        "struct" 'struct
+        "module" 'module
+        "module+" 'module
+        "module*" 'module))
+
+;; Container forms become a symbol named after their own head so that
+;; scrolling inside a long body keeps a sticky header even though the form
+;; defines no name itself.
+(define *container-form-kinds*
+  (hash "provide" SymbolKind-Namespace
+        "require" SymbolKind-Namespace
+        "class" SymbolKind-Class
+        "class*" SymbolKind-Class
+        "match" SymbolKind-Object
+        "match*" SymbolKind-Object
+        "cond" SymbolKind-Object
+        "for" SymbolKind-Object
+        "for/list" SymbolKind-Object
+        "for/vector" SymbolKind-Object
+        "for/hash" SymbolKind-Object
+        "for/hasheq" SymbolKind-Object
+        "for/hasheqv" SymbolKind-Object
+        "for/hashalw" SymbolKind-Object
+        "for/and" SymbolKind-Object
+        "for/or" SymbolKind-Object
+        "for/sum" SymbolKind-Object
+        "for/product" SymbolKind-Object
+        "for/lists" SymbolKind-Object
+        "for/first" SymbolKind-Object
+        "for/last" SymbolKind-Object
+        "for/fold" SymbolKind-Object
+        "for/foldr" SymbolKind-Object))
+
+;; Class member forms: every name they declare becomes a Field symbol, either
+;; a bare name as in (field z) or a binding group as in (field [y 0]).
+(define *field-form-heads*
+  (set "field" "init-field" "init"))
+
+;; One open form during the token walk. `head` is the form's first token when
+;; it is a symbol. The name-* fields hold the defined name once captured.
+;; `forced-kind` overrides head-based kind selection; it marks binding groups
+;; of field forms. `children` accumulates finished child symbols in reverse
+;; order.
+(struct SymFrame
+  (start
+    [seen-head-slot? #:mutable]
+    [head #:mutable]
+    [name-text #:mutable]
+    [name-start #:mutable]
+    [name-end #:mutable]
+    [function? #:mutable]
+    [forced-kind #:mutable]
+    [children #:mutable]))
+
+(define (make-sym-frame start #:seen-head-slot? [seen-head-slot? #f])
+  (SymFrame start seen-head-slot? #f #f #f #f #f #f '()))
+
+(define (field-form-frame? f)
+  (and (SymFrame-head f)
+       (set-member? *field-form-heads* (SymFrame-head f))))
+
+(define/contract (doc-symbols-hierarchical doc)
+  (-> Doc? (listof DocumentSymbol?))
+  ;; Paren tracking means nothing in non-sexp languages (e.g. Rhombus,
+  ;; Scribble): form extents are set by blocks or markup rather than parens,
+  ;; so any symbol the walker produced would have a bogus range. Report no
+  ;; symbols instead. Unknown languages keep the sexp treatment, matching the
+  ;; lexer fallback used elsewhere.
+  (if (eq? (Language-Info-body-mode (doc-language-info doc)) 'non-sexp)
+      '()
+      (doc-symbols-hierarchical/sexp doc)))
+
+(define (doc-symbols-hierarchical/sexp doc)
+  (define (definition-frame? f)
+    (and (SymFrame-name-start f)
+         (or (SymFrame-forced-kind f)
+             (and (SymFrame-head f)
+                  (or (hash-has-key? *definition-form-kinds* (SymFrame-head f))
+                      (hash-has-key? *container-form-kinds* (SymFrame-head f)))))))
+
+  (define (frame-symbol-kind f)
+    (cond
+      [(SymFrame-forced-kind f) (SymFrame-forced-kind f)]
+      [(hash-ref *container-form-kinds* (SymFrame-head f) #f)]
+      [else
+       (match (hash-ref *definition-form-kinds* (SymFrame-head f))
+         ['struct SymbolKind-Struct]
+         ['module SymbolKind-Module]
+         ['function SymbolKind-Function]
+         ['variable SymbolKind-Variable]
+         ['fn-or-var (if (SymFrame-function? f)
+                         SymbolKind-Function
+                         SymbolKind-Variable)])]))
+
+  ;; The root frame collects top-level symbols; it never becomes a symbol
+  ;; itself, so its head slot starts out filled.
+  (define root (make-sym-frame 0 #:seen-head-slot? #t))
+  (define stack (list root))
+  ;; The definition frame waiting for its name token, if any.
+  (define pending #f)
+
+  (define (close-frame! f parent end)
+    (when (eq? pending f)
+      (set! pending #f))
+    (cond
+      [(definition-frame? f)
+       (define sym
+         (DocumentSymbol
+           #:name (SymFrame-name-text f)
+           #:kind (frame-symbol-kind f)
+           #:range (abs-range->range doc (SymFrame-start f) end)
+           #:selectionRange (abs-range->range doc
+                                              (SymFrame-name-start f)
+                                              (SymFrame-name-end f))
+           #:children (reverse (SymFrame-children f))))
+       (set-SymFrame-children! parent (cons sym (SymFrame-children parent)))]
+      [else
+       ;; Transparent form: hoist nested definitions to the enclosing form.
+       ;; Both children lists are in reverse order and everything in `f` is
+       ;; newer, so it goes in front.
+       (set-SymFrame-children! parent
+                               (append (SymFrame-children f)
+                                       (SymFrame-children parent)))]))
+
+  (for ([entry (in-lexer-snapshot (doc-lexer-snapshot doc))])
+    (define type (LexerEntry-type entry))
+    (cond
+      [(memq type '(white-space comment sexp-comment))
+       (void)]
+      [(eq? (lexer-entry-paren-kind entry) 'open)
+       ;; An open paren between a definition head and its name means the
+       ;; function shorthand is used.
+       (when (and pending (not (SymFrame-name-start pending)))
+         (set-SymFrame-function?! pending #t))
+       (define f (make-sym-frame (LexerEntry-start entry)))
+       ;; A group inside a field form is a binding group like [y 0]: its
+       ;; first symbol names a Field.
+       (when (field-form-frame? (car stack))
+         (set-SymFrame-forced-kind! f SymbolKind-Field)
+         (set! pending f))
+       (set! stack (cons f stack))]
+      [(eq? (lexer-entry-paren-kind entry) 'close)
+       ;; Never pop the root frame on unbalanced input.
+       (unless (null? (cdr stack))
+         (define f (car stack))
+         (set! stack (cdr stack))
+         (close-frame! f (car stack) (LexerEntry-end entry)))]
+      [else
+       (define top (car stack))
+       (cond
+         ;; A symbol while a definition awaits its name: capture the name.
+         [(and pending
+               (not (SymFrame-name-start pending))
+               (eq? type 'symbol))
+          (set-SymFrame-name-text! pending (LexerEntry-text entry))
+          (set-SymFrame-name-start! pending (LexerEntry-start entry))
+          (set-SymFrame-name-end! pending (LexerEntry-end entry))
+          (set! pending #f)
+          ;; The name may also be the head of the current frame, as in
+          ;; (define (f x) ...).
+          (unless (SymFrame-seen-head-slot? top)
+            (set-SymFrame-seen-head-slot?! top #t)
+            (set-SymFrame-head! top (LexerEntry-text entry)))]
+         ;; First non-layout token of a form: the head slot.
+         [(not (SymFrame-seen-head-slot? top))
+          (set-SymFrame-seen-head-slot?! top #t)
+          (when (eq? type 'symbol)
+            (define head (LexerEntry-text entry))
+            (set-SymFrame-head! top head)
+            (cond
+              [(hash-has-key? *definition-form-kinds* head)
+               (set! pending top)]
+              ;; A container form is its own name.
+              [(hash-has-key? *container-form-kinds* head)
+               (set-SymFrame-name-text! top head)
+               (set-SymFrame-name-start! top (LexerEntry-start entry))
+               (set-SymFrame-name-end! top (LexerEntry-end entry))]
+              [else (void)]))]
+         ;; A bare name directly inside a field form, as in (field z).
+         [(and (field-form-frame? top) (eq? type 'symbol))
+          (define range (abs-range->range doc
+                                          (LexerEntry-start entry)
+                                          (LexerEntry-end entry)))
+          (define sym
+            (DocumentSymbol
+              #:name (LexerEntry-text entry)
+              #:kind SymbolKind-Field
+              #:range range
+              #:selectionRange range
+              #:children '()))
+          (set-SymFrame-children! top (cons sym (SymFrame-children top)))]
+         [else (void)])]))
+
+  ;; Close any forms left open by incomplete code at the end of the document.
+  (define end-pos (doc-end-abs-pos doc))
+  (let loop ()
+    (unless (null? (cdr stack))
+      (define f (car stack))
+      (set! stack (cdr stack))
+      (close-frame! f (car stack) end-pos)
+      (loop)))
+
+  (reverse (SymFrame-children root)))
+
 (provide Doc?
          Doc-version
          Doc-uri
@@ -844,4 +1074,5 @@
          doc-rename
          doc-prepare-rename
          doc-symbols
+         doc-symbols-hierarchical
          )

@@ -23,6 +23,7 @@
          lexer-snapshot-span->entry
          lexer-token-span-contains-pos?
          in-lexer-snapshot
+         lexer-entry-paren-kind
          for-each-lexer-snapshot-entry
          lexer-snapshot-token-at
          lexer-snapshot-symbol-at
