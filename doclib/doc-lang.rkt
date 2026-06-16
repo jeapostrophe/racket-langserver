@@ -10,28 +10,50 @@
          racket/path
          racket/string)
 
-(define language-prefix-source/c
-  (or/c
-    ;; `#lang racket/base`
-    'lang-directive
-    ;; Present `#lang` line with no usable selector.
-    'malformed-lang-directive
-    ;; `#reader scribble/reader`
-    'reader-directive
-    ;; Present `#reader` line with no usable reader.
-    'malformed-reader-directive
-    ;; `#lang reader syntax/module-reader`
-    'reader-lang
-    ;; Present raw `module` form with no language position.
-    'malformed-raw-module
-    ;; `(module name racket/base ...)`
-    'raw-module))
+; Base struct for a parsed language declaration.  Holds the language / reader /
+; module-path name extracted from the source, or #f when the declaration is
+; present but malformed (e.g. `#lang` with no language name).
+(struct/contract Language-Declaration
+  ([name (or/c string? #f)])
+  #:transparent)
 
+; A plain `#lang` directive.  Inherits `name` from Language-Declaration (the
+; language name, e.g. "racket/base").
+(struct/contract HashLang-Declaration Language-Declaration
+  ()
+  #:transparent)
+
+; A wrapper-shaped `#lang` directive such as `#lang at-exp racket/base`.
+; Inherits `name` from HashLang-Declaration (the wrapper language, e.g.
+; "at-exp"). `delegate-name` records the wrapped language/reader selector.
+(struct/contract WrapperHashLang-Declaration HashLang-Declaration
+  ([delegate-name (or/c string? #f)])
+  #:transparent)
+
+; A `#reader` directive.  Inherits `name` from Language-Declaration (the
+; reader module path, e.g. "scribble/reader").
+(struct/contract Reader-Declaration Language-Declaration
+  ()
+  #:transparent)
+
+; A raw `(module name lang ...)` form.  Inherits `name` from Language-Declaration
+; (the language position in the module form, e.g. "racket/base").
+(struct/contract Module-Declaration Language-Declaration
+  ()
+  #:transparent)
+
+; Describes the language preamble at the top of a source file.  When there is no
+; language declaration at all (#f from parse-language-prefix), no
+; Language-Prefix is constructed and downstream code falls back to
+; guess-language-by-uri (file extension) or #f.
+;   declaration    - the parsed Language-Declaration (Lang-, Reader-, or Module-)
+;   start-pos      - character offset where the preamble begins
+;   end-pos        - character offset where the language-name span ends
+;   body-start-idx - token index into the lexer-span vector where the source code body begins
 (struct/contract Language-Prefix
-  ([source language-prefix-source/c]
-   [text string?]
-   [start exact-nonnegative-integer?]
-   [end exact-nonnegative-integer?]
+  ([declaration Language-Declaration?]
+   [start-pos exact-nonnegative-integer?]
+   [end-pos exact-nonnegative-integer?]
    [body-start-idx exact-nonnegative-integer?])
   #:transparent)
 
@@ -122,6 +144,14 @@
                        #:sexp? #t
                        #:suffixes '()
                        #:name-rx #px"^pie$")
+    (Known-Language~kw #:name 'at-exp
+                       #:sexp? #f
+                       #:suffixes '()
+                       #:name-rx #px"^at-exp$")
+    (Known-Language~kw #:name 's-exp
+                       #:sexp? #t
+                       #:suffixes '()
+                       #:name-rx #px"^s-exp$")
     (Known-Language~kw #:name 'scribble
                        #:sexp? #f
                        #:suffixes '("scrbl")
@@ -148,37 +178,36 @@
              (token-node-start node)
              (token-node-end node)))
 
-(define (make-language-prefix source text span body-start-idx)
-  (Language-Prefix source
-                   text
+(define (make-language-prefix declaration span body-start-idx)
+  (Language-Prefix declaration
                    (LexerTokenSpan-start span)
                    (LexerTokenSpan-end span)
                    body-start-idx))
 
 (define (parse-lang-directive-text text span header-end)
-  (or (parse-reader-lang-directive-text text span header-end)
-      (parse-plain-lang-directive-text text span header-end)))
-
-(define (parse-reader-lang-directive-text text span header-end)
-  ;; `#lang reader` is the chaining-reader meta-language, so the payload after
-  ;; `reader` is a module path, not just a single language name token. Once the
-  ;; first line is known to be a `#lang` directive, keep the full text after
-  ;; `reader`, even when `module-lexer` reports the line as `error` in our
-  ;; snapshot setup.
-  (cond
-    [(regexp-match #px"^#lang\\s+reader[ \t]+([^\r\n]+)$" text)
-     => (lambda (match-data)
-          (define reader-payload (second match-data))
-          (make-language-prefix 'reader-lang reader-payload span header-end))]
-    [else #f]))
-
-(define (parse-plain-lang-directive-text text span header-end)
-  (cond
-    [(regexp-match #px"^#lang\\s+(\\S+)$" text)
-     => (lambda (match-data)
-          (define language-name (second match-data))
-          (make-language-prefix 'lang-directive language-name span header-end))]
-    [else #f]))
+  (match text
+    ;; `#lang reader` takes a reader module path as the rest of the same line.
+    ;; The lexer may include the next line in a bare `#lang reader` error token,
+    ;; so keep the payload match from crossing newlines.
+    [(regexp #px"^#lang\\s+reader[^\\S\r\n]+([^\r\n]+)$"
+             (list _ reader-payload))
+     (make-language-prefix
+       (WrapperHashLang-Declaration "reader" reader-payload)
+       span header-end)]
+    ;; Other two-word `#lang` forms are wrapper + language, including unknown
+    ;; wrappers. Whether the wrapper is recognized affects body mode later.
+    [(regexp #px"^#lang\\s+(\\S+)\\s+(\\S+)$"
+             (list _ wrapper language-name))
+     (make-language-prefix
+       (WrapperHashLang-Declaration wrapper language-name)
+       span header-end)]
+    ;; A single word after `#lang` is the language itself.
+    [(regexp #px"^#lang\\s+(\\S+)$"
+             (list _ language-name))
+     (make-language-prefix
+       (HashLang-Declaration language-name)
+       span header-end)]
+    [_ #f]))
 
 (define (malformed-lang-directive-text? text)
   (and (string? text)
@@ -186,10 +215,10 @@
 
 (define (parse-lang-directive-node text node next-idx)
   ;; `module-lexer` uses `read-language` to classify language lines: resolved
-  ;; `#lang` forms become `lang-directive`, while failed resolution stays
-  ;; `error`. Preserve that distinction for plain `#lang`, but still recover
-  ;; `#lang reader ...` from `error` tokens because its payload is a module path
-  ;; that may be useful even when the chained reader cannot be loaded.
+  ;; `#lang` forms become `lang-directive`, while failed resolution stays as an
+  ;; `error` token. An error token that still starts with `#lang` may be a
+  ;; recoverable declaration like `#lang reader <module-path>`, or it may be
+  ;; malformed. Try parsing first; then report present-but-malformed `#lang`.
   (match node
     [(Token-Leaf span)
      #:when (eq? 'lang-directive (LexerTokenSpan-type span))
@@ -198,10 +227,8 @@
      #:when (eq? 'error (LexerTokenSpan-type span))
      (define token-text (span-text text span))
      (or (parse-lang-directive-text token-text span next-idx)
-         ;; Explicitly recognize `#lang` error tokens as malformed language
-         ;; directives.
          (and (malformed-lang-directive-text? token-text)
-              (make-language-prefix 'malformed-lang-directive "" span next-idx)))]
+              (make-language-prefix (HashLang-Declaration #f) span next-idx)))]
     [_ #f]))
 
 (define (leaf-symbol-text text node)
@@ -222,13 +249,15 @@
        (read-next-non-skippable-nodes/spans spans next-idx 1))
      (match reader-nodes
        [(list reader-node)
-        (Language-Prefix 'reader-directive
-                         (token-node-text text reader-node)
+        (Language-Prefix (Reader-Declaration (token-node-text text reader-node))
                          (LexerTokenSpan-start span)
                          (token-node-end reader-node)
                          reader-idx)]
        ['()
-        (make-language-prefix 'malformed-reader-directive "" span reader-idx)])]
+        (make-language-prefix
+          (Reader-Declaration #f)
+          span
+          reader-idx)])]
     [_ #f]))
 
 (define (parse-raw-module-node text node start-idx)
@@ -244,14 +273,12 @@
        (leaf-symbol-text text node))
      (match (read-next-non-skippable-nodes children 3)
        [(list (app node-symbol-text "module") _mod-id mod-path-node)
-        (Language-Prefix 'raw-module
-                         (token-node-text text mod-path-node)
+        (Language-Prefix (Module-Declaration (token-node-text text mod-path-node))
                          (token-node-start node)
                          (token-node-end mod-path-node)
                          start-idx)]
        [(list (app node-symbol-text "module") _ ...)
-        (Language-Prefix 'malformed-raw-module
-                         ""
+        (Language-Prefix (Module-Declaration #f)
                          (token-node-start node)
                          (token-node-end node)
                          start-idx)]
@@ -308,10 +335,27 @@
     (source->text+spans source))
   (parse-language-prefix-from-spans text spans idx))
 
+(define (language-declaration-malformed? declaration)
+  (not (Language-Declaration-name declaration)))
+
+(define (language-prefix-language-text language-prefix)
+  (Language-Declaration-name
+    (Language-Prefix-declaration language-prefix)))
+
+(define (language-prefix-delegate-text language-prefix)
+  (match (Language-Prefix-declaration language-prefix)
+    [(WrapperHashLang-Declaration _ delegate-name) delegate-name]
+    [_ #f]))
+
 (define (language-prefix->language language-prefix uri)
   (cond
     [language-prefix
-     (or (find-language-by-text (Language-Prefix-text language-prefix))
+     ;; In wrapper forms like `#lang at-exp racket/base`, the declaration name
+     ;; is the wrapper language (`at-exp`). The delegate is separate metadata.
+     (define maybe-language-text
+       (language-prefix-language-text language-prefix))
+     (or (and maybe-language-text
+              (find-language-by-text maybe-language-text))
          'unrecognized-language)]
     [else (guess-language-by-uri uri)]))
 
@@ -333,26 +377,25 @@
        ((or/c #f string?))
        Language-Info?)
   (define maybe-prefix (parse-language-prefix-from-spans text spans))
-  (define maybe-language (language-prefix->language maybe-prefix uri))
-  (define body-mode
-    (cond
-      [(and (Known-Language? maybe-language)
-            (Known-Language-sexp? maybe-language))
-       'sexp]
-      [(Known-Language? maybe-language)
-       'non-sexp]
-      [else 'unknown]))
+  (define maybe-language
+    (language-prefix->language maybe-prefix uri))
   (Language-Info maybe-prefix
                  maybe-language
-                 body-mode))
+                 (language->body-mode maybe-language)))
+
+(define (language->body-mode maybe-language)
+  (cond
+    [(not (Known-Language? maybe-language)) 'unknown]
+    [(Known-Language-sexp? maybe-language) 'sexp]
+    [else 'non-sexp]))
 
 (define/contract (sexp-language? source [uri #f])
   (->* ((or/c string? LexerSnapshot?))
        ((or/c #f string?))
        boolean?)
-  (define maybe-language (parse-language source uri))
-  (and (Known-Language? maybe-language)
-       (Known-Language-sexp? maybe-language)))
+  (define-values (text spans)
+    (source->text+spans source))
+  (eq? 'sexp (Language-Info-body-mode (lexer-language-info text spans uri))))
 
 (define (indenter-load-failure? e)
   (or (exn:fail:read? e)
@@ -367,8 +410,15 @@
     (and (procedure? maybe-language-info)
          (maybe-language-info 'drracket:indentation #f))))
 
-(provide (struct-out Language-Prefix)
-         language-prefix-source/c
+(provide (struct-out Language-Declaration)
+         (struct-out HashLang-Declaration)
+         (struct-out WrapperHashLang-Declaration)
+         (struct-out Reader-Declaration)
+         (struct-out Module-Declaration)
+         (struct-out Language-Prefix)
+         language-declaration-malformed?
+         language-prefix-language-text
+         language-prefix-delegate-text
          (struct-out Known-Language)
          Language-Info
          Language-Info?

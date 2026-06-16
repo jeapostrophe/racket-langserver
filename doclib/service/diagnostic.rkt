@@ -99,7 +99,6 @@
 
 (define language-diagnostic-source "Language Declaration Check")
 
-;; Return a diagnostic for a missing or unrecognized source language declaration.
 (define (language-diagnostic doc-text)
   (define text (send doc-text get-text))
   (define maybe-language-prefix (parse-language-prefix text))
@@ -107,12 +106,13 @@
     [(not maybe-language-prefix)
      (language-error-diag
        (first-line-range doc-text)
-       "Missing language declaration. Add a `#lang` line, `#reader`, or `(module ... <language> ...)` form.")]
-    [(find-language-by-text (Language-Prefix-text maybe-language-prefix)) #f]
-    [else
+       "Missing language header. Start the file with `#lang <language>`, `#reader <reader>`, or `(module <name> <language> ...)`.")]
+    [(language-declaration-malformed?
+       (Language-Prefix-declaration maybe-language-prefix))
      (language-error-diag
        (language-prefix-range doc-text maybe-language-prefix)
-       (unrecognized-language-message maybe-language-prefix))]))
+       "Incomplete language header. Provide the missing language or reader name.")]
+    [else #f]))
 
 (define (language-error-diag range message)
   (Diagnostic #:range range
@@ -140,18 +140,8 @@
 (define (language-prefix-range doc-text language-prefix)
   (nonempty-diagnostic-range
     doc-text
-    (Range #:start (abs-pos->Pos doc-text (Language-Prefix-start language-prefix))
-           #:end (abs-pos->Pos doc-text (Language-Prefix-end language-prefix)))))
-
-(define (unrecognized-language-message language-prefix)
-  (define language-text (Language-Prefix-text language-prefix))
-  (cond
-    [(not (string=? "" language-text))
-     (format
-       "Unrecognized language declaration `~a`. Check the language name or reader path."
-       language-text)]
-    [else
-     "Unrecognized language declaration. Check the language name after `#lang`, `#reader`, or in `(module ... <language> ...)`."]))
+    (Range #:start (abs-pos->Pos doc-text (Language-Prefix-start-pos language-prefix))
+           #:end (abs-pos->Pos doc-text (Language-Prefix-end-pos language-prefix)))))
 
 (define (error-diagnostics doc-text exn)
   (define msg (exn-message exn))

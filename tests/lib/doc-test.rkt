@@ -380,6 +380,11 @@
                 #:when (string=? (Diagnostic-message diag) expected-message))
       diag))
 
+  (define (language-declaration-diagnostics diags)
+    (for/list ([diag (in-list diags)]
+               #:when (string=? (Diagnostic-source diag) "Language Declaration Check"))
+      diag))
+
   (define (check-syntax-diagnostics uri text)
     (define doc-text (new lsp-editor%))
     (send doc-text insert text 0)
@@ -394,7 +399,7 @@
     (define diag
       (find-diagnostic-by-message
         diags
-        "Missing language declaration. Add a `#lang` line, `#reader`, or `(module ... <language> ...)` form."))
+        "Missing language header. Start the file with `#lang <language>`, `#reader <reader>`, or `(module <name> <language> ...)`."))
     (check-not-false diag)
     (check-equal? (Diagnostic-source diag) "Language Declaration Check")
     (define range (Diagnostic-range diag))
@@ -405,23 +410,24 @@
                   (string-length "(define x 1)")))
 
   (test-case
-    "Document diagnostics report unrecognized language declarations"
+    "Document diagnostics accept unknown language headers"
     (define text "#lang not-a-real-language\n1\n")
     (define diags
-      (check-syntax-diagnostics "file:///tmp/unrecognized-language-test.rkt"
+      (check-syntax-diagnostics "file:///tmp/unknown-language-test.rkt"
                                 text))
-    (define diag
-      (find-diagnostic-by-message
-        diags
-        "Unrecognized language declaration `not-a-real-language`. Check the language name or reader path."))
-    (check-not-false diag)
-    (check-equal? (Diagnostic-source diag) "Language Declaration Check")
-    (define range (Diagnostic-range diag))
-    (check-equal? (Pos-line (Range-start range)) 0)
-    (check-equal? (Pos-char (Range-start range)) 0)
-    (check-equal? (Pos-line (Range-end range)) 0)
-    (check-equal? (Pos-char (Range-end range))
-                  (string-length "#lang not-a-real-language")))
+    (check-equal? (language-declaration-diagnostics diags) '()))
+
+  (test-case
+    "Document diagnostics accept wrapped #lang declarations"
+    (define at-exp-diags
+      (check-syntax-diagnostics "file:///tmp/at-exp-language-test.rkt"
+                                "#lang at-exp racket\n@(+ 1 2)\n"))
+    (check-equal? (language-declaration-diagnostics at-exp-diags) '())
+
+    (define s-exp-diags
+      (check-syntax-diagnostics "file:///tmp/s-exp-language-test.rkt"
+                                "#lang s-exp racket/base\n(+ 1 2)\n"))
+    (check-equal? (language-declaration-diagnostics s-exp-diags) '()))
 
   (test-case
     "Document diagnostics use first line range for empty language spans"
@@ -432,7 +438,7 @@
     (define diag
       (find-diagnostic-by-message
         diags
-        "Unrecognized language declaration. Check the language name after `#lang`, `#reader`, or in `(module ... <language> ...)`."))
+        "Incomplete language header. Provide the missing language or reader name."))
     (check-not-false diag)
     (check-equal? (Diagnostic-source diag) "Language Declaration Check")
     (define range (Diagnostic-range diag))

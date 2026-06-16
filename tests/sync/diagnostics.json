@@ -11,5 +11,5 @@
     },
     "severity": 1,
     "source": "Language Declaration Check",
-    "message": "Unrecognized language declaration `racke`. Check the language name or reader path."
+    "message": "Invalid language header `racke`. Check the language name or reader path."
 }
