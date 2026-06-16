@@ -192,6 +192,10 @@
     ;; Turn each reported srcloc into a diagnostic, falling back to the first
     ;; line only when Racket reports the error without a usable position.
     [(exn:srclocs? exn)
+     (define diagnostic-msg
+       (if (exn:missing-module? exn)
+           (missing-module-message msg)
+           msg))
      (define srclocs ((exn:srclocs-accessor exn) exn))
      (for/list ([sl (in-list srclocs)])
        (match-define (srcloc src line col pos span) sl)
@@ -202,28 +206,44 @@
                                         #:end (Pos #:line (sub1 line) #:char (+ col span))))
                        #:severity DiagnosticSeverity-Error
                        #:source "Racket"
-                       #:message msg)
+                       #:message diagnostic-msg)
            ;; Some reader exceptions don't report a position
            (Diagnostic #:range (first-line-range doc-text)
                        #:severity DiagnosticSeverity-Error
                        #:source "Racket"
-                       #:message msg)))]
+                       #:message diagnostic-msg)))]
     ;; Missing module exceptions tell us which module could not be loaded, but
     ;; not which `require` form in the user's file triggered the lookup. Publish
     ;; the message at a document-level range instead of guessing the require.
     [(exn:missing-module? exn)
-     ;; Hack:
-     ;; We do not have any source location for the offending `require`, but the language
-     ;; server protocol requires a valid range object. So highlight the first line.
-     ;; This is very close to DrRacket's behavior:  it also has no source location to work with,
-     ;; however it simply doesn't highlight any code.
      (list (Diagnostic #:range (first-line-range doc-text)
                        #:severity DiagnosticSeverity-Error
                        #:source "Racket"
-                       #:message msg))]
+                       #:message (missing-module-message msg)))]
     ;; If a new kind of expansion failure reaches this point, fail loudly so we
     ;; can decide how to map it into an LSP diagnostic.
     [else (error 'error-diagnostics "unexpected failure: ~a" exn)]))
+
+(define (missing-module-message msg)
+  (define maybe-module-path
+    (match (regexp-match #rx"for module path: ([^\n]+)" msg)
+      [(list _ module-path) module-path]
+      [_ #f]))
+  (define maybe-collection
+    (match (regexp-match #rx"collection: \"([^\"]+)\"" msg)
+      [(list _ collection) collection]
+      [_ #f]))
+  (cond
+    [(and maybe-module-path maybe-collection)
+     (format (string-append
+               "Cannot find module \"~a\" in collection \"~a\".\n"
+               "Check that the module name is correct and the package is installed.")
+             maybe-module-path
+             maybe-collection)]
+    [else
+     (string-append
+       "Cannot find required module.\n"
+       "Check that the module or collection name is correct and the package is installed.")]))
 
 (define (check-typed-racket-log doc-text log)
   (match-define (vector _ msg data _) log)

@@ -2,15 +2,10 @@
 
 (module+ test
   (require rackunit
+           json
+           racket/port
            "../client.rkt"
            "../../common/json-util.rkt")
-
-  (define (has-racket-collection-not-found-diagnostic? notification)
-    (for/or ([diagnostic (in-list (jsexpr-ref notification '(params diagnostics)))])
-      (and (equal? "Racket" (jsexpr-ref diagnostic '(source)))
-           (regexp-match?
-             #rx"^standard-module-name-resolver: collection not found"
-             (jsexpr-ref diagnostic '(message))))))
 
   (with-racket-lsp
     (λ (lsp)
@@ -28,7 +23,9 @@
       (let ([resp (client-wait-notification lsp)])
         (check-true (jsexpr-has-key? resp '(params diagnostics)))
         (check-false (null? (jsexpr-ref resp '(params diagnostics))))
-        (check-true (has-racket-collection-not-found-diagnostic? resp)))
+        (check-true
+          (client-has-diagnostic? resp
+                                  (read-json (open-input-file "diagnostics.json")))))
 
 
       (define didchange-req
@@ -51,4 +48,3 @@
                            (hasheq 'textDocument
                                    (hasheq 'uri "file:///test.rkt"))))
       (client-send lsp didclose-req))))
-

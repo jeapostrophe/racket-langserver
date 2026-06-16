@@ -10,6 +10,6 @@
         }
     },
     "severity": 1,
-    "source": "Language Declaration Check",
-    "message": "Invalid language header `racke`. Check the language name or reader path."
+    "source": "Racket",
+    "message": "Cannot find module \"racke/lang/reader\" in collection \"racke/lang\".\nCheck that the module name is correct and the package is installed."
 }

@@ -418,6 +418,36 @@
     (check-equal? (language-declaration-diagnostics diags) '()))
 
   (test-case
+    "Document diagnostics simplify missing collection messages"
+    (define text "#lang racke\n")
+    (define diags
+      (check-syntax-diagnostics "file:///tmp/missing-collection-test.rkt"
+                                text))
+    (define diag
+      (find-diagnostic-by-message
+        diags
+        (string-append
+          "Cannot find module \"racke/lang/reader\" in collection \"racke/lang\".\n"
+          "Check that the module name is correct and the package is installed.")))
+    (check-not-false diag)
+    (check-equal? (Diagnostic-source diag) "Racket"))
+
+  (test-case
+    "Document diagnostics do not label requires as #lang failures"
+    (define text "#lang racket/base\n(require racke/lang/reader)\n")
+    (define diags
+      (check-syntax-diagnostics "file:///tmp/missing-require-collection-test.rkt"
+                                text))
+    (define diag
+      (find-diagnostic-by-message
+        diags
+        (string-append
+          "Cannot find module \"racke/lang/reader\" in collection \"racke/lang\".\n"
+          "Check that the module name is correct and the package is installed.")))
+    (check-not-false diag)
+    (check-equal? (Diagnostic-source diag) "Racket"))
+
+  (test-case
     "Document diagnostics accept wrapped #lang declarations"
     (define at-exp-diags
       (check-syntax-diagnostics "file:///tmp/at-exp-language-test.rkt"
