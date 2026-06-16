@@ -15,6 +15,16 @@
          "lexer.rkt"
          (only-in "lexer/state.rkt"
                   lexer-state-body-forest)
+         (only-in "lexer/token-tree.rkt"
+                  Token-Leaf? Token-Leaf-span
+                  Token-List? Token-List-children
+                  Token-Prefix-Tree?
+                  Token-Forest-nodes
+                  token-node-children
+                  token-node-start
+                  token-node-end
+                  non-skippable-node?
+                  token-leaf-type?)
          "doc-lang.rkt"
          racket/match
          racket/contract
@@ -795,6 +805,184 @@
       #:location (Location #:uri uri
                            #:range range))))
 
+;; Hierarchical Document Symbols: returns a tree of DocumentSymbol.
+;;
+;; The tree is built by recursing over the lexer's token forest, which already
+;; encodes paren nesting. Definition-like forms (define, struct, module+, ...)
+;; become symbols whose `range` spans the whole form and whose `selectionRange`
+;; covers the defined name; any other form is transparent and passes nested
+;; definitions up to the enclosing symbol. The forest tolerates incomplete code
+;; (forms left open mid-edit still parse to the end of the document), so the
+;; symbol tree stays stable during editing.
+
+;; Maps the head symbol of a form to how its SymbolKind is chosen. 'fn-or-var
+;; picks Function when the defined name uses the function shorthand
+;; (define (f x) ...) and Variable otherwise.
+(define *definition-form-kinds*
+  (hash "define" 'fn-or-var
+        "define/contract" 'fn-or-var
+        "define/public" 'fn-or-var
+        "define/private" 'fn-or-var
+        "define/override" 'fn-or-var
+        "define/augment" 'fn-or-var
+        "define-values" SymbolKind-Variable
+        "define-syntax" 'fn-or-var
+        "define-syntax-rule" SymbolKind-Function
+        "define-syntaxes" SymbolKind-Variable
+        "define-match-expander" SymbolKind-Function
+        "define-struct" SymbolKind-Struct
+        "struct" SymbolKind-Struct
+        "module" SymbolKind-Module
+        "module+" SymbolKind-Module
+        "module*" SymbolKind-Module))
+
+;; Container forms become a symbol named after their own head so that
+;; scrolling inside a long body keeps a sticky header even though the form
+;; defines no name itself.
+(define *container-form-kinds*
+  (hash "provide" SymbolKind-Namespace
+        "require" SymbolKind-Namespace
+        "class" SymbolKind-Class
+        "class*" SymbolKind-Class
+        "match" SymbolKind-Object
+        "match*" SymbolKind-Object
+        "cond" SymbolKind-Object
+        "for" SymbolKind-Object
+        "for/list" SymbolKind-Object
+        "for/vector" SymbolKind-Object
+        "for/hash" SymbolKind-Object
+        "for/hasheq" SymbolKind-Object
+        "for/hasheqv" SymbolKind-Object
+        "for/hashalw" SymbolKind-Object
+        "for/and" SymbolKind-Object
+        "for/or" SymbolKind-Object
+        "for/sum" SymbolKind-Object
+        "for/product" SymbolKind-Object
+        "for/lists" SymbolKind-Object
+        "for/first" SymbolKind-Object
+        "for/last" SymbolKind-Object
+        "for/fold" SymbolKind-Object
+        "for/foldr" SymbolKind-Object))
+
+;; Class member forms: every name they declare becomes a Field symbol, either
+;; a bare name as in (field z) or a binding group as in (field [y 0]).
+(define *field-form-heads*
+  (set "field" "init-field" "init"))
+
+(define/contract (doc-symbols-hierarchical doc)
+  (-> Doc? (listof DocumentSymbol?))
+  ;; Paren tracking means nothing in non-sexp languages (e.g. Rhombus,
+  ;; Scribble): form extents are set by blocks or markup rather than parens,
+  ;; so any symbol the walker produced would have a bogus range. Report no
+  ;; symbols instead. Unknown languages keep the sexp treatment, matching the
+  ;; lexer fallback used elsewhere.
+  (if (eq? (Language-Info-body-mode (doc-language-info doc)) 'non-sexp)
+      '()
+      (doc-symbols-hierarchical/sexp doc)))
+
+;; Walk the lexer's token forest. Each `(...)` form is a Token-List whose head
+;; is its first meaningful child. A definition form becomes a symbol named after
+;; the bound name, a container form a symbol named after its own head, and a
+;; field form one Field symbol per declared name. Any other form is transparent:
+;; it contributes its nested definitions to the enclosing scope. The forest
+;; already tracks paren nesting and tolerates unclosed mid-edit forms, so this
+;; reuses that structure instead of re-deriving it from the flat token stream.
+(define (doc-symbols-hierarchical/sexp doc)
+  (define text (LexerSnapshot-text (doc-lexer-snapshot doc)))
+  (define (span-text span)
+    (substring text (LexerTokenSpan-start span) (LexerTokenSpan-end span)))
+
+  (define (symbol-leaf? node)
+    (and (Token-Leaf? node)
+         (token-leaf-type? node 'symbol)))
+
+  (define (meaningful nodes)
+    (filter non-skippable-node? nodes))
+
+  ;; The first symbol leaf in pre-order across `nodes`, descending into lists
+  ;; and prefix forms. This is the bound name of a definition, e.g. `f` in
+  ;; `(define (f x) ...)` or `a` in `(define-values (a b) ...)`.
+  (define (first-symbol-span nodes)
+    (for/or ([node (in-list (meaningful nodes))])
+      (cond
+        [(symbol-leaf? node) (Token-Leaf-span node)]
+        [else (first-symbol-span (token-node-children node))])))
+
+  (define (node->document-symbol node name-span kind children)
+    (DocumentSymbol
+      #:name (span-text name-span)
+      #:kind kind
+      #:range (abs-range->range doc
+                                (token-node-start node)
+                                (token-node-end node))
+      #:selectionRange (abs-range->range doc
+                                         (LexerTokenSpan-start name-span)
+                                         (LexerTokenSpan-end name-span))
+      #:children children))
+
+  (define (definition-symbol-kind head function?)
+    (match (hash-ref *definition-form-kinds* head)
+      ['fn-or-var (if function? SymbolKind-Function SymbolKind-Variable)]
+      [kind kind]))
+
+  (define (collect-symbols nodes)
+    (append-map (lambda (node)
+                  ;; Symbols contributed by `node` to its enclosing scope.
+                  (cond
+                    [(Token-List? node) (list-symbols node)]
+                    ;; A quoted/prefixed datum is transparent to symbol collection.
+                    [(Token-Prefix-Tree? node) (collect-symbols (token-node-children node))]
+                    [else '()]))
+                (meaningful nodes)))
+
+  (define (list-symbols node)
+    (define forms (meaningful (Token-List-children node)))
+    (define head-node (and (pair? forms) (car forms)))
+    (define head (and head-node
+                      (symbol-leaf? head-node)
+                      (span-text (Token-Leaf-span head-node))))
+    (define args (if (pair? forms) (cdr forms) '()))
+    (cond
+      [(and head (set-member? *field-form-heads* head)
+            ;; A field form like `(field z)`, `(field [y 0])`, or a mix declares one Field
+            ;; per argument: a bare name covers just the name, a binding group covers the
+            ;; whole `[name v]`.
+            (filter-map
+              (lambda (node)
+                (define name-span
+                  (cond
+                    [(symbol-leaf? node) (Token-Leaf-span node)]
+                    [(Token-List? node) (first-symbol-span (Token-List-children node))]
+                    [else #f]))
+                (and name-span
+                     (node->document-symbol node name-span SymbolKind-Field '())))
+              args))]
+      ;; A container form is its own name, so scrolling its body keeps a sticky
+      ;; header even though the form binds no name itself.
+      [(and head (hash-has-key? *container-form-kinds* head))
+       (list (node->document-symbol node
+                                    (Token-Leaf-span head-node)
+                                    (hash-ref *container-form-kinds* head)
+                                    (collect-symbols args)))]
+      [(and head (hash-has-key? *definition-form-kinds* head))
+       (define name-span (first-symbol-span args))
+       (cond
+         [name-span
+          ;; The function shorthand `(define (f x) ...)` puts the name inside a
+          ;; nested list, so the first argument is a list rather than a symbol.
+          (define function? (and (pair? args) (not (symbol-leaf? (car args)))))
+          (list (node->document-symbol node
+                                       name-span
+                                       (definition-symbol-kind head function?)
+                                       ;; The first argument is the name header;
+                                       ;; nested definitions live in the body.
+                                       (collect-symbols (cdr args))))]
+         ;; A definition head with no name yet (mid-edit) is transparent.
+         [else (collect-symbols args)])]
+      [else (collect-symbols args)]))
+
+  (collect-symbols (Token-Forest-nodes (doc-body-forest doc))))
+
 (provide Doc?
          Doc-version
          Doc-uri
@@ -844,4 +1032,5 @@
          doc-rename
          doc-prepare-rename
          doc-symbols
-         )
+         doc-symbols-hierarchical)
+
