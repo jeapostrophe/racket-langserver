@@ -233,7 +233,19 @@
     (match (regexp-match #rx"collection: \"([^\"]+)\"" msg)
       [(list _ collection) collection]
       [_ #f]))
+  (define maybe-language
+    (and maybe-module-path
+         (match (regexp-match #rx"^(.+)/lang/reader$" maybe-module-path)
+           [(list _ language) language]
+           [_ #f])))
   (cond
+    [maybe-language
+     (format (string-append
+               "Cannot find language \"~a\".\n"
+               "  module path: ~a\n"
+               "Check that the language name is correct and the package is installed.")
+             maybe-language
+             maybe-module-path)]
     [(and maybe-module-path maybe-collection)
      (format (string-append
                "Cannot find module \"~a\" in collection \"~a\".\n"

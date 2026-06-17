@@ -427,8 +427,9 @@
       (find-diagnostic-by-message
         diags
         (string-append
-          "Cannot find module \"racke/lang/reader\" in collection \"racke/lang\".\n"
-          "Check that the module name is correct and the package is installed.")))
+          "Cannot find language \"racke\".\n"
+          "  module path: racke/lang/reader\n"
+          "Check that the language name is correct and the package is installed.")))
     (check-not-false diag)
     (check-equal? (Diagnostic-source diag) "Racket"))
 
@@ -442,7 +443,23 @@
       (find-diagnostic-by-message
         diags
         (string-append
-          "Cannot find module \"racke/lang/reader\" in collection \"racke/lang\".\n"
+          "Cannot find language \"racke\".\n"
+          "  module path: racke/lang/reader\n"
+          "Check that the language name is correct and the package is installed.")))
+    (check-not-false diag)
+    (check-equal? (Diagnostic-source diag) "Racket"))
+
+  (test-case
+    "Document diagnostics report missing require modules"
+    (define text "#lang racket/base\n(require foo/bar)\n")
+    (define diags
+      (check-syntax-diagnostics "file:///tmp/missing-require-module-test.rkt"
+                                text))
+    (define diag
+      (find-diagnostic-by-message
+        diags
+        (string-append
+          "Cannot find module \"foo/bar\" in collection \"foo\".\n"
           "Check that the module name is correct and the package is installed.")))
     (check-not-false diag)
     (check-equal? (Diagnostic-source diag) "Racket"))
