@@ -313,6 +313,9 @@
 (define (doc-language-policy doc)
   (LexerState-language-policy (doc-lexer-state doc)))
 
+(define (doc-language-body-mode doc)
+  (Language-Policy-body-mode (doc-language-policy doc)))
+
 (define (doc-body-forest doc)
   (lexer-state-body-forest (doc-lexer-state doc)))
 
@@ -360,7 +363,7 @@
   (values start-line (max start-line (min requested-end-line last-line))))
 
 (define (doc-sexp-language? doc)
-  (eq? 'sexp (Language-Info-body-mode (doc-language-info doc))))
+  (eq? 'sexp (doc-language-body-mode doc)))
 
 (define (doc-on-type-formatting-range doc pos ch)
   (define ch-pos (max 0 (sub1 (doc-pos->abs-pos doc pos))))
@@ -885,7 +888,7 @@
   ;; so any symbol the walker produced would have a bogus range. Report no
   ;; symbols instead. Unknown languages keep the sexp treatment, matching the
   ;; lexer fallback used elsewhere.
-  (if (eq? (Language-Info-body-mode (doc-language-info doc)) 'non-sexp)
+  (if (eq? (doc-language-body-mode doc) 'non-sexp)
       '()
       (doc-symbols-hierarchical/sexp doc)))
 
