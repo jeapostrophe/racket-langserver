@@ -701,8 +701,25 @@ Exceptions are noted in individual entries.
   Returns a list of @racket[TextEdit] values to apply. For documents without
   a recognized s-expression language, returns an empty list.
 
-  When @tt{on-type?} is @racket[#t], blank lines are indented too. This mode is
-  intended for on-type formatting triggered by pressing Enter.
+  When @tt{on-type?} is @racket[#t], blank lines are indented too. For LSP
+  on-type formatting requests, prefer @racket[doc-on-type-format-edits].
+
+  Formatting is performed on an internal copy of the document; the doc is not
+  mutated by this call. Pass the result to @racket[doc-apply-edits!] to apply
+  the edits.
+}
+
+@defproc[(doc-on-type-format-edits [doc Doc?]
+                                   [pos Pos?]
+                                   [ch string?]
+                                   [#:formatting-options opts FormattingOptions?])
+         (or/c (listof TextEdit?) #f)]{
+  Computes formatting edits for an on-type formatting trigger. The @tt{pos}
+  argument is the cursor position after @tt{ch} has been inserted.
+
+  For recognized s-expression languages, close delimiters format the containing
+  form, and other triggers format the current line. For non-s-expression or
+  unrecognized languages, returns an empty list.
 
   Formatting is performed on an internal copy of the document; the doc is not
   mutated by this call. Pass the result to @racket[doc-apply-edits!] to apply

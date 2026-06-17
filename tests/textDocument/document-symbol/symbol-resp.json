@@ -1,0 +1,82 @@
+{
+    "id": 0,
+    "jsonrpc": "2.0",
+    "result": [
+        {
+            "children": [],
+            "kind": 13,
+            "name": "x",
+            "range": {
+                "end": {
+                    "character": 12,
+                    "line": 1
+                },
+                "start": {
+                    "character": 0,
+                    "line": 1
+                }
+            },
+            "selectionRange": {
+                "end": {
+                    "character": 9,
+                    "line": 1
+                },
+                "start": {
+                    "character": 8,
+                    "line": 1
+                }
+            }
+        },
+        {
+            "children": [
+                {
+                    "children": [],
+                    "kind": 13,
+                    "name": "inner",
+                    "range": {
+                        "end": {
+                            "character": 18,
+                            "line": 3
+                        },
+                        "start": {
+                            "character": 2,
+                            "line": 3
+                        }
+                    },
+                    "selectionRange": {
+                        "end": {
+                            "character": 15,
+                            "line": 3
+                        },
+                        "start": {
+                            "character": 10,
+                            "line": 3
+                        }
+                    }
+                }
+            ],
+            "kind": 12,
+            "name": "f",
+            "range": {
+                "end": {
+                    "character": 8,
+                    "line": 4
+                },
+                "start": {
+                    "character": 0,
+                    "line": 2
+                }
+            },
+            "selectionRange": {
+                "end": {
+                    "character": 10,
+                    "line": 2
+                },
+                "start": {
+                    "character": 9,
+                    "line": 2
+                }
+            }
+        }
+    ]
+}

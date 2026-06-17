@@ -8,12 +8,14 @@
          make-expected-response
          make-notification)
 
-(require "../client.rkt")
+(require json
+         "../client.rkt")
 
-(define/contract (with-document uri text proc)
-  (-> string? string? (-> any/c any/c) any/c)
+(define/contract (with-document uri text proc #:capabilities [capabilities (hasheq)])
+  (->* (string? string? (-> any/c any/c)) (#:capabilities jsexpr?) any/c)
 
   (with-racket-lsp
+    #:capabilities capabilities
     (λ (lsp)
       (define didopen-req
         (make-notification "textDocument/didOpen"

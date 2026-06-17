@@ -240,6 +240,11 @@
            (jsexpr-ref capabilities '(workspace configuration))
            #f))
 
+     (text-document/client-capability-hierarchical-document-symbol?
+       (if (jsexpr-has-key? capabilities '(textDocument documentSymbol hierarchicalDocumentSymbolSupport))
+           (jsexpr-ref capabilities '(textDocument documentSymbol hierarchicalDocumentSymbolSupport))
+           #f))
+
      ;; If both `rootPath` and `rootUri` are set, then `rootUri` wins.
      ;; null is there are no folder is open.
      (cond
