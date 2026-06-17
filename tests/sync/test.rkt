@@ -48,3 +48,4 @@
                            (hasheq 'textDocument
                                    (hasheq 'uri "file:///test.rkt"))))
       (client-send lsp didclose-req))))
+
