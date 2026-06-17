@@ -11,5 +11,5 @@
     },
     "severity": 1,
     "source": "Racket",
-    "message": "Cannot find module \"racke/lang/reader\" in collection \"racke/lang\".\nCheck that the module name is correct and the package is installed."
+    "message": "Cannot find language \"racke\".\n  module path: racke/lang/reader\nCheck that the language name is correct and the package is installed."
 }

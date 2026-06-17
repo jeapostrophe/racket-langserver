@@ -13,7 +13,7 @@
          build-lexer-state
          LexerState?
          LexerState-snapshot
-         LexerState-language-info
+         LexerState-language-policy
          lexer-state-body-mode
          lexer-state-token-at
          lexer-state-symbol-at
@@ -26,9 +26,5 @@
          for-each-lexer-snapshot-entry
          lexer-snapshot-token-at
          lexer-snapshot-symbol-at
-         lexer-language-info
-         Language-Info
-         Language-Info?
-         Language-Info-prefix
-         Language-Info-language
-         Language-Info-body-mode)
+         lexer-language-policy
+         (struct-out Language-Policy))

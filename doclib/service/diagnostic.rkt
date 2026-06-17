@@ -10,7 +10,11 @@
          data/interval-map
          "../../common/interfaces.rkt"
          "../internal-types.rkt"
-         "../doc-lang.rkt"
+         (only-in "../lexer.rkt"
+                  LexerState-language-policy
+                  Language-Policy-header-range
+                  Language-Policy-header-status
+                  Language-Policy-require-header?)
          "../../common/path-util.rkt"
          drracket/check-syntax)
 
@@ -18,7 +22,7 @@
 
 (define diag%
   (class base-service%
-    (init-field src doc-text)
+    (init-field src doc-text lexer-state)
     (super-new)
 
     (define diags (mutable-seteq))
@@ -43,8 +47,7 @@
       (define pre-exn (ExpandResult-pre-exn expand-result))
       (define post-exn (ExpandResult-post-exn expand-result))
       (define maybe-language-diag
-        (and (requires-language-declaration? src)
-             (language-diagnostic doc-text)))
+        (language-diagnostic doc-text (LexerState-language-policy lexer-state)))
       (when maybe-language-diag
         (add-diag! maybe-language-diag))
       (when pre-exn
@@ -97,20 +100,19 @@
                                #:message "unused require"))
       (add-diag! diag))))
 
-(define language-diagnostic-source "Language Declaration Check")
+(define language-diagnostic-source "Language Header Check")
 
-(define (language-diagnostic doc-text)
-  (define text (send doc-text get-text))
-  (define maybe-language-prefix (parse-language-prefix text))
+(define (language-diagnostic doc-text policy)
   (cond
-    [(not maybe-language-prefix)
+    [(not (Language-Policy-require-header? policy))
+     #f]
+    [(eq? 'missing (Language-Policy-header-status policy))
      (language-error-diag
        (first-line-range doc-text)
        "Missing language header. Start the file with `#lang <language>`, `#reader <reader>`, or `(module <name> <language> ...)`.")]
-    [(language-declaration-malformed?
-       (Language-Prefix-declaration maybe-language-prefix))
+    [(eq? 'incomplete (Language-Policy-header-status policy))
      (language-error-diag
-       (language-prefix-range doc-text maybe-language-prefix)
+       (language-header-range doc-text (Language-Policy-header-range policy))
        "Incomplete language header. Provide the missing language or reader name.")]
     [else #f]))
 
@@ -137,11 +139,11 @@
   (Range #:start (abs-pos->Pos doc-text start)
          #:end (abs-pos->Pos doc-text end)))
 
-(define (language-prefix-range doc-text language-prefix)
+(define (language-header-range doc-text char-range)
   (nonempty-diagnostic-range
     doc-text
-    (Range #:start (abs-pos->Pos doc-text (Language-Prefix-start-pos language-prefix))
-           #:end (abs-pos->Pos doc-text (Language-Prefix-end-pos language-prefix)))))
+    (Range #:start (abs-pos->Pos doc-text (CharRange-start char-range))
+           #:end (abs-pos->Pos doc-text (CharRange-end char-range)))))
 
 (define (error-diagnostics doc-text exn)
   (define msg (exn-message exn))
