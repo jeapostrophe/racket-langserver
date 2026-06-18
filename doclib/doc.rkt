@@ -56,8 +56,13 @@
        Doc?)
   (define doc-text (new lsp-editor%))
   (send doc-text insert text 0)
+  (define lexer-state (build-lexer-state text uri))
   ;; the init trace should not be #f
-  (define doc-trace (new build-trace% [src (uri->path uri)] [doc-text doc-text]))
+  (define doc-trace
+    (new build-trace%
+      [src (uri->path uri)]
+      [doc-text doc-text]
+      [lexer-state lexer-state]))
   (Doc uri doc-text doc-trace version #f (list) (make-lazy-cache)))
 
 (define (invalidate-resyntax-results! doc)
@@ -196,9 +201,9 @@
                                 (text-edit-end doc edit)
                                 (TextEdit-newText edit)))))
 
-(define/contract (doc-expand uri doc-text)
-  (-> string? (is-a?/c lsp-editor%) CSResult?)
-  (check-syntax uri doc-text))
+(define/contract (doc-expand uri doc-text lexer-state)
+  (-> string? (is-a?/c lsp-editor%) LexerState? CSResult?)
+  (check-syntax uri doc-text lexer-state))
 
 (define/contract (doc-update-trace! doc new-trace new-version)
   (-> Doc? (is-a?/c build-trace%) exact-nonnegative-integer? void?)
@@ -211,7 +216,10 @@
 
 (define/contract (doc-expand! doc)
   (-> Doc? boolean?)
-  (define result (doc-expand (Doc-uri doc) (Doc-text doc)))
+  (define result
+    (doc-expand (Doc-uri doc)
+                (Doc-text doc)
+                (doc-lexer-state doc)))
   (define new-trace (CSResult-trace result))
   (cond [(CSResult-succeed? result)
          (doc-update-trace! doc new-trace (Doc-version doc))
@@ -302,8 +310,11 @@
 (define (doc-lexer-snapshot doc)
   (LexerState-snapshot (doc-lexer-state doc)))
 
-(define (doc-language-info doc)
-  (LexerState-language-info (doc-lexer-state doc)))
+(define (doc-language-policy doc)
+  (LexerState-language-policy (doc-lexer-state doc)))
+
+(define (doc-language-body-mode doc)
+  (Language-Policy-body-mode (doc-language-policy doc)))
 
 (define (doc-body-forest doc)
   (lexer-state-body-forest (doc-lexer-state doc)))
@@ -352,7 +363,7 @@
   (values start-line (max start-line (min requested-end-line last-line))))
 
 (define (doc-sexp-language? doc)
-  (eq? 'sexp (Language-Info-body-mode (doc-language-info doc))))
+  (eq? 'sexp (doc-language-body-mode doc)))
 
 (define (doc-on-type-formatting-range doc pos ch)
   (define ch-pos (max 0 (sub1 (doc-pos->abs-pos doc pos))))
@@ -393,8 +404,9 @@
   (define-values (start-line end-line)
     (formatting-range->lines doc-text fmt-range))
   (define text (send doc-text get-text))
+  (define policy (doc-language-policy doc))
   (cond
-    [(sexp-language? text (Doc-uri doc))
+    [(Language-Policy-format? policy)
      (formatting text
                  start-line
                  end-line
@@ -876,7 +888,7 @@
   ;; so any symbol the walker produced would have a bogus range. Report no
   ;; symbols instead. Unknown languages keep the sexp treatment, matching the
   ;; lexer fallback used elsewhere.
-  (if (eq? (Language-Info-body-mode (doc-language-info doc)) 'non-sexp)
+  (if (eq? (doc-language-body-mode doc) 'non-sexp)
       '()
       (doc-symbols-hierarchical/sexp doc)))
 
@@ -1007,7 +1019,7 @@
          doc-range-tokens
          doc-token-at
          doc-token-prefix-at
-         doc-language-info
+         doc-language-policy
          doc-body-forest
          doc-expand
          doc-update-trace!

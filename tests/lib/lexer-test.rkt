@@ -357,9 +357,9 @@
     "unknown-language body mode is unknown"
     (define text "#lang not-a-real-language\n(define x 1)\n")
     (define snapshot (build-lexer-snapshot text))
-    (define info (lexer-language-info (LexerSnapshot-text snapshot)
-                                      (LexerSnapshot-tokens snapshot)))
-    (check-equal? (Language-Info-body-mode info) 'unknown))
+    (define policy (lexer-language-policy (LexerSnapshot-text snapshot)
+                                          (LexerSnapshot-tokens snapshot)))
+    (check-equal? (Language-Policy-body-mode policy) 'unknown))
 
   (test-case
     "unknown-language still builds a forest for editor affordances"
@@ -372,18 +372,18 @@
       '()))
 
   (test-case
-    "unknown #reader and raw modules also produce unknown language info"
+    "unknown #reader and raw modules also produce unknown language policy"
     (define reader-text "#reader does/not/exist\nbody\n")
     (define reader-snapshot (build-lexer-snapshot reader-text))
-    (define reader-info (lexer-language-info (LexerSnapshot-text reader-snapshot)
-                                             (LexerSnapshot-tokens reader-snapshot)))
-    (check-equal? (Language-Info-body-mode reader-info) 'unknown)
+    (define reader-policy (lexer-language-policy (LexerSnapshot-text reader-snapshot)
+                                                 (LexerSnapshot-tokens reader-snapshot)))
+    (check-equal? (Language-Policy-body-mode reader-policy) 'unknown)
 
     (define module-text "(module demo does/not/exist (define x 1))\n")
     (define module-snapshot (build-lexer-snapshot module-text))
-    (define module-info (lexer-language-info (LexerSnapshot-text module-snapshot)
-                                             (LexerSnapshot-tokens module-snapshot)))
-    (check-equal? (Language-Info-body-mode module-info) 'unknown))
+    (define module-policy (lexer-language-policy (LexerSnapshot-text module-snapshot)
+                                                 (LexerSnapshot-tokens module-snapshot)))
+    (check-equal? (Language-Policy-body-mode module-policy) 'unknown))
 
   (test-case
     "lexer snapshot position queries return token and symbol entries"

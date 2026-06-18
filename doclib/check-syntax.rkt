@@ -8,7 +8,10 @@
          racket/port
          "editor.rkt"
          "doc-trace.rkt"
-         "doc-lang.rkt"
+         (only-in "lexer.rkt"
+                  LexerState?
+                  LexerState-language-policy
+                  Language-Policy-expand?)
          "../common/path-util.rkt"
          "internal-types.rkt")
 
@@ -53,11 +56,16 @@
    [succeed? boolean?])
   #:transparent)
 
-(define (check-syntax uri doc-text)
+(define (check-syntax uri doc-text lexer-state)
   (define path (uri->path uri))
   (define text (send doc-text get-text))
-  (define expand? (requires-expansion? path))
-  (define new-trace (new build-trace% [src path] [doc-text doc-text]))
+  (define active-policy (LexerState-language-policy lexer-state))
+  (define expand? (Language-Policy-expand? active-policy))
+  (define new-trace
+    (new build-trace%
+      [src path]
+      [doc-text doc-text]
+      [lexer-state lexer-state]))
 
   (define in (open-input-string text))
   (define er (expand-source path in new-trace #:expand? expand?))
@@ -75,4 +83,4 @@
     [expand-source (->* (path? input-port? (is-a?/c syncheck-annotations<%>))
                         (#:expand? boolean?)
                         ExpandResult?)]
-    [check-syntax (-> string? (is-a?/c lsp-editor%) CSResult?)]))
+    [check-syntax (-> string? (is-a?/c lsp-editor%) LexerState? CSResult?)]))

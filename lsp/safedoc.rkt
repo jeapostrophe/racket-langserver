@@ -8,6 +8,7 @@
 (require "../common/rwlock.rkt"
          "../doclib/doc.rkt"
          "../doclib/check-syntax.rkt"
+         "../doclib/lexer.rkt"
          "../doclib/external/resyntax.rkt"
          "resyntax-place.rkt"
          "scheduler.rkt"
@@ -112,7 +113,9 @@
           (send-doc-diagnostics notify-client doc)))))
 
   (define (check-syntax-task)
-    (define result (doc-expand uri text-buffer-copy))
+    (define text (send text-buffer-copy get-text))
+    (define lexer-state (build-lexer-state text uri))
+    (define result (doc-expand uri text-buffer-copy lexer-state))
 
     (with-write-safedoc safe-doc
       (lambda (sd)

@@ -10,6 +10,6 @@
         }
     },
     "severity": 1,
-    "source": "Language Declaration Check",
-    "message": "Unrecognized language declaration `racke`. Check the language name or reader path."
+    "source": "Racket",
+    "message": "Cannot find language \"racke\".\n  module path: racke/lang/reader\nCheck that the language name is correct and the package is installed."
 }

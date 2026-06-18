@@ -7,6 +7,7 @@
            "../../doclib/check-syntax.rkt"
            "../../doclib/editor.rkt"
            "../../doclib/internal-types.rkt"
+           "../../doclib/lexer.rkt"
            "../../common/interfaces.rkt"
            racket/class
            racket/file
@@ -420,13 +421,19 @@
                 #:when (string=? (Diagnostic-message diag) expected-message))
       diag))
 
+  (define (language-header-diagnostics diags)
+    (for/list ([diag (in-list diags)]
+               #:when (string=? (Diagnostic-source diag) "Language Header Check"))
+      diag))
+
   (define (check-syntax-diagnostics uri text)
     (define doc-text (new lsp-editor%))
     (send doc-text insert text 0)
-    (set->list (send (CSResult-trace (check-syntax uri doc-text)) get-warn-diags)))
+    (define lexer-state (build-lexer-state text uri))
+    (set->list (send (CSResult-trace (check-syntax uri doc-text lexer-state)) get-warn-diags)))
 
   (test-case
-    "Document diagnostics report missing language declarations"
+    "Document diagnostics report missing language headers"
     (define text "(define x 1)\n")
     (define diags
       (check-syntax-diagnostics "file:///tmp/missing-language-test.rkt"
@@ -434,9 +441,9 @@
     (define diag
       (find-diagnostic-by-message
         diags
-        "Missing language declaration. Add a `#lang` line, `#reader`, or `(module ... <language> ...)` form."))
+        "Missing language header. Start the file with `#lang <language>`, `#reader <reader>`, or `(module <name> <language> ...)`."))
     (check-not-false diag)
-    (check-equal? (Diagnostic-source diag) "Language Declaration Check")
+    (check-equal? (Diagnostic-source diag) "Language Header Check")
     (define range (Diagnostic-range diag))
     (check-equal? (Pos-line (Range-start range)) 0)
     (check-equal? (Pos-char (Range-start range)) 0)
@@ -445,23 +452,71 @@
                   (string-length "(define x 1)")))
 
   (test-case
-    "Document diagnostics report unrecognized language declarations"
+    "Document diagnostics accept unknown language headers"
     (define text "#lang not-a-real-language\n1\n")
     (define diags
-      (check-syntax-diagnostics "file:///tmp/unrecognized-language-test.rkt"
+      (check-syntax-diagnostics "file:///tmp/unknown-language-test.rkt"
+                                text))
+    (check-equal? (language-header-diagnostics diags) '()))
+
+  (test-case
+    "Document diagnostics simplify missing collection messages"
+    (define text "#lang racke\n")
+    (define diags
+      (check-syntax-diagnostics "file:///tmp/missing-collection-test.rkt"
                                 text))
     (define diag
       (find-diagnostic-by-message
         diags
-        "Unrecognized language declaration `not-a-real-language`. Check the language name or reader path."))
+        (string-append
+          "Cannot find language \"racke\".\n"
+          "  module path: racke/lang/reader\n"
+          "Check that the language name is correct and the package is installed.")))
     (check-not-false diag)
-    (check-equal? (Diagnostic-source diag) "Language Declaration Check")
-    (define range (Diagnostic-range diag))
-    (check-equal? (Pos-line (Range-start range)) 0)
-    (check-equal? (Pos-char (Range-start range)) 0)
-    (check-equal? (Pos-line (Range-end range)) 0)
-    (check-equal? (Pos-char (Range-end range))
-                  (string-length "#lang not-a-real-language")))
+    (check-equal? (Diagnostic-source diag) "Racket"))
+
+  (test-case
+    "Document diagnostics do not label requires as #lang failures"
+    (define text "#lang racket/base\n(require racke/lang/reader)\n")
+    (define diags
+      (check-syntax-diagnostics "file:///tmp/missing-require-collection-test.rkt"
+                                text))
+    (define diag
+      (find-diagnostic-by-message
+        diags
+        (string-append
+          "Cannot find language \"racke\".\n"
+          "  module path: racke/lang/reader\n"
+          "Check that the language name is correct and the package is installed.")))
+    (check-not-false diag)
+    (check-equal? (Diagnostic-source diag) "Racket"))
+
+  (test-case
+    "Document diagnostics report missing require modules"
+    (define text "#lang racket/base\n(require foo/bar)\n")
+    (define diags
+      (check-syntax-diagnostics "file:///tmp/missing-require-module-test.rkt"
+                                text))
+    (define diag
+      (find-diagnostic-by-message
+        diags
+        (string-append
+          "Cannot find module \"foo/bar\" in collection \"foo\".\n"
+          "Check that the module name is correct and the package is installed.")))
+    (check-not-false diag)
+    (check-equal? (Diagnostic-source diag) "Racket"))
+
+  (test-case
+    "Document diagnostics accept wrapped #lang headers"
+    (define at-exp-diags
+      (check-syntax-diagnostics "file:///tmp/at-exp-language-test.rkt"
+                                "#lang at-exp racket\n@(+ 1 2)\n"))
+    (check-equal? (language-header-diagnostics at-exp-diags) '())
+
+    (define s-exp-diags
+      (check-syntax-diagnostics "file:///tmp/s-exp-language-test.rkt"
+                                "#lang s-exp racket/base\n(+ 1 2)\n"))
+    (check-equal? (language-header-diagnostics s-exp-diags) '()))
 
   (test-case
     "Document diagnostics use first line range for empty language spans"
@@ -472,9 +527,9 @@
     (define diag
       (find-diagnostic-by-message
         diags
-        "Unrecognized language declaration. Check the language name after `#lang`, `#reader`, or in `(module ... <language> ...)`."))
+        "Incomplete language header. Provide the missing language or reader name."))
     (check-not-false diag)
-    (check-equal? (Diagnostic-source diag) "Language Declaration Check")
+    (check-equal? (Diagnostic-source diag) "Language Header Check")
     (define range (Diagnostic-range diag))
     (check-equal? (Pos-line (Range-start range)) 0)
     (check-equal? (Pos-char (Range-start range)) 0)
@@ -581,7 +636,8 @@ END
     (define test-trace%
       (class build-trace%
         (super-new [src (string->path "/tmp/completion-prefix-test.rkt")]
-                   [doc-text (new lsp-editor%)])
+                   [doc-text (new lsp-editor%)]
+                   [lexer-state (build-lexer-state text uri)])
         (define/override (get-completions) '())
         (define/override (get-online-completions str-before-cursor)
           (hash-ref prefix->completions str-before-cursor '()))))

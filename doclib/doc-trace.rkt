@@ -14,13 +14,16 @@
 
 (define build-trace%
   (class (annotations-mixin object%)
-    (init-field src doc-text)
+    (init-field src doc-text lexer-state)
     (define hovers (new hover%))
     (define docs (new docs%))
     (define completions (new completion%))
     (define requires (new require%))
     (define definitions (new definition% [src src]))
-    (define diag (new diag% [src src] [doc-text doc-text]))
+    (define diag (new diag%
+                   [src src]
+                   [doc-text doc-text]
+                   [lexer-state lexer-state]))
     (define decls (new declaration%))
     (define workspace-references (new workspace-references% [src src] [doc-text doc-text]))
     (define semantic-tokens (new highlight% [src src] [doc-text doc-text]))
