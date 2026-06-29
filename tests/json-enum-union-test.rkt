@@ -3,6 +3,12 @@
 (module+ test
   (require rackunit
            "../common/json-util.rkt")
+
+  (define (capture-fail-exn thunk)
+    (with-handlers ([exn:fail? values])
+      (thunk)
+      (fail "expected an exception")))
+
   ;; define-json-enum
   (define-json-enum SymbolKind
     [file 1]
@@ -65,13 +71,24 @@
 
   (test-case "union: decode and match expander"
     (check-equal? (jsexpr->DocContent "hello") "hello")
-    (check-true (Markup? (jsexpr->DocContent (hasheq 'kind "markdown" 'value "# hi"))))
-    (check-equal? (Markup-kind (jsexpr->DocContent (hasheq 'kind "markdown" 'value "# hi")))
-                  "markdown")
-    (check-exn exn:fail? (lambda () (jsexpr->DocContent 42)))
+    (define decoded (jsexpr->DocContent (hasheq 'kind "markdown" 'value "# hi")))
+    (check-true (Markup? decoded))
+    (check-equal? (Markup-kind decoded) "markdown")
     (check-equal? (match "hi" [(DocContent-js v) v]) "hi")
     (check-true (Markup? (match (hasheq 'kind "md" 'value "x")
                            [(DocContent-js v) v]))))
+
+  (test-case "union: decode failure reports unmatched value"
+    (define e (capture-fail-exn
+                (lambda ()
+                  (jsexpr->DocContent 42))))
+    (check-not-false (regexp-match? #rx"no union alternative matched value: 42" (exn-message e))))
+
+  (test-case "union: decode failure reports expected union"
+    (define e (capture-fail-exn
+                (lambda ()
+                  (jsexpr->DocContent 42))))
+    (check-not-false (regexp-match? #rx"expected: '\\(union string\\? Markup\\)" (exn-message e))))
 
   (test-case "union: as-Name"
     (check-equal? (match "ok" [(as-DocContent v) v] [_ #f]) "ok")
