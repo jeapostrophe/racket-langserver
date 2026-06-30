@@ -2,10 +2,15 @@
 (require "../common/json-util.rkt" rackunit syntax/macro-testing)
 
 (module+ test
+  (define (capture-fail-exn thunk)
+    (with-handlers ([exn:fail? values])
+      (thunk)
+      (fail "expected an exception")))
+
   ;; Define test structs
   (define-json-struct Pos
-    [line integer?]
-    [char integer? #:json character])
+    [line exact-integer?]
+    [char exact-integer? #:json character])
 
   (define p1 (Pos 1 10))
   (define p2 (Pos #:char 20 #:line 2))
@@ -21,16 +26,23 @@
     [items (listof Pos)])
 
   (define-json-struct PosHashHolder
-    [items (hash/c symbol? Pos)])
+    [items (hashof symbol? Pos)])
 
   (define-json-struct OrPosHolder
-    [item (or/c string? Pos)])
+    [item (union string? Pos)])
 
   (define-json-struct MaybeOrPosHolder
-    [item (optional (or/c string? Pos))])
+    [item (optional (union string? Pos))])
 
   (define-json-struct OrPosListHolder
-    [items (listof (or/c string? Pos))])
+    [items (listof (union string? Pos))])
+
+  (define-json-struct CustomContractHolder
+    [item (contract integer?)])
+
+  (define-json-struct TreeNode
+    [value string?]
+    [children (listof TreeNode)])
 
   (define p-hash (hasheq 'line 10 'character 5))
   (define p-hash-2 (hasheq 'line 3 'character 30))
@@ -65,6 +77,14 @@
       (λ ()
         (convert-compile-time-error
           (Pos #:line 1 #:line 2 #:char 3)))))
+
+  (test-case "type specs: arbitrary contracts require contract form"
+    (check-exn
+      exn:fail:syntax?
+      (lambda ()
+        (convert-compile-time-error
+          (define-json-struct BadContract
+            [x (or/c string? exact-integer?)])))))
 
   (test-case "matching: Pos matches structs only"
     (check-equal?
@@ -153,26 +173,44 @@
     (check-true (Pos? (first (PosListHolder-items holder))))
     (check-equal? (Pos-line (second (PosListHolder-items holder))) 3))
 
-  (test-case "decoding: hash/c decodes compound values"
+  (test-case "decoding: hashof decodes compound values"
     (define holder (jsexpr->PosHashHolder (hasheq 'items (hasheq 'a p-hash))))
     (define decoded-pos (hash-ref (PosHashHolder-items holder) 'a))
     (check-true (Pos? decoded-pos))
     (check-equal? (Pos-char decoded-pos) 5))
 
-  (test-case "decoding: or/c chooses matching decoded variant"
+  (test-case "decoding: union chooses string variant"
     (define from-str (jsexpr->OrPosHolder (hasheq 'item "hello")))
-    (check-equal? (OrPosHolder-item from-str) "hello")
-    (define from-pos (jsexpr->OrPosHolder (hasheq 'item p-hash)))
-    (check-true (Pos? (OrPosHolder-item from-pos)))
-    (check-equal? (Pos-line (OrPosHolder-item from-pos)) 10)
-    (check-exn exn:fail? (lambda () (jsexpr->OrPosHolder (hasheq 'item 42)))))
+    (check-equal? (OrPosHolder-item from-str) "hello"))
 
-  (test-case "validation: or/c json predicate"
+  (test-case "decoding: union chooses decoded struct variant"
+    (define from-pos (jsexpr->OrPosHolder (hasheq 'item p-hash)))
+    (check-equal? (Pos-line (OrPosHolder-item from-pos)) 10))
+
+  (test-case "decoding: union failure reports field decode error"
+    (define e (capture-fail-exn
+                (lambda ()
+                  (jsexpr->OrPosHolder (hasheq 'item 42)))))
+    (check-not-false (regexp-match? #rx"failed to decode field" (exn-message e))))
+
+  (test-case "decoding: union failure reports unmatched value"
+    (define e (capture-fail-exn
+                (lambda ()
+                  (jsexpr->OrPosHolder (hasheq 'item 42)))))
+    (check-not-false (regexp-match? #rx"no union alternative matched value: 42" (exn-message e))))
+
+  (test-case "decoding: union failure reports expected union"
+    (define e (capture-fail-exn
+                (lambda ()
+                  (jsexpr->OrPosHolder (hasheq 'item 42)))))
+    (check-not-false (regexp-match? #rx"expected: '\\(union string\\? Pos\\)" (exn-message e))))
+
+  (test-case "validation: union json predicate"
     (check-true (OrPosHolder-js? (hasheq 'item "s")))
     (check-true (OrPosHolder-js? (hasheq 'item p-hash)))
     (check-false (OrPosHolder-js? (hasheq 'item 42))))
 
-  (test-case "decoding: optional with or/c"
+  (test-case "decoding: optional with union"
     (define missing (jsexpr->MaybeOrPosHolder (hasheq)))
     (check-true (Nothing? (MaybeOrPosHolder-item missing)))
     (define from-str (jsexpr->MaybeOrPosHolder (hasheq 'item "ok")))
@@ -181,7 +219,7 @@
     (check-true (Pos? (MaybeOrPosHolder-item from-pos)))
     (check-equal? (Pos-char (MaybeOrPosHolder-item from-pos)) 30))
 
-  (test-case "decoding: listof with or/c"
+  (test-case "decoding: listof with union"
     (define holder
       (jsexpr->OrPosListHolder (hasheq 'items (list "a" p-hash "b" p-hash-2))))
     (define items (OrPosListHolder-items holder))
@@ -192,6 +230,37 @@
     (check-exn exn:fail?
                (lambda ()
                  (jsexpr->OrPosListHolder (hasheq 'items (list "a" 99))))))
+
+  (test-case "decoding: explicit contract field passes through raw value"
+    (define holder (jsexpr->CustomContractHolder (hasheq 'item 1.0)))
+    (check-equal? (CustomContractHolder-item holder) 1.0)
+    (check-exn exn:fail:contract?
+               (lambda ()
+                 (jsexpr->CustomContractHolder (hasheq 'item "bad")))))
+
+  (test-case "decoding: recursive type decodes nested structs"
+    (define tree-json
+      (hasheq 'value "root"
+              'children (list (hasheq 'value "leaf"
+                                      'children '()))))
+    (define tree (jsexpr->TreeNode tree-json))
+    (check-true (TreeNode? tree))
+    (check-true (TreeNode? (first (TreeNode-children tree))))
+    (check-equal? (TreeNode-value (first (TreeNode-children tree))) "leaf"))
+
+  (test-case "decoding: field errors include type field expected value and cause"
+    (check-exn
+      (lambda (e)
+        (and (exn:fail:contract? e)
+             (regexp-match? #rx"jsexpr->TreeNode: failed to decode field" (exn-message e))
+             (regexp-match? #rx"type: 'TreeNode" (exn-message e))
+             (regexp-match? #rx"field: 'children" (exn-message e))
+             (regexp-match? #rx"expected: '\\(listof TreeNode\\)" (exn-message e))
+             (regexp-match? #rx"value: '\\(\"bad\"\\)" (exn-message e))
+             (regexp-match? #rx"cause:" (exn-message e))))
+      (lambda ()
+        (jsexpr->TreeNode (hasheq 'value "root"
+                                  'children (list "bad"))))))
 
   (test-case "matching: nested Range-js hash"
     (match r-hash
@@ -234,7 +303,7 @@
 ;; 6. Export Test
 (module export-test racket
   (require "../common/json-util.rkt")
-  (define-json-struct Exported [x integer?])
+  (define-json-struct Exported [x exact-integer?])
   (provide (json-type-out Exported))
   )
 

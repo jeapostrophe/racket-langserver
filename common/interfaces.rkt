@@ -82,7 +82,7 @@
   [newText string?])
 
 (define-json-struct WorkspaceEdit
-  [changes (hash/c symbol? (listof TextEdit))])
+  [changes (hashof symbol? (listof TextEdit))])
 
 (define-json-enum DiagnosticSeverity
   [Error 1]
@@ -159,15 +159,14 @@
   [location Location])
 
 ;; Hierarchical document symbol. `range` covers the whole form (including its
-;; body) while `selectionRange` only covers the name. `children` is a list of
-;; DocumentSymbol, typed as list? because define-json-struct cannot express
-;; self-referential field types; encoding still recurses via ->jsexpr.
+;; body) while `selectionRange` only covers the name. `children` recursively
+;; contains nested document symbols.
 (define-json-struct DocumentSymbol
   [name string?]
   [kind SymbolKind]
   [range Range]
   [selectionRange Range]
-  [children list?])
+  [children (listof DocumentSymbol)])
 
 (define-json-struct Hover
   [contents string?]
@@ -258,12 +257,12 @@
   (and (integer? x) (<= 0 x uinteger-upper-limit)))
 
 (define-json-struct FormattingOptions
-  [tab-size uinteger? #:json tabSize]
+  [tab-size (contract uinteger?) #:json tabSize]
   [insert-spaces boolean? #:json insertSpaces]
   [trim-trailing-whitespace (optional boolean?) #:json trimTrailingWhitespace]
   [insert-final-newline (optional boolean?) #:json insertFinalNewline]
   [trim-final-newlines (optional boolean?) #:json trimFinalNewlines]
-  [key (or/c false/c (optional/c hash?))])
+  [key (contract (or/c false/c (optional/c hash?)))])
 
 ;; Character-offset range. Distinct from the protocol-level `Range`
 ;; (which uses line/char positions); this one uses zero-based absolute

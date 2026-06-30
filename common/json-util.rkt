@@ -1,12 +1,10 @@
 #lang racket/base
 (require (for-syntax racket/base
                      racket/list
-                     racket/match
                      racket/set
                      racket/syntax
                      syntax/parse
-                     racket/provide-transform
-                     racket/bool)
+                     racket/provide-transform)
          json
          racket/generic
          racket/match
@@ -95,15 +93,18 @@
 ;;
 ;; Used in struct field declarations and union variant lists.
 ;;
-;;   identifier          decodable type if jsexpr->T is bound; otherwise contract
+;;   string? / boolean? / number? / exact-integer? /
+;;   exact-nonnegative-integer? / symbol?
+;;                       builtin contract shorthands; decode as identity
+;;   (contract C)        arbitrary Racket contract/predicate; decode as identity
+;;   identifier          JSON type; uses T?, T-js?, and jsexpr->T lazily
 ;;   (listof T)          homogeneous list, each element decoded via T
 ;;   (optional T)        T | Nothing; omitted JSON keys map to Nothing
-;;   (hash/c K V)        hash map, K and V are type-specs (see above)
-;;   (or/c T1 T2 ...)    first successful decode wins
-;;   <expr>              arbitrary contract/predicate expression
+;;   (hashof K V)        hash map, K and V are type-specs (see above)
+;;   (union T1 T2 ...)   first successful decode wins, in order
 ;;
-;; When an identifier Name has a jsexpr->Name decoder in scope, the macro
-;; uses it for recursive decoding and picks Name? as the runtime contract.
+;; Bare non-builtin identifiers always name JSON domain types. Use
+;; `(contract ...)` for project-local predicates or raw Racket contracts.
 ;;
 ;; ----------------------------------------------------------------------------
 ;; 3. Generated bindings
@@ -211,10 +212,6 @@
   (define (symbol->keyword sym)
     (string->keyword (symbol->string sym)))
 
-  (define (id-bound? id)
-    (and (identifier? id)
-         (not (false? (identifier-binding id)))))
-
   (define ((name-id fmt) name-stx)
     (format-id name-stx fmt name-stx))
 
@@ -236,53 +233,67 @@
   (define json-struct-accessor-id (name+field-id "~a~~-~a"))
   (define json-public-accessor-id (name+field-id "~a-~a"))
 
-  (define (decodable-type-id? id)
-    (id-bound? (name->decoder-id id)))
+  (define builtin-contract-ids
+    '(string?
+       boolean?
+       number?
+       exact-integer?
+       exact-nonnegative-integer?
+       symbol?))
 
-  (define (type-id-ctc id)
-    (match* ((decodable-type-id? id)
-             (id-bound? (name->pred-id id)))
-      [(#t #t) (name->pred-id id)]
-      ;; Decodable types must provide a runtime predicate.
-      [(#t #f)
-       (raise-syntax-error
-         'type-spec
-         (format "decodable type ~a is missing a runtime predicate ~a"
-                 (syntax->datum id)
-                 (name->pred-id id))
-         id)]
-      ;; Non-decodable ids are usually contracts/predicates.
-      [(#f _) id]))
+  (define (builtin-contract-id? id)
+    (and (identifier? id)
+         (memq (syntax-e id) builtin-contract-ids)))
 
-  (define (type-id-decoder id)
-    (if (decodable-type-id? id)
-        (name->decoder-id id)
-        #'values))
+  (define (quote-datum stx)
+    #`'#,(syntax->datum stx))
 
-  (define (type-id-json-predicate id)
-    (match* ((decodable-type-id? id)
-             (id-bound? (name->js-pred-id id)))
-      [(#t #t) (name->js-pred-id id)]
-      ;; Missing JSON predicate but provided a decoder: skip JSON validation.
-      [(#t #f) #'(lambda (_) #t)]
-      [(#f _) id]))
+  (define (json-type-ctc id)
+    #`(lambda (x)
+        (#,(name->pred-id id) x)))
+
+  (define (json-type-decoder id)
+    #`(lambda (x)
+        (#,(name->decoder-id id) x)))
+
+  (define (json-type-predicate id)
+    #`(lambda (x)
+        (#,(name->js-pred-id id) x)))
 
   ;; type-spec normalizes the DSL type annotation into four compile-time
   ;; attributes used by define-json-struct expansion:
   ;; - ctc: contract for the generated struct field
   ;; - decoder: function to decode JSON values into Racket values
   ;; - json-pred: predicate used by the generated `*-js?` validator
+  ;; - label: quoted type-spec datum used in decoder error messages
   ;; - optional?: whether the field can be omitted (for optional ...)
   (define-syntax-class type-spec
-    #:attributes (ctc decoder json-pred optional?)
-    #:datum-literals (listof optional hash/c or/c)
-    ;; Bare identifier type. If a matching decoder exists (jsexpr->T),
-    ;; treat it as a decodable domain type; otherwise use the identifier
-    ;; directly and leave decoding as identity.
+    #:attributes (ctc decoder json-pred label optional?)
+    #:datum-literals (contract listof optional hashof union)
+    ;; Builtin primitive contracts are shorthands for `(contract ...)`. Keep the
+    ;; allowlist small so project-local predicates remain explicit.
     (pattern tid:id
-             #:with ctc (type-id-ctc #'tid)
-             #:with decoder (type-id-decoder #'tid)
-             #:with json-pred (type-id-json-predicate #'tid)
+             #:when (builtin-contract-id? #'tid)
+             #:with ctc #'tid
+             #:with decoder #'values
+             #:with json-pred #'tid
+             #:with label (quote-datum #'tid)
+             #:attr optional? #f)
+    ;; Bare non-builtin identifiers are JSON domain types. References are lazy
+    ;; so a type can name itself in its own field specs.
+    (pattern tid:id
+             #:with ctc (json-type-ctc #'tid)
+             #:with decoder (json-type-decoder #'tid)
+             #:with json-pred (json-type-predicate #'tid)
+             #:with label (quote-datum #'tid)
+             #:attr optional? #f)
+    ;; Explicit escape hatch for Racket predicates/contracts. It does not perform
+    ;; JSON type decoding; the value is checked and passed through.
+    (pattern (contract ctc-expr:expr)
+             #:with ctc #'ctc-expr
+             #:with decoder #'values
+             #:with json-pred #'ctc-expr
+             #:with label (quote-datum #'(contract ctc-expr))
              #:attr optional? #f)
     ;; Homogeneous lists recursively decode/validate each element.
     (pattern (listof elem:type-spec)
@@ -291,6 +302,7 @@
              #:with json-pred #'(lambda (xs)
                                   (and (list? xs)
                                        (andmap elem.json-pred xs)))
+             #:with label (quote-datum #'(listof elem))
              #:attr optional? #f)
     ;; Optional values propagate Nothing unchanged and decode present values.
     (pattern (optional elem:type-spec)
@@ -300,31 +312,29 @@
                                     x
                                     (elem.decoder x)))
              #:with json-pred #'(optional/c elem.json-pred)
+             #:with label (quote-datum #'(optional elem))
              #:attr optional? #t)
-    (pattern (hash/c key:type-spec val:type-spec)
+    (pattern (hashof key:type-spec val:type-spec)
              #:with ctc #'(hash/c key.ctc val.ctc)
              #:with decoder #'(lambda (h)
-                                (for/hasheq ([(k v) h])
-                                  (values (key.decoder k)
-                                          (val.decoder v))))
+                                (for/hasheq ([(k v) (in-hash h)])
+                                  (values (key.decoder k) (val.decoder v))))
              #:with json-pred #'(hash/c key.json-pred val.json-pred)
+             #:with label (quote-datum #'(hashof key val))
              #:attr optional? #f)
-    (pattern (or/c opt:type-spec ...+)
+    (pattern (union opt:type-spec ...+)
              #:with ctc #'(or/c opt.ctc ...)
+             #:with json-pred #'(or/c opt.json-pred ...)
+             #:with label (quote-datum #'(union opt ...))
              #:with decoder #'(lambda (x)
                                 (let/ec return
-                                  (with-handlers ([exn:fail? void])
-                                    (define decoded (opt.decoder x))
-                                    (when (opt.ctc decoded)
-                                      (return decoded)))
+                                  (when (opt.json-pred x)
+                                    (return (opt.decoder x)))
                                   ...
-                                  (error 'or/c "no variant matched value: ~v" x)))
-             #:with json-pred #'(or/c opt.json-pred ...)
-             #:attr optional? #f)
-    (pattern other:expr
-             #:with ctc #'other
-             #:with decoder #'values
-             #:with json-pred #'other
+                                  (error 'union
+                                         "no union alternative matched value: ~v\nexpected: ~v"
+                                         x
+                                         label)))
              #:attr optional? #f))
 
   ;; Syntax class to parse a field clause.
@@ -332,19 +342,21 @@
   ;;   - [field type-spec]            -> json key is same as field name
   ;;   - [field type-spec #:json key] -> custom json key
   (define-syntax-class json-struct-clause
-    #:attributes (field type-pred type-decoder type-json-pred optional? json-key keyword)
+    #:attributes (field type-pred type-decoder type-json-pred type-label optional? json-key keyword)
     (pattern [field:id ts:type-spec]
              #:with json-key #'field
              #:with keyword (symbol->keyword (syntax-e #'field))
              #:with type-pred #'ts.ctc
              #:with type-decoder #'ts.decoder
              #:with type-json-pred #'ts.json-pred
+             #:with type-label #'ts.label
              #:attr optional? (attribute ts.optional?))
     (pattern [field:id ts:type-spec #:json json-key:id]
              #:with keyword (symbol->keyword (syntax-e #'field))
              #:with type-pred #'ts.ctc
              #:with type-decoder #'ts.decoder
              #:with type-json-pred #'ts.json-pred
+             #:with type-label #'ts.label
              #:attr optional? (attribute ts.optional?)))
 
   (define (any-keyword? stx)
@@ -404,21 +416,37 @@
                ...))))
 
   ;; Generates jsexpr->Name decoder.
-  (define (gen-json-decoder stx decoder-name keyword-constructor-id json-keys keywords decoders)
+  (define (gen-json-decoder stx decoder-name name keyword-constructor-id json-keys keywords fields decoders labels)
     (define input-id (datum->syntax stx 'js))
+    (define decoder-symbol-expr (quote-datum decoder-name))
     (define field-values
       (for/list ([jk json-keys]
-                 [dec decoders])
+                 [fld fields]
+                 [dec decoders]
+                 [label labels])
         #`(let ([v (hash-ref #,input-id '#,jk (Nothing))])
-            (if (Nothing? v) v (#,dec v)))))
+            (if (Nothing? v)
+                v
+                (with-handlers ([exn:fail?
+                                 (lambda (e)
+                                   (raise-arguments-error
+                                     #,decoder-symbol-expr
+                                     "failed to decode field"
+                                     "type" '#,name
+                                     "field" '#,fld
+                                     "expected" #,label
+                                     "value" v
+                                     "cause" (exn-message e)))])
+                  (#,dec v))))))
     (with-syntax ([decoder-name decoder-name]
+                  [decoder-symbol (quote-datum decoder-name)]
                   [input input-id]
                   [keyword-constructor keyword-constructor-id]
                   [(kw ...) keywords]
                   [(fv ...) field-values])
       #'(define (decoder-name input)
           (unless (hash? input)
-            (error 'decoder-name "expected hash, got ~v" input))
+            (error decoder-symbol "expected hash, got ~v" input))
           (keyword-constructor (~@ kw fv) ...))))
 
   ;; Generates as-Name / ^Name match expanders and helper decoder wrapper.
@@ -587,6 +615,7 @@
      (define fields (syntax->list #'(clause.field ...)))
      (define contracts (syntax->list #'(clause.type-pred ...)))
      (define decoders (syntax->list #'(clause.type-decoder ...)))
+     (define labels (syntax->list #'(clause.type-label ...)))
      (define json-preds (syntax->list #'(clause.type-json-pred ...)))
      (define optional-flags (attribute clause.optional?))
      (define json-keys (syntax->list #'(clause.json-key ...)))
@@ -623,7 +652,7 @@
           ,(gen-struct-match-expander stx #'name iname keyword-constructor-id keywords fields json-keys)
           ,(gen-json-match-expander stx name-js keywords fields json-keys)
           ,(gen-json-predicate stx name-js-pred json-keys json-preds optional-flags)
-          ,(gen-json-decoder stx decoder-name keyword-constructor-id json-keys keywords decoders)
+          ,(gen-json-decoder stx decoder-name #'name keyword-constructor-id json-keys keywords fields decoders labels)
           ,(gen-as-match-expanders stx as-name decode-name try-decoder decoder-name #'name)
 
           ,(gen-exports name-exports #'name pred public-accessors name-js name-js-pred decoder-name as-name decode-name))
@@ -732,9 +761,9 @@
      (define decode-name (name->decode-match-id #'name))
      (define try-decoder (name->try-decoder-id #'name))
 
-     ;; Collapse the union variants into one `(or/c ...)` type-spec and reuse
+     ;; Collapse the union variants into one `(union ...)` type-spec and reuse
      ;; its normalized predicate/decoder/json-predicate attributes.
-     (syntax-parse #'(or/c variant ...)
+     (syntax-parse #'(union variant ...)
        [ts:type-spec
         (with-syntax ([pred name-pred]
                       [js-pred name-js-pred]
