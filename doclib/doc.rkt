@@ -34,6 +34,7 @@
          racket/string
          data/interval-map
          "check-syntax.rkt"
+         "hover.rkt"
          "external/resyntax.rkt"
          "docs-helpers.rkt"
          "documentation-parser.rkt"
@@ -516,40 +517,49 @@
 (define (abs-range->range doc start end)
   (Range (doc-abs-pos->pos doc start) (doc-abs-pos->pos doc end)))
 
-(define (hover-tag->signature-block tag)
-  ;; We want signatures from `scribble/blueboxes` as they have better indentation,
-  ;; but in some super rare cases blueboxes aren't accessible, thus we try to use the
-  ;; parsed signature instead.
+;; Hover assembly: gather from check-syntax interval maps, build a Hover-Card,
+;; then render. Keep lookup out of `hover.rkt` so layout stays testable without
+;; expansion. Performance: warm path should stay interval-map + cached docs
+;; extraction only — no re-lex, expand, or sync cross-file load here.
+
+(define (hover-tag->signature tag)
+  ;; Chosen over HTML-extracted signatures for the summary fence: blueboxes
+  ;; indent better. When this returns #f, `hover-documentation-text` may still
+  ;; pull a signature from the HTML docs via #:include-signature? #t.
   (match-define (list signatures args-description)
     (if tag
         (get-docs-for-tag tag)
         (list #f #f)))
-  (and signatures
-       (~a "```\n"
-           (string-join signatures "\n")
+  (and (pair? signatures)
+       (~a (string-join signatures "\n")
            (if args-description
                (~a "\n" args-description)
-               "")
-           "\n```\n---\n")))
+               ""))))
 
-(define (hover-documentation-text link signature-block)
+(define (hover-documentation-text link signature)
+  ;; Do not include the HTML signature when a bluebox signature already fills
+  ;; the summary: `extract-documentation` would otherwise duplicate it in the
+  ;; docs body (see #:include-signature? in documentation-parser.rkt).
   (if link
-      (~a (or signature-block "")
-          (or (extract-documentation-for-selected-element
-                link #:include-signature? (not signature-block))
-              ""))
+      (or (extract-documentation-for-selected-element
+            link #:include-signature? (not signature))
+          "")
       ""))
 
-(define (build-hover-contents hover-text link documentation-text)
-  (if link
-      (~a hover-text
-          " - [online docs]("
-          (make-proper-url-for-online-documentation link)
-          ")\n"
-          (if (non-empty-string? documentation-text)
-              (~a "\n---\n" documentation-text)
-              ""))
-      hover-text))
+(define (build-hover-card hover-text link signature documentation-text)
+  ;; Prefer signature as the sole summary code block; fall back to raw
+  ;; syncheck hover text as prose. Empty metadata/facts are intentional until
+  ;; snippet/type/contract producers land — fill those lists here rather than
+  ;; concatenating into summary or docs. Docs section exists only when a link
+  ;; is known so link-only hovers can still show "Online docs".
+  (Hover-Card (if signature
+                  (Hover-Code-Summary signature)
+                  (Hover-Prose-Summary hover-text))
+              '()
+              '()
+              (and link
+                   (Hover-Documentation documentation-text
+                                        (make-proper-url-for-online-documentation link)))))
 
 (define/contract (doc-hover doc pos)
   (-> Doc? Pos? (or/c Hover? #f))
@@ -558,14 +568,18 @@
   (define-values (start end hover-text)
     (interval-map-ref/bounds (send doc-trace get-hovers) pos* #f))
   (cond
+    ;; Invariant: no hover without syncheck mouse-over text. Docs alone do not
+    ;; open a card; range always comes from the hover interval, not docs.
     [(not hover-text) #f]
     [else
      (match-define (list link tag)
        (interval-map-ref (send doc-trace get-docs) pos* (list #f #f)))
-     (define signature-block (hover-tag->signature-block tag))
+     (define signature (hover-tag->signature tag))
      (define documentation-text
-       (hover-documentation-text link signature-block))
-     (Hover #:contents (build-hover-contents hover-text link documentation-text)
+       (hover-documentation-text link signature))
+     (define hover-card
+       (build-hover-card hover-text link signature documentation-text))
+     (Hover #:contents (render-hover-card hover-card)
             #:range (abs-range->range doc start end))]))
 
 (define/contract (doc-code-action doc range)
@@ -1045,4 +1059,3 @@
          doc-prepare-rename
          doc-symbols
          doc-symbols-hierarchical)
-

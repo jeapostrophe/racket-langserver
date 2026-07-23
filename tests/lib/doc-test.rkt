@@ -3,6 +3,7 @@
 (module+ test
   (require rackunit
            "../../doclib/doc.rkt"
+           "../../doclib/hover.rkt"
            "../../doclib/doc-trace.rkt"
            "../../doclib/check-syntax.rkt"
            "../../doclib/editor.rkt"
@@ -850,7 +851,54 @@ END
     (check-false result))
 
   (test-case
-    "Document hover"
+    "Hover card renders prose-only hover text"
+    (check-equal?
+      (render-hover-card
+        (Hover-Card (Hover-Prose-Summary "Local binding") '() '() #f))
+      "Local binding"))
+
+  (test-case
+    "Hover card renders structured sections"
+    (check-equal?
+      (render-hover-card
+        (Hover-Card
+          (Hover-Code-Summary "(parse-config raw)")
+          (list "Workspace binding" "config.rkt:12" "phase 0")
+          (list (Hover-Fact "Type" "(-> string? config?)")
+                (Hover-Fact "Contract" "(-> string? config?)"))
+          (Hover-Documentation "Parse a configuration value."
+                               "https://docs.example.test/parse-config")))
+#<<END
+```racket
+(parse-config raw)
+```
+
+Workspace binding | config.rkt:12 | phase 0
+
+Type: (-> string? config?)
+Contract: (-> string? config?)
+
+---
+
+Documentation - [Online docs](https://docs.example.test/parse-config)
+
+Parse a configuration value.
+END
+))
+
+  (test-case
+    "Hover card omits empty sections and docs separator"
+    (check-equal?
+      (render-hover-card
+        (Hover-Card (Hover-Code-Summary "")
+                    (list "")
+                    '()
+                    (Hover-Documentation ""
+                                         "https://docs.example.test/parse-config")))
+      "Documentation - [Online docs](https://docs.example.test/parse-config)"))
+
+  (test-case
+    "Document hover renders a docs-backed card"
     (define text
 #<<END
 #lang racket
@@ -864,7 +912,9 @@ END
     (define h (doc-hover d (Pos 1 1)))
     (check-not-false h)
     (define result (Hover-contents h))
-    (check-true (string-contains? result "Returns a newly allocated list")))
+    (check-true (string-contains? result "```racket"))
+    (check-true (string-contains? result "Returns a newly allocated list"))
+    (check-true (string-contains? result "[Online docs]")))
 
   (test-case
     "Document signature help"
