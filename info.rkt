@@ -4,6 +4,7 @@
 (define deps '("base"
                "compatibility-lib"
                "data-lib"
+               "srfi-lib"
                ;; Newer packages need only to depend on drracket-tool-text-lib.
                ;; However, we still refer to drracket-tool-lib because it is split
                ;; into the text- variant starting from Racket 8.4.
