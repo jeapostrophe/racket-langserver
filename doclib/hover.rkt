@@ -1,89 +1,57 @@
 #lang racket/base
 
-;; A hover card is the renderer-facing description of an LSP hover. Producers
-;; supply semantic values; this module owns their Markdown layout.
+;; Data for a hover card. Other code fills the fields. This module turns them
+;; into Markdown.
 ;;
-;; Keep this renderer data-only: `doc-hover` gathers check-syntax and
-;; documentation data before calling it, so new hover facts share one layout
-;; without adding lookup work to rendering.
+;; Keep this module as data only. `doc-hover` collects check-syntax and docs,
+;; then calls `render-hover-card`. All cards use the same layout.
 ;;
-;; Layout order is fixed: summary, metadata, facts, then documentation.
-;; Later producers fill metadata/facts; do not invent ad hoc string
-;; concatenation around this model (see tests/lib/doc-test.rkt hover cases).
-;;
-;; Example:
-;;   (Hover-Card
-;;    (Hover-Code-Summary "(parse-config raw)")
-;;    (list "Workspace binding" "config.rkt:12" "phase 0")
-;;    (list (Hover-Fact "Type" "(-> string? config?)")
-;;          (Hover-Fact "Contract" "(-> string? config?)"))
-;;    (Hover-Documentation "Parse a configuration value."
-;;                         "https://docs.example.test/parse-config"))
-;; renders as:
-;;   ```racket
-;;   (parse-config raw)
-;;   ```
-;;
-;;   Workspace binding | config.rkt:12 | phase 0
-;;
-;;   Type: (-> string? config?)
-;;   Contract: (-> string? config?)
-;;
-;;   ---
-;;
-;;   Documentation - [Online docs](https://docs.example.test/parse-config)
-;;
-;;   Parse a configuration value.
+;; Section order is fixed: summary, metadata, facts, documentation.
+;; Do not build hover strings outside this model
+;; (see tests/lib/doc-test.rkt hover cases).
 
 (require racket/contract
          racket/string)
 
 (provide (struct-out Hover-Card)
          (struct-out Hover-Code-Summary)
-         (struct-out Hover-Prose-Summary)
          (struct-out Hover-Fact)
          (struct-out Hover-Documentation)
          render-hover-card)
 
-;; Signature or workspace definition snippet rendered as a ```racket fence.
-;; Empty text drops the whole summary section at render time.
+;; Signature or source snippet inside a Markdown code fence.
+;; If text is empty, skip the whole summary section when rendering.
 (struct/contract Hover-Code-Summary
-  ([text string?])
+  ([text string?]
+   [fence-language string?])
   #:transparent)
 
-;; Plain syncheck mouse-over status when no code summary is available.
-;; Empty text drops the whole summary section at render time.
-(struct/contract Hover-Prose-Summary
-  ([text string?])
-  #:transparent)
-
-;; One labeled semantic fact, rendered as `Label: value`.
-;; Either field empty drops the fact (no orphan labels).
+;; One labeled fact. Rendered as `Label: value`.
+;; Skip the fact if label or value is empty.
 (struct/contract Hover-Fact
   ([label string?]
    [value string?])
   #:transparent)
 
-;; Docs section after the optional `---` separator.
-;; Empty body is fine when only the online link should appear.
-;; Prefer putting the link in the header, not after a long body.
+;; Documentation section. It can follow a `---` separator.
+;; Body may be empty if only the online link should show.
+;; Put the link before a long body.
 (struct/contract Hover-Documentation
   ([body string?]
    [link (or/c string? #f)])
   #:transparent)
 
-;; Summary is exactly one of code, prose, or absent. Never put both a code
-;; fence and prose summary in one card.
+;; Summary is a fenced code block, or it is missing. Put other hover text in
+;; `facts` or `metadata`. Do not use a second summary style.
 ;;
-;; `summary` — primary reading cue. Prefer code (signature or definition
-;;   snippet); prose is raw syncheck status when no richer block exists.
-;; `metadata` — short provenance/phase tokens joined into one pipe-separated
-;;   line. Empty strings are omitted at render time so partial producers are safe.
-;; `facts` — labeled semantic lines (type, contract, …) in producer order.
-;; `documentation` — last section; omit entirely when neither body nor online
-;;   link is useful.
+;; `summary`: fenced signature or source snippet. `doc-hover` puts check-syntax
+;;   text in `facts`, not here.
+;; `metadata`: short source labels joined with ` | `. Empty strings are
+;;   dropped when rendering.
+;; `facts`: labeled lines (type, contract, ...) in the order they were added.
+;; `documentation`: last section. Skip it when body and link are both empty.
 (struct/contract Hover-Card
-  ([summary (or/c Hover-Code-Summary? Hover-Prose-Summary? #f)]
+  ([summary (or/c Hover-Code-Summary? #f)]
    [metadata (listof string?)]
    [facts (listof Hover-Fact?)]
    [documentation (or/c Hover-Documentation? #f)])
@@ -98,20 +66,16 @@
     [(not summary) #f]
     [(Hover-Code-Summary? summary)
      (define text (Hover-Code-Summary-text summary))
+     (define fence-language (Hover-Code-Summary-fence-language summary))
      (and (non-empty-text? text)
-          (format "```racket\n~a\n```" text))]
-    [(Hover-Prose-Summary? summary)
-     (define text (Hover-Prose-Summary-text summary))
-     (and (non-empty-text? text)
-          text)]
+          (format "```~a\n~a\n```" fence-language text))]
     [else
      (raise-argument-error 'render-hover-card
-                           "(or/c Hover-Code-Summary? Hover-Prose-Summary? #f)"
+                           "(or/c Hover-Code-Summary? #f)"
                            summary)]))
 
-;; Metadata is one pipe-joined line so provenance/phase stay scannable beside
-;; the summary rather than competing with docs. Drop empty entries so a partial
-;; producer does not leave dangling separators.
+;; Join metadata with ` | ` next to the summary.
+;; Drop empty entries so missing data does not leave extra separators.
 (define (render-metadata metadata)
   (define entries
     (for/list ([entry (in-list metadata)]
@@ -137,12 +101,11 @@
     [else
      (define body (Hover-Documentation-body documentation))
      (define link (Hover-Documentation-link documentation))
-     ;; Keep the link in the section header. Documentation excerpts can be long,
-     ;; so placing it after the body makes the navigation affordance easy to miss.
+     ;; Put the link before the body. A long excerpt can hide a link at the end.
      (define header
        (cond
          [(non-empty-text? link)
-          (format "Documentation - [Online docs](~a)" link)]
+          (format "[Online docs](~a)" link)]
          [(non-empty-text? body) "Documentation"]
          [else #f]))
      (define parts
@@ -167,9 +130,9 @@
             (list summary metadata facts)))
   (define non-doc-contents
     (string-join non-doc-sections "\n\n"))
-  ;; Invariant: at most one `---` separator, and only before a docs section.
-  ;; Do not insert bars between summary/metadata/facts; empty docs must omit
-  ;; the separator entirely (pinned by "Hover card omits empty sections...").
+  ;; Use at most one `---` separator, and only before the docs section.
+  ;; Do not put separators between summary, metadata, and facts. Skip the
+  ;; separator when docs are empty (see "Hover card omits empty sections...").
   (cond
     [(not documentation) non-doc-contents]
     [(string=? non-doc-contents "") documentation]

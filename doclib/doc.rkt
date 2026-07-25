@@ -35,6 +35,7 @@
          data/interval-map
          "check-syntax.rkt"
          "hover.rkt"
+         "service/hover/types.rkt"
          "external/resyntax.rkt"
          "docs-helpers.rkt"
          "documentation-parser.rkt"
@@ -517,15 +518,19 @@
 (define (abs-range->range doc start end)
   (Range (doc-abs-pos->pos doc start) (doc-abs-pos->pos doc end)))
 
-;; Hover assembly: gather from check-syntax interval maps, build a Hover-Card,
-;; then render. Keep lookup out of `hover.rkt` so layout stays testable without
-;; expansion. Performance: warm path should stay interval-map + cached docs
-;; extraction only — no re-lex, expand, or sync cross-file load here.
+;; Build hover cards: read from the hover service and docs map, build a
+;; `Hover-Card`, then render. Lookup stays here so `hover.rkt` stays testable
+;; without expansion.
+;;
+;; Hot path: interval-map lookup plus limited reads from the live buffer.
+;; No re-lex, expand, or cross-file load. Source detail uses shifted ranges
+;; while a trace is old. The result can be wrong or incomplete. Do not wait for
+;; `doc-trace-latest?`. Limits match features.md.
 
 (define (hover-tag->signature tag)
-  ;; Chosen over HTML-extracted signatures for the summary fence: blueboxes
-  ;; indent better. When this returns #f, `hover-documentation-text` may still
-  ;; pull a signature from the HTML docs via #:include-signature? #t.
+  ;; Prefer bluebox signatures over HTML for the summary fence. They indent
+  ;; better. When this returns #f, `hover-documentation-text` may still take a
+  ;; signature from HTML docs via #:include-signature? #t.
   (match-define (list signatures args-description)
     (if tag
         (get-docs-for-tag tag)
@@ -537,40 +542,163 @@
                ""))))
 
 (define (hover-documentation-text link signature)
-  ;; Do not include the HTML signature when a bluebox signature already fills
-  ;; the summary: `extract-documentation` would otherwise duplicate it in the
-  ;; docs body (see #:include-signature? in documentation-parser.rkt).
+  ;; Skip the HTML signature when a bluebox signature already fills the summary.
+  ;; Otherwise `extract-documentation` puts the same signature in the docs body
+  ;; (see #:include-signature? in documentation-parser.rkt).
   (if link
       (or (extract-documentation-for-selected-element
             link #:include-signature? (not signature))
           "")
       ""))
 
-(define (build-hover-card hover-text link signature documentation-text)
-  ;; Prefer signature as the sole summary code block; fall back to raw
-  ;; syncheck hover text as prose. Empty metadata/facts are intentional until
-  ;; snippet/type/contract producers land — fill those lists here rather than
-  ;; concatenating into summary or docs. Docs section exists only when a link
-  ;; is known so link-only hovers can still show "Online docs".
-  (Hover-Card (if signature
-                  (Hover-Code-Summary signature)
-                  (Hover-Prose-Summary hover-text))
+(define max-hover-source-lines 10)
+(define max-hover-source-characters 1000)
+
+;; Apply `max-hover-source-lines` and `max-hover-source-characters`.
+;; `truncated-after?` is true when detail ranges end before `source-end`, even
+;; if the buffer read itself is shorter.
+(define (source-text->hover-excerpt text #:truncated-after? [truncated-after? #f])
+  (define newline-positions
+    (regexp-match-positions* #px"\n" text))
+  (define source-line-end
+    (if (>= (length newline-positions) max-hover-source-lines)
+        (car (list-ref newline-positions (sub1 max-hover-source-lines)))
+        (string-length text)))
+  (define source-character-end
+    (min source-line-end max-hover-source-characters))
+  (define retained-text
+    (substring text 0 source-character-end))
+  (define truncated?
+    (or truncated-after?
+        (< source-character-end (string-length text))))
+  ;; Append indented `...` only at the end. Do not add a leading marker or fake
+  ;; closing delimiters for a truncated form.
+  (and (not (string=? retained-text ""))
+       (if truncated?
+           (string-append retained-text "\n  ...")
+           retained-text)))
+
+(define (hover-comment-line-in-bounds? line doc-end)
+  (define line-start (Hover-Comment-Line-start line))
+  (define line-end (Hover-Comment-Line-end line))
+  (and (< line-start line-end)
+       (<= line-end doc-end)))
+
+(define (hover-comment-lines-in-bounds? comment-lines doc-end)
+  (for/and ([line (in-list comment-lines)])
+    (hover-comment-line-in-bounds? line doc-end)))
+
+(define (hover-comment-line->text doc line)
+  (define line-start (Hover-Comment-Line-start line))
+  (define line-end (Hover-Comment-Line-end line))
+  (define line-text (send (Doc-text doc) get-text line-start line-end))
+  (if (Hover-Comment-Line-truncated? line)
+      (string-append line-text "...")
+      line-text))
+
+;; Read leading-comment lines from the live buffer. Return #f when any stored
+;; range is past the end of the document.
+(define (hover-detail->comment-excerpt doc detail)
+  (define comment-lines (Hover-Detail-comment-lines detail))
+  (define doc-end (doc-end-abs-pos doc))
+  (and (pair? comment-lines)
+       (hover-comment-lines-in-bounds? comment-lines doc-end)
+       (string-join
+         (append (for/list ([line (in-list comment-lines)])
+                   (hover-comment-line->text doc line))
+                 (if (Hover-Detail-comments-truncated? detail)
+                     (list "...")
+                     '()))
+         "\n")))
+
+(define (hover-detail-ranges-valid? detail doc-end)
+  (define source-start (Hover-Detail-source-start detail))
+  (define display-start (Hover-Detail-display-start detail))
+  (define display-end (Hover-Detail-display-end detail))
+  (define source-end (Hover-Detail-source-end detail))
+  (and (<= source-start display-start)
+       (< display-start display-end)
+       (<= display-end source-end)
+       (<= source-end doc-end)))
+
+(define (hover-detail-truncated-after? detail read-end)
+  (define display-end (Hover-Detail-display-end detail))
+  (define source-end (Hover-Detail-source-end detail))
+  (or (< read-end display-end)
+      (< display-end source-end)))
+
+(define (hover-detail->code-excerpt doc detail)
+  (define display-start (Hover-Detail-display-start detail))
+  (define display-end (Hover-Detail-display-end detail))
+  (define read-end (min display-end
+                        (+ display-start max-hover-source-characters)))
+  (define source-text (send (Doc-text doc) get-text display-start read-end))
+  (source-text->hover-excerpt
+    source-text
+    #:truncated-after? (hover-detail-truncated-after? detail read-end)))
+
+(define (hover-detail->summary doc detail)
+  (define doc-end (doc-end-abs-pos doc))
+  (and (hover-detail-ranges-valid? detail doc-end)
+       (let ([code-excerpt (hover-detail->code-excerpt doc detail)])
+         (and code-excerpt
+              (Hover-Code-Summary
+                (string-join
+                  (filter values
+                          (list (hover-detail->comment-excerpt doc detail)
+                                code-excerpt))
+                  "\n")
+                (Hover-Detail-fence-language detail))))))
+
+(define (build-hover-card hover-text link signature source-summary documentation-text)
+  ;; Same-file source form wins over a docs signature. Keep check-syntax text
+  ;; unchanged in a labeled fact. Do not rewrite it in the renderer.
+  (Hover-Card (or source-summary
+                  (and signature
+                       (Hover-Code-Summary signature "racket")))
               '()
-              '()
+              (if hover-text
+                  (list (Hover-Fact "Check syntax" hover-text))
+                  '())
               (and link
                    (Hover-Documentation documentation-text
                                         (make-proper-url-for-online-documentation link)))))
 
+;; Find same-file detail through use-to-declaration lookup. Skip imports and
+;; cross-file `Decl-filepath` values. Keep the use span even when no stored
+;; detail exists yet, so mouse-over range fallback still works.
+(define (hover-detail-via-declaration hover-service declaration-service pos)
+  (define-values (use-start use-end decl)
+    (send declaration-service declaration-at pos))
+  (match decl
+    [(struct* Decl ([filepath #f] [left left]))
+     (define-values (_ds _de detail)
+       (send hover-service source-detail-at left))
+     (values use-start use-end detail)]
+    [_ (values #f #f #f)]))
+
 (define/contract (doc-hover doc pos)
   (-> Doc? Pos? (or/c Hover? #f))
   (define doc-trace (Doc-trace doc))
+  (define hover-service (send doc-trace get-hover))
+  (define declaration-service (send doc-trace get-declaration))
   (define pos* (doc-pos->abs-pos doc pos))
   (define-values (start end hover-text)
-    (interval-map-ref/bounds (send doc-trace get-hovers) pos* #f))
+    (send hover-service mouse-over-at pos*))
+  ;; While a trace refreshes, show current buffer text from shifted ranges.
+  ;; The binding link may be old or wrong.
+  (define-values (detail-start detail-end detail)
+    (send hover-service source-detail-at pos*))
+  (define-values (use-start use-end resolved-detail)
+    (if detail
+        (values detail-start detail-end detail)
+        (hover-detail-via-declaration hover-service declaration-service pos*)))
+  (define source-summary
+    (and resolved-detail (hover-detail->summary doc resolved-detail)))
   (cond
-    ;; Invariant: no hover without syncheck mouse-over text. Docs alone do not
-    ;; open a card; range always comes from the hover interval, not docs.
-    [(not hover-text) #f]
+    ;; Docs alone do not open a card. Stored source detail may still supply
+    ;; summary and range when check-syntax produced no hover text.
+    [(and (not hover-text) (not source-summary)) #f]
     [else
      (match-define (list link tag)
        (interval-map-ref (send doc-trace get-docs) pos* (list #f #f)))
@@ -578,9 +706,15 @@
      (define documentation-text
        (hover-documentation-text link signature))
      (define hover-card
-       (build-hover-card hover-text link signature documentation-text))
+       (build-hover-card hover-text
+                         link
+                         signature
+                         source-summary
+                         documentation-text))
      (Hover #:contents (render-hover-card hover-card)
-            #:range (abs-range->range doc start end))]))
+            #:range (abs-range->range doc
+                                      (or start use-start)
+                                      (or end use-end)))]))
 
 (define/contract (doc-code-action doc range)
   (-> Doc? Range? (listof CodeAction?))
@@ -645,22 +779,8 @@
       (values (or/c exact-nonnegative-integer? #f)
               (or/c exact-nonnegative-integer? #f)
               (or/c Decl? #f)))
-  (define doc-trace (Doc-trace doc))
   (define pos* (doc-pos->abs-pos doc pos))
-  (define doc-decls (send doc-trace get-sym-decls))
-  (define doc-bindings (send doc-trace get-sym-bindings))
-  (define-values (start end maybe-decl)
-    (interval-map-ref/bounds doc-bindings pos* #f))
-  (define-values (bind-start bind-end maybe-bindings)
-    (interval-map-ref/bounds doc-decls pos* #f))
-  (if maybe-decl
-      (values start end maybe-decl)
-      (if maybe-bindings
-          (let ([decl (interval-map-ref doc-bindings (car (set-first maybe-bindings)) #f)])
-            (if decl
-                (values bind-start bind-end decl)
-                (values #f #f #f)))
-          (values #f #f #f))))
+  (send (send (Doc-trace doc) get-declaration) declaration-at pos*))
 
 ;; Get binding ranges for a declaration.
 ;; Returns a list of Range values.

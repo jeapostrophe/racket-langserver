@@ -3,7 +3,7 @@
 (require racket/class
          drracket/check-syntax
          "service/completion.rkt"
-         "service/hover.rkt"
+         "service/hover/service.rkt"
          "service/docs.rkt"
          "service/require.rkt"
          "service/definition.rkt"
@@ -15,7 +15,6 @@
 (define build-trace%
   (class (annotations-mixin object%)
     (init-field src doc-text lexer-state)
-    (define hovers (new hover%))
     (define docs (new docs%))
     (define completions (new completion%))
     (define requires (new require%))
@@ -25,6 +24,11 @@
                    [doc-text doc-text]
                    [lexer-state lexer-state]))
     (define decls (new declaration%))
+    (define hovers
+      (new hover%
+        [src src]
+        [doc-text doc-text]
+        [lexer-state lexer-state]))
     (define workspace-references (new workspace-references% [src src] [doc-text doc-text]))
     (define semantic-tokens (new highlight% [src src] [doc-text doc-text]))
 
@@ -59,9 +63,12 @@
       (for ([s services])
         (send s walk-log text)))
 
+    ;; Named reads for services. Do not add getters that expose interval-maps.
+    (define/public (get-hover) hovers)
+    (define/public (get-declaration) decls)
+
     ;; Getters
     (define/public (get-warn-diags) (car (send diag get)))
-    (define/public (get-hovers) (send hovers get))
     (define/public (get-docs) (send docs get))
     (define/public (get-completions) (send completions get))
     (define/public (get-online-completions str-before-cursor)

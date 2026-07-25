@@ -85,11 +85,12 @@ Language behavior: only recognized sexp language families are supported. Other l
 
 Hovering over an identifier shows:
 
-1. **Type or contract** - from check-syntax's mouse-over annotation, the same info DrRacket shows.
-2. **Online docs link** - from check-syntax's doc annotation, turned into a `docs.racket-lang.org` URL.
-3. **Locally installed documentation** — looked up via the check-syntax doc tag. Scribble blueboxes are preferred for formatted signatures. If they aren't available, the locally installed HTML docs are parsed instead.
+1. **Same-file source form** - for local declarations and uses confirmed by the trace, a limited structural snippet from the bound declaration. Local uses share that declaration detail. They do not show the use-site form. Display prefers the outermost same-line structural candidate when one exists: a compact binding clause, a collapsed one-line header, or a complete one-line form. Otherwise it shows the full nearest enclosing form. Contiguous own-line leading comments above the form are included. Racket-family forms use a `racket` fence. Rhombus forms use a `rhombus` fence. This does not depend on recognizing binding-form names.
+2. **Check syntax** - the raw mouse-over status from check syntax, shown unchanged with a `Check syntax:` label.
+3. **Online docs link** - from check-syntax's doc annotation, turned into a `docs.racket-lang.org` URL.
+4. **Locally installed documentation** - looked up via the check-syntax doc tag. Scribble blueboxes are preferred for formatted signatures. If they are not available, the locally installed HTML docs are parsed instead.
 
-Language behavior: not filtered by language family. Works where expansion succeeds and check-syntax produces hover and documentation data with reliable source ranges.
+Language behavior: source forms are read from the current buffer using kept trace ranges while a refresh runs. When the trace is old, the shown form can be useful, but the binding link can be outdated. Code context is limited to 10 lines and 1000 source characters. Leading comments are limited to 10 lines and 200 source characters per line. Other hover data works where expansion succeeds and check-syntax produces hover and documentation data with reliable source ranges.
 
 ## Inlay Hints
 
