@@ -107,9 +107,34 @@ from @tt{racket-langserver/json-util}. Nested struct values are encoded recursiv
                    [range Range?])
             #:transparent]{
   Hover information for a symbol occurrence.
-  The @tt{contents} field is Markdown text (typically a type signature plus,
-  when available, a link to online documentation).
-  The @tt{range} field identifies the source span the hover applies to.
+
+  The @tt{contents} field is Markdown from a @tt{Hover-Card}. Sections appear in
+  this fixed order:
+  @itemlist[
+    @item{Optional fenced code summary. For a current same-file trace with local
+          declaration detail, this shows code around the bound declaration.
+          Local uses share that detail. Each use does not rebuild it. Own-line
+          leading comments above the form may also appear. Usually the summary
+          shows the outermost same-line form (a compact binding clause, a
+          one-line header collapsed with @tt{...}, or a complete one-line form).
+          When no form on the identifier line fits, the full nearest enclosing
+          form is shown. Without same-file detail, a Scribble bluebox signature
+          may fill the summary instead. Racket-family forms use a @tt{racket}
+          fence. Rhombus forms use a @tt{rhombus} fence.}
+    @item{A @tt{Check syntax:} line from check-syntax mouse-over status, when
+          present. The text is unchanged.}
+    @item{Optional documentation after a @tt{---} separator: an online link
+          and/or a locally installed docs excerpt}
+  ]
+
+  When a trace is old, same-file source detail still comes from the current
+  buffer. The shown form can be useful, but the binding link may be wrong until
+  expansion finishes. Imports and cross-file bindings do not get same-file
+  source snippets. Their cards use check-syntax text and documentation instead.
+
+  The @tt{range} field is the identifier span the hover applies to. It comes from
+  check-syntax mouse-over status when present. Otherwise it comes from a kept
+  same-file source-detail range.
 }
 
 @defstruct*[DocumentHighlight ([range Range?])
@@ -599,8 +624,31 @@ Exceptions are noted in individual entries.
 @defproc[(doc-hover [doc Doc?]
                     [pos Pos?])
          (or/c Hover? #f)]{
-  Returns hover info at @tt{pos}, including the identifier's type signature
-  and a link to online documentation, or @racket[#f] if nothing is found.
+  Returns hover info at @tt{pos}, or @racket[#f] when check-syntax mouse-over
+  status and same-file source detail are both missing. A docs link alone does not
+  open a hover card.
+
+  When present, @tt{contents} can include:
+  @itemlist[
+    @item{Fenced code summary. For a current same-file trace with local
+          declaration detail, this shows code around the bound declaration.
+          Local uses share that detail. Own-line leading comments may also
+          appear. Usually the summary shows the outermost same-line form
+          (compact binding clause, collapsed one-line header, or complete
+          one-line form). When no form on the identifier line fits, the full
+          nearest enclosing form is shown. Otherwise a Scribble bluebox signature
+          when one exists}
+    @item{A @tt{Check syntax:} line from check-syntax mouse-over status, when
+          present. The text is unchanged.}
+    @item{An online documentation link and, when available, a locally installed
+          docs excerpt (blueboxes preferred for signatures; HTML docs otherwise)}
+  ]
+
+  Source forms are read from the current buffer through kept trace ranges while an
+  old trace refreshes. The shown form can be useful, but the binding link may be
+  wrong. Code context is limited to 10 lines and 1000 source characters. Leading
+  comments are limited to 10 lines and 200 source characters per line. Mouse-over
+  status and documentation can also appear while an old trace refreshes.
 }
 
 @defproc[(doc-completion [doc Doc?]

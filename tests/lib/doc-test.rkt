@@ -3,6 +3,7 @@
 (module+ test
   (require rackunit
            "../../doclib/doc.rkt"
+           "../../doclib/hover.rkt"
            "../../doclib/doc-trace.rkt"
            "../../doclib/check-syntax.rkt"
            "../../doclib/editor.rkt"
@@ -850,7 +851,67 @@ END
     (check-false result))
 
   (test-case
-    "Document hover"
+    "Hover card renders facts without a code summary"
+    (check-equal?
+      (render-hover-card
+        (Hover-Card #f
+                    (list "Local binding")
+                    (list (Hover-Fact "Check syntax" "bound occurrence of count"))
+                    #f))
+      "Local binding\n\nCheck syntax: bound occurrence of count"))
+
+  (test-case
+    "Hover card renders structured sections"
+    (check-equal?
+      (render-hover-card
+        (Hover-Card
+          (Hover-Code-Summary "(parse-config raw)" "racket")
+          (list "Workspace binding" "config.rkt:12" "phase 0")
+          (list (Hover-Fact "Type" "(-> string? config?)")
+                (Hover-Fact "Contract" "(-> string? config?)"))
+          (Hover-Documentation "Parse a configuration value."
+                               "https://docs.example.test/parse-config")))
+#<<END
+```racket
+(parse-config raw)
+```
+
+Workspace binding | config.rkt:12 | phase 0
+
+Type: (-> string? config?)
+Contract: (-> string? config?)
+
+---
+
+[Online docs](https://docs.example.test/parse-config)
+
+Parse a configuration value.
+END
+))
+
+  (test-case
+    "Hover card omits empty sections and docs separator"
+    (check-equal?
+      (render-hover-card
+        (Hover-Card (Hover-Code-Summary "" "racket")
+                    (list "")
+                    '()
+                    (Hover-Documentation ""
+                                         "https://docs.example.test/parse-config")))
+      "[Online docs](https://docs.example.test/parse-config)"))
+
+  (test-case
+    "Hover card renders a Rhombus source fence"
+    (check-equal?
+      (render-hover-card
+        (Hover-Card (Hover-Code-Summary "fun parse_config(raw): raw" "rhombus")
+                    '()
+                    '()
+                    #f))
+      "```rhombus\nfun parse_config(raw): raw\n```"))
+
+  (test-case
+    "Document hover renders a docs-backed card"
     (define text
 #<<END
 #lang racket
@@ -864,7 +925,275 @@ END
     (define h (doc-hover d (Pos 1 1)))
     (check-not-false h)
     (define result (Hover-contents h))
-    (check-true (string-contains? result "Returns a newly allocated list")))
+    (check-true (string-contains? result "```racket"))
+    (check-true (string-contains? result "Returns a newly allocated list"))
+    (check-true (string-contains? result "[Online docs]"))
+    (check-true (string-contains? result "Check syntax:")))
+
+  (test-case
+    "Document hover renders collapsed same-file headers for declarations and uses"
+    (define text
+#<<END
+#lang racket
+(let ([count (length (list 1))])
+  (+ count 1))
+(define (parse-config raw) raw)
+(for/list ([element (list 1)]) element)
+(parse-config "input")
+END
+      )
+    (define d (make-doc "file:///tmp/hover-detail.rkt" text))
+    (check-true (doc-expand! d))
+
+    ;; No check-syntax hover text. Source detail alone opens the card and sets range.
+    (define use-hover (doc-hover d (Pos 2 5)))
+    (check-not-false use-hover)
+    (check-equal? (Hover-range use-hover)
+                  (Range (Pos 2 5) (Pos 2 10)))
+    (check-equal? (Hover-contents use-hover)
+                  "```racket\n(let ([count (length (list 1))])\n  ...\n```")
+
+    ;; Headers and macro binders get outer context. Binder names are not matched.
+    (check-equal?
+      (Hover-contents (doc-hover d (Pos 3 9)))
+      "```racket\n(define (parse-config raw) raw)\n```\n\nCheck syntax: 1 bound occurrence")
+    ;; A function use shows the declaration, not the call site.
+    (check-equal?
+      (Hover-contents (doc-hover d (Pos 5 2)))
+      "```racket\n(define (parse-config raw) raw)\n```")
+    (check-equal?
+      (Hover-contents (doc-hover d (Pos 4 12)))
+      "```racket\n(for/list ([element (list 1)]) element)\n```\n\nCheck syntax: 1 bound occurrence"))
+
+  (test-case
+    "Document hover balances compact clauses with collapsed headers"
+    (define d
+      (make-doc
+        "file:///tmp/hover-detail-header.rkt"
+        "#lang racket\n(let ([count (length (list 1))]\n      [limit 10])\n  (+ count limit))\n(define (fib\n         n)\n  n)\n(define answer (string-length \"input\"))\n(define (parse raw) ; accepts overrides\n  raw)\n"))
+    (check-true (doc-expand! d))
+
+    ;; A later binding gets its own clause, not a prefix with earlier bindings.
+    (check-equal?
+      (Hover-contents (doc-hover d (Pos 2 7)))
+      "```racket\n[limit 10]\n```\n\nCheck syntax: 1 bound occurrence")
+    ;; No same-line header. Show the full nearest form.
+    (check-equal?
+      (Hover-contents (doc-hover d (Pos 5 9)))
+      "```racket\n(fib\n         n)\n```\n\nCheck syntax: 1 bound occurrence")
+    ;; A complete one-line declaration stays complete.
+    (check-equal?
+      (Hover-contents (doc-hover d (Pos 7 8)))
+      "```racket\n(define answer (string-length \"input\"))\n```\n\nCheck syntax: no bound occurrences")
+    ;; A same-line header keeps its comment and marks the omitted body.
+    (check-equal?
+      (Hover-contents (doc-hover d (Pos 8 9)))
+      "```racket\n(define (parse raw) ; accepts overrides\n  ...\n```\n\nCheck syntax: no bound occurrences"))
+
+  (test-case
+    "Document hover renders leading comments for declarations and local bindings"
+    (define d
+      (make-doc
+        "file:///tmp/hover-detail-comments.rkt"
+        "#lang racket\n;; Produces the next Fibonacci value.\n;; Kept separate from callers for reuse.\n(define (fib value)\n  value)\n(let (\n      ;; Counts visits in this branch.\n      [count 1])\n  count)\n"))
+    (check-true (doc-expand! d))
+    (check-equal?
+      (Hover-contents (doc-hover d (Pos 3 9)))
+      "```racket\n;; Produces the next Fibonacci value.\n;; Kept separate from callers for reuse.\n(define (fib value)\n  ...\n```\n\nCheck syntax: no bound occurrences")
+    (check-equal?
+      (Hover-contents (doc-hover d (Pos 7 7)))
+      "```racket\n;; Counts visits in this branch.\n[count 1]\n```\n\nCheck syntax: 1 bound occurrence"))
+
+  (test-case
+    "Document hover leaves separated and trailing comments unattached"
+    (define d
+      (make-doc
+        "file:///tmp/hover-detail-comment-boundaries.rkt"
+        "#lang racket\n;; Separated from the declaration.\n\n(define (separated value) value)\n(displayln 1) ; Explains the display call.\n(define (trailing value) value)\n"))
+    (check-true (doc-expand! d))
+    (define separated-hover
+      (Hover-contents (doc-hover d (Pos 3 9))))
+    (define trailing-hover
+      (Hover-contents (doc-hover d (Pos 5 9))))
+    (check-false (string-contains? separated-hover "Separated from"))
+    (check-false (string-contains? trailing-hover "Explains the display")))
+
+  (test-case
+    "Document hover bounds leading comment blocks independently from code"
+    (define long-comment-line
+      (string-append ";; " (make-string 205 #\x)))
+    (define comment-lines
+      (append (list long-comment-line)
+              (for/list ([index (in-range 10)])
+                (format ";; Extra comment line ~a" index))))
+    (define d
+      (make-doc
+        "file:///tmp/hover-detail-long-comments.rkt"
+        (string-append "#lang racket\n"
+                       (string-join comment-lines "\n")
+                       "\n(define (documented value) value)\n")))
+    (check-true (doc-expand! d))
+    (define contents
+      (Hover-contents (doc-hover d (Pos 12 9))))
+    (check-true
+      (string-contains?
+        contents
+        (string-append ";; " (make-string 197 #\x) "...")))
+    (check-true (string-contains? contents ";; Extra comment line 8"))
+    (check-false (string-contains? contents ";; Extra comment line 9"))
+    (check-true (string-contains? contents "...\n(define (documented value) value)")))
+
+  (test-case
+    "Document hover renders a collapsed binding header"
+    (define d
+      (make-doc
+        "file:///tmp/hover-detail-context.rkt"
+        "#lang racket\n(define (format-lines original-lines formatted-lines start-ln end-ln)\n  (for/list ([original-line (in-list original-lines)]\n             [formatted-line (in-list formatted-lines)]\n             [ln (in-naturals)]\n             #:break (> ln end-ln)\n             #:when (and (<= start-ln ln end-ln)\n                         (not (string=? original-line formatted-line))))\n    (list ln formatted-line)))\n"))
+    (check-true (doc-expand! d))
+    (check-equal?
+      (Hover-contents (doc-hover d (Pos 4 14)))
+      "```racket\n[ln (in-naturals)]\n```\n\nCheck syntax: 3 bound occurrences"))
+
+  (test-case
+    "Document hover shows the complete nearest struct form"
+    (define d
+      (make-doc
+        "file:///tmp/hover-detail-struct.rkt"
+        "#lang racket\n(struct RopeNode\n  (left\n   right\n   chars\n   newlines\n   height)\n  #:transparent)\n"))
+    (check-true (doc-expand! d))
+    (check-equal?
+      (Hover-contents (doc-hover d (Pos 1 8)))
+      "```racket\n(struct RopeNode\n  (left\n   right\n   chars\n   newlines\n   height)\n  #:transparent)\n```\n\nCheck syntax: no bound occurrences"))
+
+  (test-case
+    "Document hover keeps imported symbols out of same-file source detail"
+    (define d
+      (make-doc "file:///tmp/hover-detail-import.rkt"
+                "#lang racket\n(list)\n"))
+    (check-true (doc-expand! d))
+    (define imported-hover (doc-hover d (Pos 1 1)))
+    (check-not-false imported-hover)
+    (check-true (string-contains? (Hover-contents imported-hover)
+                                  "Check syntax:")))
+
+  (test-case
+    "Document hover keeps cross-file workspace bindings out of source detail"
+    (define temp-dir (make-temporary-file "hover-detail~a" 'directory))
+    (dynamic-wind
+      void
+      (lambda ()
+        (define helper-path (build-path temp-dir "helper.rkt"))
+        (call-with-output-file helper-path
+          #:exists 'truncate
+          (lambda (out)
+            (display "#lang racket\n(provide shared-value)\n(define shared-value 1)\n" out)))
+        (define main-path (build-path temp-dir "main.rkt"))
+        (define d
+          (make-doc (string-append "file://" (path->string main-path))
+                    "#lang racket\n(require \"helper.rkt\")\nshared-value\n"))
+        (check-true (doc-expand! d))
+        (define imported-hover (doc-hover d (Pos 2 1)))
+        (check-not-false imported-hover)
+        (check-true (string-contains? (Hover-contents imported-hover)
+                                      "Check syntax:")))
+      (lambda ()
+        (delete-directory/files temp-dir))))
+
+  (test-case
+    "Document hover renders best-effort source detail while its trace is stale"
+    (define d
+      (make-doc "file:///tmp/hover-detail-stale.rkt"
+                "#lang racket\n(let ([count 1]) (+ count 1))\n"))
+    (check-true (doc-expand! d))
+    (doc-apply-edit! d
+                     (Range (Pos 1 13) (Pos 1 14))
+                     "2")
+    (doc-update-version! d 1)
+    ;; No check-syntax text. Shifted ranges still build a source-only card from
+    ;; the edited buffer. The binding link may be wrong or incomplete.
+    (check-equal? (Hover-contents (doc-hover d (Pos 1 22)))
+                  "```racket\n(let ([count 2]) (+ count 1))\n```")
+    (define declaration-hover (doc-hover d (Pos 1 7)))
+    (check-not-false declaration-hover)
+    (check-true (string-contains? (Hover-contents declaration-hover)
+                                  "(let ([count 2])")))
+
+  (test-case
+    "Document hover replays retained source detail after an insertion"
+    (define d
+      (make-doc "file:///tmp/hover-detail-shifted.rkt"
+                "#lang racket\n(let ([count 1]) (+ count 1))\n"))
+    (check-true (doc-expand! d))
+    ;; The old trace must shift the declaration key and the detail's nested
+    ;; display ranges before the next expansion finishes.
+    (doc-apply-edit! d
+                     (Range (Pos 1 0) (Pos 1 0))
+                     "  ")
+    (doc-update-version! d 1)
+    (check-equal?
+      (Hover-contents (doc-hover d (Pos 1 24)))
+      "```racket\n(let ([count 1]) (+ count 1))\n```")
+    (check-true
+      (string-contains? (Hover-contents (doc-hover d (Pos 1 9)))
+                        "(let ([count 1])")))
+
+  (test-case
+    "Document hover truncates source forms by characters and lines"
+    (define long-line
+      (string-append "\"" (make-string 600 #\x) "\""))
+    (define short-lines
+      (string-join (make-list 12 "  1") "\n"))
+    (define text
+      (string-append "#lang racket\n"
+                     "(let ([value (list " long-line "\n"
+                     short-lines
+                     "\n)]) value)\n"))
+    (define d (make-doc "file:///tmp/hover-detail-truncate.rkt" text))
+    (check-true (doc-expand! d))
+    (define result (Hover-contents (doc-hover d (Pos 1 7))))
+    (define match
+      (regexp-match #px"```racket\n((.|\n)*)\n```" result))
+    (check-not-false match)
+    (define code (cadr match))
+    (check-true (<= (string-length code) 1004))
+    (check-true (<= (add1 (length (regexp-match-positions* #px"\n" code))) 11))
+    (check-true (string-suffix? code "\n  ...")))
+
+  (test-case
+    "Document hover renders Rhombus structural forms when Rhombus is available"
+    (define rhombus-available?
+      (with-handlers ([exn:fail? (lambda (_exn) #f)])
+        (dynamic-require 'rhombus/main #f)
+        #t))
+    (when rhombus-available?
+      (define d
+        (make-doc "file:///tmp/hover-detail.rhm"
+                  "#lang rhombus\ndef value = 1\nfun parse_value(raw): raw\n"))
+      (check-true (doc-expand! d))
+      ;; When two forms share a start offset, the first top-level def must not
+      ;; inherit the Rhombus root aggregate range.
+      (check-equal?
+        (Hover-contents (doc-hover d (Pos 1 4)))
+        "```rhombus\ndef value = 1\n```\n\nCheck syntax: no bound occurrences")
+      (check-equal?
+        (Hover-contents (doc-hover d (Pos 2 4)))
+        "```rhombus\nfun parse_value(raw): raw\n```\n\nCheck syntax: no bound occurrences")
+      (define comment-d
+        (make-doc "file:///tmp/hover-detail-comments.rhm"
+                  "#lang rhombus\n// Converts the value.\nfun documented(value): value\n"))
+      (check-true (doc-expand! comment-d))
+      (check-equal?
+        (Hover-contents (doc-hover comment-d (Pos 2 4)))
+        "```rhombus\n// Converts the value.\nfun documented(value): value\n```\n\nCheck syntax: no bound occurrences")
+      ;; A bound use must find detail through `declaration-at`, not only through
+      ;; definition targets.
+      (define use-d
+        (make-doc "file:///tmp/hover-detail-use.rhm"
+                  "#lang rhombus\nfun parse_value(raw): raw\nparse_value(1)\n"))
+      (check-true (doc-expand! use-d))
+      (check-equal?
+        (Hover-contents (doc-hover use-d (Pos 2 0)))
+        "```rhombus\nfun parse_value(raw): raw\n```")))
 
   (test-case
     "Document signature help"

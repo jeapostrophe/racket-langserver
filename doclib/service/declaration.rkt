@@ -21,6 +21,26 @@
     (define/override (get)
       (list sym-decls sym-bindings))
 
+    ;; Named read for document assembly. Returns start, end, and Decl for the
+    ;; binding at `pos`. At declaration positions, find the Decl through a first
+    ;; use. Returns #f #f #f when nothing matches.
+    (define/public (declaration-at pos)
+      (define-values (start end maybe-decl)
+        (interval-map-ref/bounds sym-bindings pos #f))
+      (define-values (bind-start bind-end maybe-bindings)
+        (interval-map-ref/bounds sym-decls pos #f))
+      (cond
+        [maybe-decl (values start end maybe-decl)]
+        [maybe-bindings
+         (define decl
+           (interval-map-ref sym-bindings
+                             (car (set-first maybe-bindings))
+                             #f))
+         (if decl
+             (values bind-start bind-end decl)
+             (values #f #f #f))]
+        [else (values #f #f #f)]))
+
     (define/override (reset)
       (set! sym-decls (make-interval-map))
       (set! sym-bindings (make-interval-map)))
