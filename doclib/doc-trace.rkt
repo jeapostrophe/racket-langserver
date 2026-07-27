@@ -1,6 +1,7 @@
 #lang racket/base
 
 (require racket/class
+         racket/set
          drracket/check-syntax
          "service/completion.rkt"
          "service/hover/service.rkt"
@@ -10,11 +11,14 @@
          "service/diagnostic.rkt"
          "service/declaration.rkt"
          "service/highlight.rkt"
+         "service/typed-racket/service.rkt"
          "service/workspace-references.rkt")
 
 (define build-trace%
   (class (annotations-mixin object%)
-    (init-field src doc-text lexer-state)
+    (init-field src
+                doc-text
+                lexer-state)
     (define docs (new docs%))
     (define completions (new completion%))
     (define requires (new require%))
@@ -31,6 +35,10 @@
         [lexer-state lexer-state]))
     (define workspace-references (new workspace-references% [src src] [doc-text doc-text]))
     (define semantic-tokens (new highlight% [src src] [doc-text doc-text]))
+    (define typed-racket
+      (new typed-racket%
+        [src src]
+        [doc-text doc-text]))
 
     (define services
       (list hovers
@@ -39,6 +47,7 @@
             requires
             definitions
             diag
+            typed-racket
             decls
             workspace-references
             semantic-tokens))
@@ -66,9 +75,19 @@
     ;; Named reads for services. Do not add getters that expose interval-maps.
     (define/public (get-hover) hovers)
     (define/public (get-declaration) decls)
+    (define/public (get-typed-racket) typed-racket)
 
-    ;; Getters
-    (define/public (get-warn-diags) (car (send diag get)))
+    ;; Chosen over putting Typed Racket type-error diagnostics on diag%:
+    ;; inferred types and type errors share one online-check-syntax channel
+    ;; owned by typed-racket%. Union both sets here for LSP publish.
+    (define/public (get-warn-diags)
+      ;; Callers expect a mutable set. Fresh copy so they do not share the
+      ;; diag% or typed-racket% stores.
+      (define diagnostics (mutable-seteq))
+      (set-union! diagnostics
+                  (car (send diag get))
+                  (send typed-racket get-diagnostics))
+      diagnostics)
     (define/public (get-docs) (send docs get))
     (define/public (get-completions) (send completions get))
     (define/public (get-online-completions str-before-cursor)

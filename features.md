@@ -52,7 +52,7 @@ Problems are shown from these sources:
 
 - **Reader and expander errors** (syntax errors, missing modules, broken `.zo` files). Shown even if expansion fails. `.zo` version mismatch errors include a suggestion telling you which `raco` command to run.
 - **Check-syntax warnings** for unused variables and unused `require` forms. These only appear after a successful expansion. Powered by DrRacket's `check-syntax`.
-- **Typed Racket type errors** produced during expansion by the type checker. The server reads these from the type checker's log output.
+- **Typed Racket type errors** produced during expansion by the type checker. The server reads these from Typed Racket's online-check-syntax tooltip channel (same source as inferred types on hover).
 - **Language declaration check** warns about missing `#lang` lines or unrecognized language names. Works without expansion.
 
 Language behavior: mostly not filtered by language family. Reader errors, expander errors, and check-syntax warnings work for any language that reads and expands. The language declaration check only recognizes the predefined language families, so other valid `#lang` names are reported as unrecognized. Typed Racket type errors are specific to Typed Racket.
@@ -83,14 +83,44 @@ Language behavior: only recognized sexp language families are supported. Other l
 
 ## Hover *(requires expansion)*
 
-Hovering over an identifier shows:
+Hovering at a position shows a fixed Markdown card. The renderer only chooses
+whether each slot appears and where it appears; slot text stays verbatim from
+its source.
 
-1. **Same-file source form** - for local declarations and uses confirmed by the trace, a limited structural snippet from the bound declaration. Local uses share that declaration detail. They do not show the use-site form. Display prefers the outermost same-line structural candidate when one exists: a compact binding clause, a collapsed one-line header, or a complete one-line form. Otherwise it shows the full nearest enclosing form. Contiguous own-line leading comments above the form are included. Racket-family forms use a `racket` fence. Rhombus forms use a `rhombus` fence. This does not depend on recognizing binding-form names.
-2. **Check syntax** - the raw mouse-over status from check syntax, shown unchanged with a `Check syntax:` label.
-3. **Online docs link** - from check-syntax's doc annotation, turned into a `docs.racket-lang.org` URL.
-4. **Locally installed documentation** - looked up via the check-syntax doc tag. Scribble blueboxes are preferred for formatted signatures. If they are not available, the locally installed HTML docs are parsed instead.
+Slots, top to bottom:
 
-Language behavior: source forms are read from the current buffer using kept trace ranges while a refresh runs. When the trace is old, the shown form can be useful, but the binding link can be outdated. Code context is limited to 10 lines and 1000 source characters. Leading comments are limited to 10 lines and 200 source characters per line. Other hover data works where expansion succeeds and check-syntax produces hover and documentation data with reliable source ranges.
+1. **Type** - Typed Racket inferred type in a `racket` fence, labeled `Type` or
+   `Type (stale)` when it comes from a retained trace. Always fenced; never
+   inlined by length.
+2. **Definition** - same-file source snippet when the trace confirms a local
+   declaration or use, otherwise a Scribble bluebox / docs signature. Source
+   wins when both exist. Local uses share declaration detail. Display prefers
+   the outermost same-line structural candidate when one exists: a compact
+   binding clause, a collapsed one-line header, or a complete one-line form.
+   Otherwise it shows the full nearest enclosing form. Contiguous own-line
+   leading comments above the form are included. Racket-family forms use a
+   `racket` fence. Rhombus forms use a `rhombus` fence. A lone definition
+   fence is unlabeled; when a type precedes it, the fence is labeled `Source`
+   or `Signature`.
+3. **Documentation** - online docs link, then locally installed docs excerpt
+   when available. At most one `---` appears, and only immediately before this
+   section when earlier slots are also present.
+4. **Check-syntax text** - raw mouse-over status, unlabeled, and only when it
+   is the sole content (no type, definition, or docs link). Occurrence counts
+   and `imported from ...` are not classified specially; they disappear when
+   richer slots already fill the card.
+
+Language behavior: source forms are read from the current buffer using kept
+trace ranges while a refresh runs. When the trace is old, retained types stay
+visible as `Type (stale)`. The shown form or type can be useful, but the
+binding link or type may be wrong until expansion finishes. The hover range
+prefers the inferred-type interval when present (including literal and
+expression-delimiter spans); otherwise it uses check-syntax mouse-over status
+or a kept same-file source-detail range. Code context is limited to 10 lines
+and 1000 source characters. Leading comments are limited to 10 lines and 200
+source characters per line. Other hover data works where expansion succeeds
+and check-syntax produces hover and documentation data with reliable source
+ranges.
 
 ## Inlay Hints
 
