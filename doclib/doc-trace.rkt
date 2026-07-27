@@ -2,6 +2,7 @@
 
 (require racket/class
          racket/set
+         racket/string
          drracket/check-syntax
          "service/completion.rkt"
          "service/hover/service.rkt"
@@ -12,7 +13,8 @@
          "service/declaration.rkt"
          "service/highlight.rkt"
          "service/typed-racket/service.rkt"
-         "service/workspace-references.rkt")
+         "service/workspace-references.rkt"
+         "../common/interfaces.rkt")
 
 (define build-trace%
   (class (annotations-mixin object%)
@@ -80,13 +82,25 @@
     ;; Chosen over putting Typed Racket type-error diagnostics on diag%:
     ;; inferred types and type errors share one online-check-syntax channel
     ;; owned by typed-racket%. Union both sets here for LSP publish.
+    ;;
+    ;; Drop a diag% Type Checker entry when some Typed Racket tooltip message
+    ;; is a substring of it (exception text is usually a longer wrapper).
+    ;; Prefer the tooltip diagnostic. If tooltips produced nothing, keep the
+    ;; exception so type errors do not disappear.
     (define/public (get-warn-diags)
       ;; Callers expect a mutable set. Fresh copy so they do not share the
       ;; diag% or typed-racket% stores.
+      (define typed-racket-diags (send typed-racket get-diagnostics))
       (define diagnostics (mutable-seteq))
-      (set-union! diagnostics
-                  (car (send diag get))
-                  (send typed-racket get-diagnostics))
+      (for ([diag (in-set (car (send diag get)))])
+        (define message (Diagnostic-message diag))
+        (define covered-by-typed-racket?
+          (and (string-contains? message "Type Checker:")
+               (for/or ([typed-diag (in-set typed-racket-diags)])
+                 (string-contains? message (Diagnostic-message typed-diag)))))
+        (unless covered-by-typed-racket?
+          (set-add! diagnostics diag)))
+      (set-union! diagnostics typed-racket-diags)
       diagnostics)
     (define/public (get-docs) (send docs get))
     (define/public (get-completions) (send completions get))

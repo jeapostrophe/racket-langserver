@@ -1266,15 +1266,12 @@ END
       (check-true
         (string-contains? (Diagnostic-message typed-diag)
                           "expected: Number"))
-      ;; Expansion also publishes the ordinary Racket exception diagnostic.
-      (define racket-diag
-        (for/first ([diag (in-list diags)]
-                    #:when (string=? (Diagnostic-source diag) "Racket"))
-          diag))
-      (check-not-false racket-diag)
-      (check-true
-        (string-contains? (Diagnostic-message racket-diag)
-                          "Type Checker"))))
+      ;; Exception text wraps the tooltip message; publish only the tooltip.
+      (check-false
+        (for/or ([diag (in-list diags)])
+          (and (string=? (Diagnostic-source diag) "Racket")
+               (string-contains? (Diagnostic-message diag)
+                                 "Type Checker"))))))
 
   (test-case
     "Document hover renders collapsed same-file headers for declarations and uses"
