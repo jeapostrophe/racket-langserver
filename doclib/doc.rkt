@@ -518,17 +518,19 @@
 (define (abs-range->range doc start end)
   (Range (doc-abs-pos->pos doc start) (doc-abs-pos->pos doc end)))
 
-;; Build hover cards: read from the hover service and docs map, build a
-;; `Hover-Card`, then render. Lookup stays here so `hover.rkt` stays testable
-;; without expansion.
+;; Build hover cards: read from the hover and Typed Racket services and the
+;; docs map, build a `Hover-Card`, then render. Lookup stays here so
+;; `hover.rkt` stays testable without expansion.
 ;;
-;; Hot path: interval-map lookup plus limited reads from the live buffer.
-;; No re-lex, expand, or cross-file load. Source detail uses shifted ranges
-;; while a trace is old. The result can be wrong or incomplete. Do not wait for
-;; `doc-trace-latest?`. Limits match features.md.
+;; Performance: hot path is interval-map lookup plus limited reads from the
+;; live buffer. No re-lex, expand, or cross-file load. Do not wait for
+;; `doc-trace-latest?`; shifted source detail and retained types may be wrong
+;; or incomplete while a trace is old.
+;; Caps live in `max-hover-source-*` here and the comment caps in
+;; `service/hover/detail.rkt`; keep Scribble `doc-hover` in sync.
 
 (define (hover-tag->signature tag)
-  ;; Prefer bluebox signatures over HTML for the summary fence. They indent
+  ;; Prefer bluebox signatures over HTML for the definition fence. They indent
   ;; better. When this returns #f, `hover-documentation-text` may still take a
   ;; signature from HTML docs via #:include-signature? #t.
   (match-define (list signatures args-description)
@@ -542,9 +544,9 @@
                ""))))
 
 (define (hover-documentation-text link signature)
-  ;; Skip the HTML signature when a bluebox signature already fills the summary.
-  ;; Otherwise `extract-documentation` puts the same signature in the docs body
-  ;; (see #:include-signature? in documentation-parser.rkt).
+  ;; Skip the HTML signature when a bluebox signature already fills the
+  ;; definition slot. Otherwise `extract-documentation` puts the same signature
+  ;; in the docs body (see #:include-signature? in documentation-parser.rkt).
   (if link
       (or (extract-documentation-for-selected-element
             link #:include-signature? (not signature))
@@ -650,20 +652,6 @@
                   "\n")
                 (Hover-Detail-fence-language detail))))))
 
-(define (build-hover-card hover-text link signature source-summary documentation-text)
-  ;; Same-file source form wins over a docs signature. Keep check-syntax text
-  ;; unchanged in a labeled fact. Do not rewrite it in the renderer.
-  (Hover-Card (or source-summary
-                  (and signature
-                       (Hover-Code-Summary signature "racket")))
-              '()
-              (if hover-text
-                  (list (Hover-Fact "Check syntax" hover-text))
-                  '())
-              (and link
-                   (Hover-Documentation documentation-text
-                                        (make-proper-url-for-online-documentation link)))))
-
 ;; Find same-file detail through use-to-declaration lookup. Skip imports and
 ;; cross-file `Decl-filepath` values. Keep the use span even when no stored
 ;; detail exists yet, so mouse-over range fallback still works.
@@ -682,11 +670,15 @@
   (define doc-trace (Doc-trace doc))
   (define hover-service (send doc-trace get-hover))
   (define declaration-service (send doc-trace get-declaration))
+  (define typed-racket-service
+    (send doc-trace get-typed-racket))
   (define pos* (doc-pos->abs-pos doc pos))
   (define-values (start end hover-text)
     (send hover-service mouse-over-at pos*))
+  (define-values (type-start type-end type-text)
+    (send typed-racket-service inferred-type-at pos*))
   ;; While a trace refreshes, show current buffer text from shifted ranges.
-  ;; The binding link may be old or wrong.
+  ;; The binding link or retained type may be old or wrong.
   (define-values (detail-start detail-end detail)
     (send hover-service source-detail-at pos*))
   (define-values (use-start use-end resolved-detail)
@@ -696,9 +688,10 @@
   (define source-summary
     (and resolved-detail (hover-detail->summary doc resolved-detail)))
   (cond
-    ;; Docs alone do not open a card. Stored source detail may still supply
-    ;; summary and range when check-syntax produced no hover text.
-    [(and (not hover-text) (not source-summary)) #f]
+    ;; Docs alone do not open a card. Type text, check-syntax hover, or
+    ;; same-file source summary each can. Stored source detail may still
+    ;; supply summary and range when check-syntax produced no hover text.
+    [(and (not type-text) (not hover-text) (not source-summary)) #f]
     [else
      (match-define (list link tag)
        (interval-map-ref (send doc-trace get-docs) pos* (list #f #f)))
@@ -706,16 +699,21 @@
      (define documentation-text
        (hover-documentation-text link signature))
      (define hover-card
-       (build-hover-card hover-text
-                         link
-                         signature
-                         source-summary
-                         documentation-text))
+       (build-hover-card #:type-text type-text
+                         #:type-stale? (not (doc-trace-latest? doc))
+                         #:hover-text hover-text
+                         #:link (and link
+                                     (make-proper-url-for-online-documentation link))
+                         #:signature signature
+                         #:source-summary source-summary
+                         #:documentation-text documentation-text))
      (Hover #:contents (render-hover-card hover-card)
+            ;; Prefer inferred-type intervals, including literal and expression
+            ;; delimiter spans Typed Racket can publish without mouse-over text.
+            ;; Fall back to check-syntax mouse-over or kept source-detail range.
             #:range (abs-range->range doc
-                                      (or start use-start)
-                                      (or end use-end)))]))
-
+                                      (or type-start start use-start)
+                                      (or type-end end use-end)))]))
 (define/contract (doc-code-action doc range)
   (-> Doc? Range? (listof CodeAction?))
   (define doc-trace (Doc-trace doc))

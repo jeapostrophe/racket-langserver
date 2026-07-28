@@ -106,35 +106,42 @@ from @tt{racket-langserver/json-util}. Nested struct values are encoded recursiv
 @defstruct*[Hover ([contents string?]
                    [range Range?])
             #:transparent]{
-  Hover information for a symbol occurrence.
+  Hover information at a document position.
 
   The @tt{contents} field is Markdown from a @tt{Hover-Card}. Sections appear in
   this fixed order:
   @itemlist[
-    @item{Optional fenced code summary. For a current same-file trace with local
+    @item{Optional Typed Racket type in a @tt{racket} fence. Labeled @tt{Type},
+          or @tt{Type (stale)} when the type comes from a retained trace.}
+    @item{Optional fenced definition. For a current same-file trace with local
           declaration detail, this shows code around the bound declaration.
-          Local uses share that detail. Each use does not rebuild it. Own-line
-          leading comments above the form may also appear. Usually the summary
-          shows the outermost same-line form (a compact binding clause, a
-          one-line header collapsed with @tt{...}, or a complete one-line form).
-          When no form on the identifier line fits, the full nearest enclosing
-          form is shown. Without same-file detail, a Scribble bluebox signature
-          may fill the summary instead. Racket-family forms use a @tt{racket}
-          fence. Rhombus forms use a @tt{rhombus} fence.}
-    @item{A @tt{Check syntax:} line from check-syntax mouse-over status, when
-          present. The text is unchanged.}
-    @item{Optional documentation after a @tt{---} separator: an online link
-          and/or a locally installed docs excerpt}
+          Local uses share that stored detail; each use does not rebuild it.
+          Own-line leading comments above the form may also appear. Usually this
+          slot shows the outermost same-line form (a compact binding clause,
+          a one-line header collapsed with @tt{...}, or a complete one-line
+          form). When no form on the identifier line fits, the full nearest
+          enclosing form is shown. Without same-file detail, a Scribble bluebox
+          signature may fill this slot instead. Racket-family forms use a
+          @tt{racket} fence. Rhombus forms use a @tt{rhombus} fence. A lone
+          definition fence is unlabeled. When a type precedes it, the fence is
+          labeled @tt{Source} or @tt{Signature}.}
+    @item{Optional documentation after a @tt{---} separator when earlier slots
+          are also present: an online link and/or a locally installed docs
+          excerpt. Link comes before body.}
+    @item{Optional check-syntax mouse-over text as a plain unlabeled note, only
+          when it is the sole content (no type, definition, or docs link). The
+          text is unchanged.}
   ]
 
   When a trace is old, same-file source detail still comes from the current
-  buffer. The shown form can be useful, but the binding link may be wrong until
-  expansion finishes. Imports and cross-file bindings do not get same-file
-  source snippets. Their cards use check-syntax text and documentation instead.
+  buffer and retained types remain visible as stale. These results can be
+  useful, but the binding link or type may be wrong until expansion finishes.
+  Imports and cross-file bindings do not get same-file source snippets. Their
+  cards use documentation when available, otherwise check-syntax text alone.
 
-  The @tt{range} field is the identifier span the hover applies to. It comes from
-  check-syntax mouse-over status when present. Otherwise it comes from a kept
-  same-file source-detail range.
+  The @tt{range} field comes from the inferred-type interval when present,
+  including literal and expression-delimiter intervals. Otherwise it comes
+  from check-syntax mouse-over status or a kept same-file source-detail range.
 }
 
 @defstruct*[DocumentHighlight ([range Range?])
@@ -625,30 +632,28 @@ Exceptions are noted in individual entries.
                     [pos Pos?])
          (or/c Hover? #f)]{
   Returns hover info at @tt{pos}, or @racket[#f] when check-syntax mouse-over
-  status and same-file source detail are both missing. A docs link alone does not
-  open a hover card.
+  status, Typed Racket type text, and same-file source detail are all missing.
+  A docs link alone does not open a hover card.
 
-  When present, @tt{contents} can include:
+  When present, @tt{contents} follows the fixed @tt{Hover-Card} stack:
   @itemlist[
-    @item{Fenced code summary. For a current same-file trace with local
-          declaration detail, this shows code around the bound declaration.
-          Local uses share that detail. Own-line leading comments may also
-          appear. Usually the summary shows the outermost same-line form
-          (compact binding clause, collapsed one-line header, or complete
-          one-line form). When no form on the identifier line fits, the full
-          nearest enclosing form is shown. Otherwise a Scribble bluebox signature
-          when one exists}
-    @item{A @tt{Check syntax:} line from check-syntax mouse-over status, when
-          present. The text is unchanged.}
-    @item{An online documentation link and, when available, a locally installed
-          docs excerpt (blueboxes preferred for signatures; HTML docs otherwise)}
+    @item{Optional Typed Racket type fence, labeled @tt{Type} or
+          @tt{Type (stale)}}
+    @item{Optional fenced definition (same-file source, else docs signature).
+          Labeled @tt{Source}/@tt{Signature} only when a type precedes it}
+    @item{Optional documentation link and/or excerpt after at most one
+          @tt{---}}
+    @item{Optional check-syntax mouse-over text only when it is the sole
+          content. The text is unchanged and unlabeled}
   ]
 
   Source forms are read from the current buffer through kept trace ranges while an
-  old trace refreshes. The shown form can be useful, but the binding link may be
-  wrong. Code context is limited to 10 lines and 1000 source characters. Leading
-  comments are limited to 10 lines and 200 source characters per line. Mouse-over
-  status and documentation can also appear while an old trace refreshes.
+  old trace refreshes. Retained Typed Racket types remain visible as
+  @tt{Type (stale)}. The shown form or type can be useful, but the binding link
+  or type may be wrong until expansion finishes. Code context is limited to 10
+  lines and 1000 source characters. Leading comments are limited to 10 lines and
+  200 source characters per line. Mouse-over status and documentation can also
+  appear while an old trace refreshes.
 }
 
 @defproc[(doc-completion [doc Doc?]

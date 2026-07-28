@@ -20,6 +20,9 @@
 
 (provide diag%)
 
+;; Language-independent diagnostics from expansion exceptions, language-policy
+;; checks, and check-syntax mouse-over hints. Typed Racket type-error tooltips
+;; live on typed-racket%, not here.
 (define diag%
   (class base-service%
     (init-field src doc-text lexer-state)
@@ -54,12 +57,6 @@
         (add-diags! (error-diagnostics doc-text pre-exn)))
       (when post-exn
         (add-diags! (error-diagnostics doc-text post-exn))))
-
-    (define/override (walk-log logs)
-      (for ([log (in-list logs)])
-        (define result (check-typed-racket-log doc-text log))
-        (when (list? result)
-          (add-diags! result))))
 
     (define/override (syncheck:add-mouse-over-status src-obj start finish text)
       (when (and (< start finish)
@@ -148,9 +145,9 @@
 (define (error-diagnostics doc-text exn)
   (define msg (exn-message exn))
   (cond
-    ;; Typed Racket reports each type error separately, then emits a final
-    ;; "Type Checker: Summary" message that repeats the error count. The
-    ;; per-error diagnostics are more useful, so do not publish the summary.
+    ;; Do not publish Typed Racket's final "Type Checker: Summary" exception.
+    ;; It only repeats the error count; per-error text comes from typed-racket%
+    ;; tooltips.
     [(string-prefix? msg "Type Checker: Summary") (list)]
     ;; A .zo file was compiled by a different Racket version. The original
     ;; reader error is hard to act on, so rewrite it into a recompilation
@@ -258,21 +255,3 @@
      (string-append
        "Cannot find required module.\n"
        "Check that the module or collection name is correct and the package is installed.")]))
-
-(define (check-typed-racket-log doc-text log)
-  (match-define (vector _ msg data _) log)
-  (when (and (list? data) (not (empty? data)) (syntax? (car data)))
-    (define prop (syntax-property (car data) 'mouse-over-tooltips))
-    (when (and prop (list? prop) (not (empty? prop)))
-      (define-values (start end msg)
-        (match prop
-          [(list (vector _ start _ _) (vector _ _ end msg))
-           (values start end msg)]
-          [(list (vector _ start end msg))
-           (values start end msg)]
-          [else (values #f #f #f)]))
-      (when (string? msg)
-        (list (Diagnostic #:range (Range #:start (abs-pos->Pos doc-text start) #:end (abs-pos->Pos doc-text end))
-                          #:severity DiagnosticSeverity-Error
-                          #:source "Typed Racket"
-                          #:message msg))))))

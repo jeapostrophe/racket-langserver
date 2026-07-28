@@ -47,7 +47,9 @@
       (add-syntax expanded-stx)
       (done))
 
-    (ExpandResult stx expanded-stx expand-logs)))
+    ;; Interceptor conses in O(1); reverse restores emission order so overlapping
+    ;; Typed Racket provider records apply as sent.
+    (ExpandResult stx expanded-stx (reverse expand-logs))))
 
 ;; Struct to hold the result of check-syntax.
 (struct/contract CSResult

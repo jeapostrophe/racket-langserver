@@ -1,99 +1,151 @@
 #lang racket/base
 
-;; Data for a hover card. Other code fills the fields. This module turns them
-;; into Markdown.
+;; Hover card data and Markdown rendering.
 ;;
-;; Keep this module as data only. `doc-hover` collects check-syntax and docs,
-;; then calls `render-hover-card`. All cards use the same layout.
+;; `doc-hover` collects type, check-syntax, source, and docs facts, then
+;; `build-hover-card` maps them onto fixed slots and `render-hover-card`
+;; turns the card into Markdown. All cards use the same layout.
 ;;
-;; Section order is fixed: summary, metadata, facts, documentation.
-;; Do not build hover strings outside this model
-;; (see tests/lib/doc-test.rkt hover cases).
+;; Invariant: the renderer decides only whether a slot appears and where it
+;; appears. Every character inside a slot is verbatim from its source. Do not
+;; trim, inline, paraphrase, or length-gate presentation here.
+;;
+;; Fixed render order: type, definition, documentation (link then body), note.
+;; Always label a type fence (`Type` / `Type (stale)`). Label `Source` or
+;; `Signature` only when a type fence precedes the definition. The note is
+;; unlabeled prose.
 
 (require racket/contract
-         racket/string)
+         racket/match
+         racket/string
+         srfi/2)
 
 (provide (struct-out Hover-Card)
          (struct-out Hover-Code-Summary)
-         (struct-out Hover-Fact)
+         (struct-out Hover-Definition)
          (struct-out Hover-Documentation)
-         render-hover-card)
+         build-hover-card
+         render-hover-card
+         hover-card-has-content?)
 
-;; Signature or source snippet inside a Markdown code fence.
-;; If text is empty, skip the whole summary section when rendering.
+;; One fenced code block (type, source, or signature text).
+;; Empty text omits that fence when rendering.
 (struct/contract Hover-Code-Summary
   ([text string?]
    [fence-language string?])
   #:transparent)
 
-;; One labeled fact. Rendered as `Label: value`.
-;; Skip the fact if label or value is empty.
-(struct/contract Hover-Fact
-  ([label string?]
-   [value string?])
+;; Definition slot: same-file source form or a docs signature.
+(struct/contract Hover-Definition
+  ([kind (or/c 'source 'signature)]
+   [summary Hover-Code-Summary?])
   #:transparent)
 
-;; Documentation section. It can follow a `---` separator.
-;; Body may be empty if only the online link should show.
-;; Put the link before a long body.
+;; Documentation slot. At most one `---` precedes it, and only when earlier
+;; slots are also present. Body may be empty when only the online link should
+;; show; link comes before a long body.
 (struct/contract Hover-Documentation
   ([body string?]
    [link (or/c string? #f)])
   #:transparent)
 
-;; Summary is a fenced code block, or it is missing. Put other hover text in
-;; `facts` or `metadata`. Do not use a second summary style.
-;;
-;; `summary`: fenced signature or source snippet. `doc-hover` puts check-syntax
-;;   text in `facts`, not here.
-;; `metadata`: short source labels joined with ` | `. Empty strings are
-;;   dropped when rendering.
-;; `facts`: labeled lines (type, contract, ...) in the order they were added.
-;; `documentation`: last section. Skip it when body and link are both empty.
+;; Fixed slots. Use #f to omit a slot. Documentation may be link-only with an
+;; empty body.
+;; Struct field order is not render order: `note` sits before `documentation`
+;; here, but render places documentation before note (see module header).
+;; `type-stale?` matters only when `type` is present.
+;; `note` holds check-syntax mouse-over text; `build-hover-card` clears it when
+;; any richer slot is present.
 (struct/contract Hover-Card
-  ([summary (or/c Hover-Code-Summary? #f)]
-   [metadata (listof string?)]
-   [facts (listof Hover-Fact?)]
+  ([type (or/c Hover-Code-Summary? #f)]
+   [type-stale? boolean?]
+   [definition (or/c Hover-Definition? #f)]
+   [note (or/c string? #f)]
    [documentation (or/c Hover-Documentation? #f)])
   #:transparent)
+
+;; Map hover inputs onto the fixed renderer slots.
+;; Same-file source wins over a docs signature.
+;; Check-syntax text is fallback-only: keep it only when no type, definition,
+;; or docs link exists. Do not classify its mixed strings here.
+;; `#:link` is the final online URL (caller rewrites local docs paths).
+(define (build-hover-card #:type-text type-text
+                          #:type-stale? type-stale?
+                          #:hover-text hover-text
+                          #:link link
+                          #:signature signature
+                          #:source-summary source-summary
+                          #:documentation-text documentation-text)
+  (define type
+    (and type-text
+         (Hover-Code-Summary type-text "racket")))
+  (define definition
+    (cond
+      [source-summary
+       (Hover-Definition 'source source-summary)]
+      [signature
+       (Hover-Definition 'signature
+                         (Hover-Code-Summary signature "racket"))]
+      [else #f]))
+  (define documentation
+    (and link
+         (Hover-Documentation documentation-text link)))
+  (define note
+    (and hover-text
+         (not type)
+         (not definition)
+         (not documentation)
+         hover-text))
+  (Hover-Card type
+              ;; Caller sets type-stale? for the whole document; attach it only
+              ;; when a type fence exists so note-only cards stay unmarked.
+              (and type type-stale?)
+              definition
+              note
+              documentation))
 
 (define (non-empty-text? text)
   (and (string? text)
        (not (string=? text ""))))
 
-(define (render-summary summary)
-  (cond
-    [(not summary) #f]
-    [(Hover-Code-Summary? summary)
-     (define text (Hover-Code-Summary-text summary))
-     (define fence-language (Hover-Code-Summary-fence-language summary))
-     (and (non-empty-text? text)
-          (format "```~a\n~a\n```" fence-language text))]
-    [else
-     (raise-argument-error 'render-hover-card
-                           "(or/c Hover-Code-Summary? #f)"
-                           summary)]))
+(define (render-code-summary summary)
+  (define text (Hover-Code-Summary-text summary))
+  (define fence-language (Hover-Code-Summary-fence-language summary))
+  (and (non-empty-text? text)
+       (format "```~a\n~a\n```" fence-language text)))
 
-;; Join metadata with ` | ` next to the summary.
-;; Drop empty entries so missing data does not leave extra separators.
-(define (render-metadata metadata)
-  (define entries
-    (for/list ([entry (in-list metadata)]
-               #:when (non-empty-text? entry))
-      entry))
-  (and (pair? entries)
-       (string-join entries " | ")))
+;; Tight label-to-fence pairing. Blank lines belong between slots, not here.
+(define (render-labeled-fence label summary)
+  (define fenced (render-code-summary summary))
+  (and fenced
+       (format "**~a**\n~a" label fenced)))
 
-(define (render-facts facts)
-  (define lines
-    (for/list ([fact (in-list facts)]
-               #:when (and (non-empty-text? (Hover-Fact-label fact))
-                           (non-empty-text? (Hover-Fact-value fact))))
-      (format "~a: ~a"
-              (Hover-Fact-label fact)
-              (Hover-Fact-value fact))))
-  (and (pair? lines)
-       (string-join lines "\n")))
+(define (render-type type type-stale?)
+  (and type
+       (render-labeled-fence (if type-stale?
+                                 "Type (stale)"
+                                 "Type")
+                             type)))
+
+(define (definition-label kind)
+  (match kind
+    ['source "Source"]
+    ['signature "Signature"]))
+
+;; Label only when a type fence precedes this slot. A lone definition fence
+;; stays unlabeled so it matches the old single-fence hover layout; two
+;; adjacent fences need labels.
+(define (render-definition definition #:label? label?)
+  (and-let* (definition
+              [summary (Hover-Definition-summary definition)])
+    (if label?
+        (render-labeled-fence (definition-label (Hover-Definition-kind definition))
+                              summary)
+        (render-code-summary summary))))
+
+(define (render-note note)
+  (and (non-empty-text? note)
+       note))
 
 (define (render-documentation documentation)
   (cond
@@ -103,11 +155,8 @@
      (define link (Hover-Documentation-link documentation))
      ;; Put the link before the body. A long excerpt can hide a link at the end.
      (define header
-       (cond
-         [(non-empty-text? link)
-          (format "[Online docs](~a)" link)]
-         [(non-empty-text? body) "Documentation"]
-         [else #f]))
+       (and (non-empty-text? link)
+            (format "[Online docs](~a)" link)))
      (define parts
        (append (if header
                    (list header)
@@ -118,25 +167,46 @@
      (and (pair? parts)
           (string-join parts "\n\n"))]))
 
+;; Chosen over checking raw fields: documentation may be link-only with an
+;; empty body, and empty fences must not count as content.
+(define (hover-card-has-content? card)
+  (or (Hover-Card-type card)
+      (Hover-Card-definition card)
+      (non-empty-text? (Hover-Card-note card))
+      (match (Hover-Card-documentation card)
+        [#f #f]
+        [(Hover-Documentation body link)
+         (or (non-empty-text? body)
+             (non-empty-text? link))])))
+
 (define/contract (render-hover-card card)
   (-> Hover-Card? string?)
-  (define summary (render-summary (Hover-Card-summary card)))
-  (define metadata (render-metadata (Hover-Card-metadata card)))
-  (define facts (render-facts (Hover-Card-facts card)))
+  (define type
+    (render-type (Hover-Card-type card)
+                 (Hover-Card-type-stale? card)))
+  (define definition
+    (render-definition (Hover-Card-definition card)
+                       #:label? (and type #t)))
   (define documentation
     (render-documentation (Hover-Card-documentation card)))
-  (define non-doc-sections
-    (filter non-empty-text?
-            (list summary metadata facts)))
-  (define non-doc-contents
-    (string-join non-doc-sections "\n\n"))
-  ;; Use at most one `---` separator, and only before the docs section.
-  ;; Do not put separators between summary, metadata, and facts. Skip the
-  ;; separator when docs are empty (see "Hover card omits empty sections...").
+  (define note
+    (render-note (Hover-Card-note card)))
+  (define before-docs
+    (string-join
+      (filter non-empty-text?
+              (list type definition))
+      "\n\n"))
+  ;; At most one `---`, only before docs, and only when both sides are non-empty.
+  (define with-docs
+    (cond
+      [(not documentation) before-docs]
+      [(string=? before-docs "") documentation]
+      [else
+       (string-append before-docs
+                      "\n\n---\n\n"
+                      documentation)]))
   (cond
-    [(not documentation) non-doc-contents]
-    [(string=? non-doc-contents "") documentation]
+    [(not note) with-docs]
+    [(string=? with-docs "") note]
     [else
-     (string-append non-doc-contents
-                    "\n\n---\n\n"
-                    documentation)]))
+     (string-append with-docs "\n\n" note)]))
