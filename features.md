@@ -105,10 +105,9 @@ Slots, top to bottom:
 3. **Documentation** - online docs link, then locally installed docs excerpt
    when available. At most one `---` appears, and only immediately before this
    section when earlier slots are also present.
-4. **Check-syntax text** - raw mouse-over status, unlabeled, and only when it
-   is the sole content (no type, definition, or docs link). Occurrence counts
-   and `imported from ...` are not classified specially; they disappear when
-   richer slots already fill the card.
+4. **Check-syntax text** - raw mouse-over status, unlabeled, whenever it is a
+   non-empty string. With a docs link, it appears immediately before
+   `[Online docs]`; otherwise it follows the earlier slots.
 
 Language behavior: source forms are read from the current buffer using kept
 trace ranges while a refresh runs. When the trace is old, retained types stay

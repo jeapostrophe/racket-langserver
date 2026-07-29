@@ -968,8 +968,7 @@ END
         "```racket\n(define count 1)\n```")))
 
   (test-case
-    ;; Check-syntax mouse-over text is mixed; keep it only as a lone note.
-    "build-hover-card omits check-syntax note when a type is present"
+    "build-hover-card keeps non-empty check-syntax note beside type"
     (define card
       (build-hover-card #:type-text "Integer"
                         #:type-stale? #f
@@ -978,14 +977,27 @@ END
                         #:signature #f
                         #:source-summary #f
                         #:documentation-text #f))
-    (check-equal? (Hover-Card-note card) #f)
+    (check-equal? (Hover-Card-note card) " \n Integer \t")
     (check-equal? (render-hover-card card)
                   (string-append
                     "**Type**\n"
-                    "```racket\nInteger\n```")))
+                    "```racket\nInteger\n```\n\n"
+                    " \n Integer \t")))
 
   (test-case
-    "build-hover-card omits check-syntax note beside richer slots"
+    "build-hover-card omits empty check-syntax text"
+    (define card
+      (build-hover-card #:type-text #f
+                        #:type-stale? #f
+                        #:hover-text ""
+                        #:link #f
+                        #:signature #f
+                        #:source-summary #f
+                        #:documentation-text #f))
+    (check-false (Hover-Card-note card)))
+
+  (test-case
+    "build-hover-card keeps non-empty check-syntax note beside richer slots"
     (define with-type
       (build-hover-card #:type-text "Integer"
                         #:type-stale? #f
@@ -994,12 +1006,13 @@ END
                         #:signature #f
                         #:source-summary #f
                         #:documentation-text #f))
-    (check-equal? (Hover-Card-note with-type) #f)
+    (check-equal? (Hover-Card-note with-type) "bound occurrence")
     (check-equal?
       (render-hover-card with-type)
       (string-append
         "**Type**\n"
-        "```racket\nInteger\n```"))
+        "```racket\nInteger\n```\n\n"
+        "bound occurrence"))
     (define with-source
       (build-hover-card #:type-text #f
                         #:type-stale? #f
@@ -1008,10 +1021,12 @@ END
                         #:signature #f
                         #:source-summary (Hover-Code-Summary "(define count 1)" "racket")
                         #:documentation-text #f))
-    (check-equal? (Hover-Card-note with-source) #f)
+    (check-equal? (Hover-Card-note with-source) "1 bound occurrence")
     (check-equal?
       (render-hover-card with-source)
-      "```racket\n(define count 1)\n```")
+      (string-append
+        "```racket\n(define count 1)\n```\n\n"
+        "1 bound occurrence"))
     (define with-docs
       (build-hover-card #:type-text #f
                         #:type-stale? #f
@@ -1020,15 +1035,16 @@ END
                         #:signature #f
                         #:source-summary #f
                         #:documentation-text "Applies proc."))
-    (check-equal? (Hover-Card-note with-docs) #f)
+    (check-equal? (Hover-Card-note with-docs) "imported from racket")
     (check-equal?
       (render-hover-card with-docs)
       (string-append
+        "imported from racket\n\n"
         "[Online docs](https://docs.example.test/map)\n\n"
         "Applies proc.")))
 
   (test-case
-    "build-hover-card keeps check-syntax text only as sole content"
+    "build-hover-card keeps note-only cards"
     (define card
       (build-hover-card #:type-text #f
                         #:type-stale? #f
@@ -1126,8 +1142,12 @@ END
     (check-true (string-contains? result "```racket"))
     (check-true (string-contains? result "Returns a newly allocated list"))
     (check-true (string-contains? result "[Online docs]"))
-    ;; Docs link is present, so check-syntax provenance is omitted.
-    (check-false (string-contains? result "imported from")))
+    (check-true (string-contains? result "imported from"))
+    (define imported-from-start
+      (caar (regexp-match-positions #rx"imported from" result)))
+    (define online-docs-start
+      (caar (regexp-match-positions #rx"\\[Online docs\\]" result)))
+    (check-true (< imported-from-start online-docs-start)))
 
   (test-case
     "Typed Racket hover renders inferred types, source, ranges, and stale state"
@@ -1230,7 +1250,7 @@ END
       (check-true (< (car type-pos) (car signature-pos)))
       (check-true (string-contains? contents "```racket"))
       (check-false (string-contains? contents "**Source**"))
-      (check-false (string-contains? contents "imported from"))))
+      (check-true (string-contains? contents "imported from"))))
 
   (test-case
     "Untyped documents do not gain Typed Racket type cards"
@@ -1299,14 +1319,18 @@ END
     ;; Headers and macro binders get outer context. Binder names are not matched.
     (check-equal?
       (Hover-contents (doc-hover d (Pos 3 9)))
-      "```racket\n(define (parse-config raw) raw)\n```")
+      (string-append
+        "```racket\n(define (parse-config raw) raw)\n```\n\n"
+        "1 bound occurrence"))
     ;; A function use shows the declaration, not the call site.
     (check-equal?
       (Hover-contents (doc-hover d (Pos 5 2)))
       "```racket\n(define (parse-config raw) raw)\n```")
     (check-equal?
       (Hover-contents (doc-hover d (Pos 4 12)))
-      "```racket\n(for/list ([element (list 1)]) element)\n```"))
+      (string-append
+        "```racket\n(for/list ([element (list 1)]) element)\n```\n\n"
+        "1 bound occurrence")))
 
   (test-case
     "Document hover balances compact clauses with collapsed headers"
@@ -1319,19 +1343,27 @@ END
     ;; A later binding gets its own clause, not a prefix with earlier bindings.
     (check-equal?
       (Hover-contents (doc-hover d (Pos 2 7)))
-      "```racket\n[limit 10]\n```")
+      (string-append
+        "```racket\n[limit 10]\n```\n\n"
+        "1 bound occurrence"))
     ;; No same-line header. Show the full nearest form.
     (check-equal?
       (Hover-contents (doc-hover d (Pos 5 9)))
-      "```racket\n(fib\n         n)\n```")
+      (string-append
+        "```racket\n(fib\n         n)\n```\n\n"
+        "1 bound occurrence"))
     ;; A complete one-line declaration stays complete.
     (check-equal?
       (Hover-contents (doc-hover d (Pos 7 8)))
-      "```racket\n(define answer (string-length \"input\"))\n```")
+      (string-append
+        "```racket\n(define answer (string-length \"input\"))\n```\n\n"
+        "no bound occurrences"))
     ;; A same-line header keeps its comment and marks the omitted body.
     (check-equal?
       (Hover-contents (doc-hover d (Pos 8 9)))
-      "```racket\n(define (parse raw) ; accepts overrides\n  ...\n```"))
+      (string-append
+        "```racket\n(define (parse raw) ; accepts overrides\n  ...\n```\n\n"
+        "no bound occurrences")))
 
   (test-case
     "Document hover renders leading comments for declarations and local bindings"
@@ -1342,10 +1374,14 @@ END
     (check-true (doc-expand! d))
     (check-equal?
       (Hover-contents (doc-hover d (Pos 3 9)))
-      "```racket\n;; Produces the next Fibonacci value.\n;; Kept separate from callers for reuse.\n(define (fib value)\n  ...\n```")
+      (string-append
+        "```racket\n;; Produces the next Fibonacci value.\n;; Kept separate from callers for reuse.\n(define (fib value)\n  ...\n```\n\n"
+        "no bound occurrences"))
     (check-equal?
       (Hover-contents (doc-hover d (Pos 7 7)))
-      "```racket\n;; Counts visits in this branch.\n[count 1]\n```"))
+      (string-append
+        "```racket\n;; Counts visits in this branch.\n[count 1]\n```\n\n"
+        "1 bound occurrence")))
 
   (test-case
     "Document hover leaves separated and trailing comments unattached"
@@ -1395,7 +1431,9 @@ END
     (check-true (doc-expand! d))
     (check-equal?
       (Hover-contents (doc-hover d (Pos 4 14)))
-      "```racket\n[ln (in-naturals)]\n```"))
+      (string-append
+        "```racket\n[ln (in-naturals)]\n```\n\n"
+        "3 bound occurrences")))
 
   (test-case
     "Document hover shows the complete nearest struct form"
@@ -1406,7 +1444,9 @@ END
     (check-true (doc-expand! d))
     (check-equal?
       (Hover-contents (doc-hover d (Pos 1 8)))
-      "```racket\n(struct RopeNode\n  (left\n   right\n   chars\n   newlines\n   height)\n  #:transparent)\n```"))
+      (string-append
+        "```racket\n(struct RopeNode\n  (left\n   right\n   chars\n   newlines\n   height)\n  #:transparent)\n```\n\n"
+        "no bound occurrences")))
 
   (test-case
     "Document hover keeps imported symbols out of same-file source detail"
@@ -1419,8 +1459,12 @@ END
     (define contents (Hover-contents imported-hover))
     (check-false (string-contains? contents "**Source**"))
     (check-true (string-contains? contents "[Online docs]"))
-    ;; Docs link fills the card, so check-syntax provenance is omitted.
-    (check-false (string-contains? contents "imported from")))
+    (check-true (string-contains? contents "imported from"))
+    (define imported-from-start
+      (caar (regexp-match-positions #rx"imported from" contents)))
+    (define online-docs-start
+      (caar (regexp-match-positions #rx"\\[Online docs\\]" contents)))
+    (check-true (< imported-from-start online-docs-start)))
 
   (test-case
     "Document hover keeps cross-file workspace bindings out of source detail"
@@ -1521,17 +1565,23 @@ END
       ;; inherit the Rhombus root aggregate range.
       (check-equal?
         (Hover-contents (doc-hover d (Pos 1 4)))
-        "```rhombus\ndef value = 1\n```")
+        (string-append
+          "```rhombus\ndef value = 1\n```\n\n"
+          "no bound occurrences"))
       (check-equal?
         (Hover-contents (doc-hover d (Pos 2 4)))
-        "```rhombus\nfun parse_value(raw): raw\n```")
+        (string-append
+          "```rhombus\nfun parse_value(raw): raw\n```\n\n"
+          "no bound occurrences"))
       (define comment-d
         (make-doc "file:///tmp/hover-detail-comments.rhm"
                   "#lang rhombus\n// Converts the value.\nfun documented(value): value\n"))
       (check-true (doc-expand! comment-d))
       (check-equal?
         (Hover-contents (doc-hover comment-d (Pos 2 4)))
-        "```rhombus\n// Converts the value.\nfun documented(value): value\n```")
+        (string-append
+          "```rhombus\n// Converts the value.\nfun documented(value): value\n```\n\n"
+          "no bound occurrences"))
       ;; A bound use must find detail through `declaration-at`, not only through
       ;; definition targets.
       (define use-d

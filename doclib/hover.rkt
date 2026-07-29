@@ -10,10 +10,11 @@
 ;; appears. Every character inside a slot is verbatim from its source. Do not
 ;; trim, inline, paraphrase, or length-gate presentation here.
 ;;
-;; Fixed render order: type, definition, documentation (link then body), note.
-;; Always label a type fence (`Type` / `Type (stale)`). Label `Source` or
-;; `Signature` only when a type fence precedes the definition. The note is
-;; unlabeled prose.
+;; Fixed render order: type, definition, documentation (note then link then
+;; body), standalone note. Always label a type fence (`Type` / `Type
+;; (stale)`). Label `Source` or `Signature` only when a type fence precedes
+;; the definition. Check-syntax mouse-over text is unlabeled prose before the
+;; online-docs link, or alone when it is the only slot.
 
 (require racket/contract
          racket/match
@@ -54,8 +55,9 @@
 ;; Struct field order is not render order: `note` sits before `documentation`
 ;; here, but render places documentation before note (see module header).
 ;; `type-stale?` matters only when `type` is present.
-;; `note` holds check-syntax mouse-over text; `build-hover-card` clears it when
-;; any richer slot is present.
+;; `note` holds check-syntax mouse-over text. It is kept whenever non-empty,
+;; shown before the online-docs link when docs are present, and appended after
+;; earlier slots otherwise.
 (struct/contract Hover-Card
   ([type (or/c Hover-Code-Summary? #f)]
    [type-stale? boolean?]
@@ -66,8 +68,9 @@
 
 ;; Map hover inputs onto the fixed renderer slots.
 ;; Same-file source wins over a docs signature.
-;; Check-syntax text is fallback-only: keep it only when no type, definition,
-;; or docs link exists. Do not classify its mixed strings here.
+;; Check-syntax text is kept whenever it is a non-empty string. With a docs
+;; link, it renders before `[Online docs]`; otherwise it follows earlier
+;; slots. Do not classify its strings here.
 ;; `#:link` is the final online URL (caller rewrites local docs paths).
 (define (build-hover-card #:type-text type-text
                           #:type-stale? type-stale?
@@ -91,11 +94,7 @@
     (and link
          (Hover-Documentation documentation-text link)))
   (define note
-    (and hover-text
-         (not type)
-         (not definition)
-         (not documentation)
-         hover-text))
+    (and (non-empty-text? hover-text) hover-text))
   (Hover-Card type
               ;; Caller sets type-stale? for the whole document; attach it only
               ;; when a type fence exists so note-only cards stay unmarked.
@@ -147,18 +146,21 @@
   (and (non-empty-text? note)
        note))
 
-(define (render-documentation documentation)
+(define (render-documentation documentation #:note [note #f])
   (cond
     [(not documentation) #f]
     [else
      (define body (Hover-Documentation-body documentation))
      (define link (Hover-Documentation-link documentation))
-     ;; Put the link before the body. A long excerpt can hide a link at the end.
+     ;; Mouse-over provenance, then the link, then a long excerpt.
      (define header
        (and (non-empty-text? link)
             (format "[Online docs](~a)" link)))
      (define parts
-       (append (if header
+       (append (if (render-note note)
+                   (list note)
+                   '())
+               (if header
                    (list header)
                    '())
                (if (non-empty-text? body)
@@ -187,10 +189,11 @@
   (define definition
     (render-definition (Hover-Card-definition card)
                        #:label? (and type #t)))
-  (define documentation
-    (render-documentation (Hover-Card-documentation card)))
   (define note
     (render-note (Hover-Card-note card)))
+  (define documentation
+    (render-documentation (Hover-Card-documentation card)
+                          #:note (and (Hover-Card-documentation card) note)))
   (define before-docs
     (string-join
       (filter non-empty-text?
@@ -207,6 +210,7 @@
                       documentation)]))
   (cond
     [(not note) with-docs]
+    [(Hover-Card-documentation card) with-docs]
     [(string=? with-docs "") note]
     [else
      (string-append with-docs "\n\n" note)]))
