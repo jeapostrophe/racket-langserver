@@ -75,16 +75,22 @@
       (for ([s services])
         (send s walk-log text))
       (for ([log (in-list text)]
-            #:when (online-tooltip-log? log)
-            #:when (eq? (tooltip-log-kind (online-tooltip-log-message log))
-                        'mouse-over))
-        (for ([tooltip (in-list (online-tooltip-log-tooltips log src))])
-          (send this
-                add-log-tooltip
-                (Tooltip-source tooltip)
-                (Tooltip-start tooltip)
-                (Tooltip-end tooltip)
-                (Tooltip-text tooltip)))))
+            #:when (online-tooltip-log? log))
+        (define tooltips
+          (online-tooltip-log-tooltips log src))
+        (case (tooltip-log-kind (online-tooltip-log-message log))
+          [(typed-racket-inferred-type)
+           (send typed-racket consume-inferred-tooltips tooltips)]
+          [(typed-racket-type-error)
+           (send typed-racket consume-type-error-tooltips tooltips)]
+          [(mouse-over)
+           (for ([tooltip (in-list tooltips)])
+             (send this
+                   add-log-tooltip
+                   (Tooltip-source tooltip)
+                   (Tooltip-start tooltip)
+                   (Tooltip-end tooltip)
+                   (Tooltip-text tooltip)))])))
 
     ;; Named reads for services. Do not add getters that expose interval-maps.
     (define/public (get-hover) hovers)

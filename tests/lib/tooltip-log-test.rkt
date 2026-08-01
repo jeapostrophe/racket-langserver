@@ -107,4 +107,31 @@
     (define-values (start end hover-text)
       (send (send trace get-hover) mouse-over-at 2))
     (check-equal? (list start end hover-text)
-                  (list 1 4 "Logged information"))))
+                  (list 1 4 "Logged information")))
+
+  (test-case
+    "build-trace routes recognized Typed Racket tooltips exclusively"
+    (define text
+      "abcde")
+    (define uri
+      "file:///tmp/tooltip-log-test.rkt")
+    (define doc-text
+      (new lsp-editor%))
+    (send doc-text insert text 0)
+    (define trace
+      (new build-trace%
+        [src source]
+        [doc-text doc-text]
+        [lexer-state (build-lexer-state text uri)]))
+    (send trace
+          walk-log
+          (list (online-log
+                  typed-racket-inferred-type-message
+                  (tooltip-leaf source 1 4 "Integer"))))
+    (define-values (_hover-start _hover-end hover-text)
+      (send (send trace get-hover) mouse-over-at 2))
+    (check-false hover-text)
+    (define-values (type-start type-end type-text)
+      (send (send trace get-typed-racket) inferred-type-at 2))
+    (check-equal? (list type-start type-end type-text)
+                  (list 1 4 "Integer"))))
