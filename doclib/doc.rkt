@@ -654,7 +654,7 @@
 
 ;; Find same-file detail through use-to-declaration lookup. Skip imports and
 ;; cross-file `Decl-filepath` values. Keep the use span even when no stored
-;; detail exists yet, so mouse-over range fallback still works.
+;; detail exists yet, so annotation-range fallback still works.
 (define (hover-detail-via-declaration hover-service declaration-service pos)
   (define-values (use-start use-end decl)
     (send declaration-service declaration-at pos))
@@ -675,9 +675,6 @@
   (define pos* (doc-pos->abs-pos doc pos))
   (define-values (start end annotation)
     (send hover-service annotation-at pos*))
-  (define hover-text
-    (and annotation
-         (Hover-Annotation-text annotation)))
   (define-values (type-start type-end type-text)
     (send typed-racket-service inferred-type-at pos*))
   ;; While a trace refreshes, show current buffer text from shifted ranges.
@@ -691,10 +688,10 @@
   (define source-summary
     (and resolved-detail (hover-detail->summary doc resolved-detail)))
   (cond
-    ;; Docs alone do not open a card. Type text, check-syntax hover, or
+    ;; Docs alone do not open a card. Type text, an annotation, or
     ;; same-file source summary each can. Stored source detail may still
     ;; supply summary and range when check-syntax produced no hover text.
-    [(and (not type-text) (not hover-text) (not source-summary)) #f]
+    [(and (not type-text) (not annotation) (not source-summary)) #f]
     [else
      (match-define (list link tag)
        (interval-map-ref (send doc-trace get-docs) pos* (list #f #f)))
@@ -704,7 +701,7 @@
      (define hover-card
        (build-hover-card #:type-text type-text
                          #:type-stale? (not (doc-trace-latest? doc))
-                         #:hover-text hover-text
+                         #:annotation annotation
                          #:link (and link
                                      (make-proper-url-for-online-documentation link))
                          #:signature signature
@@ -712,8 +709,8 @@
                          #:documentation-text documentation-text))
      (Hover #:contents (render-hover-card hover-card)
             ;; Prefer inferred-type intervals, including literal and expression
-            ;; delimiter spans Typed Racket can publish without mouse-over text.
-            ;; Fall back to check-syntax mouse-over or kept source-detail range.
+            ;; delimiter spans Typed Racket can publish without an annotation.
+            ;; Fall back to the winning annotation or kept source-detail range.
             #:range (abs-range->range doc
                                       (or type-start start use-start)
                                       (or type-end end use-end)))]))
