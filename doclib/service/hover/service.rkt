@@ -8,7 +8,7 @@
 ;; Live buffer reads, freshness checks, and use-to-declaration lookup belong
 ;; in `doc-hover`. This service does not call other services.
 ;;
-;; Hot path: `mouse-over-at` and `source-detail-at` only. Syntax walks, lex,
+;; Hot path: `annotation-at` and `source-detail-at` only. Syntax walks, lex,
 ;; and comment scanning run when the trace is built, not on each hover request.
 
 (require "../interface.rkt"
@@ -27,17 +27,23 @@
          srfi/2)
 
 (provide hover%
+         (struct-out Hover-Annotation)
          (struct-out Hover-Comment-Line)
          (struct-out Hover-Detail))
+
+;; The interval map splits overlaps into atomic segments. Keep the producer's
+;; original span width in each value so a narrower annotation wins every
+;; overlap; equal spans use the later callback.
+(struct Stored-Hover-Annotation
+  (annotation source-span)
+  #:transparent)
 
 (define hover%
   (class base-service%
     (init-field src doc-text lexer-state)
     (super-new)
 
-    ;; Identifier range -> winning hover annotation. The full specificity
-    ;; policy lands with `annotation-at`; this vertical slice preserves the
-    ;; existing later-write behavior.
+    ;; Character range -> one winning hover annotation.
     (define mouse-over-by-range (make-interval-map))
     ;; Identifier range -> same-file `Hover-Detail` at declaration ranges.
     ;; `doc-hover` finds uses. We do not copy detail onto every use.
@@ -62,14 +68,15 @@
     (define fence-language
       (if (eq? source-kind 'rhombus) "rhombus" "racket"))
 
-    ;; Do not expose interval-maps. Returns start, end, text, or #f #f #f.
-    (define/public (mouse-over-at pos)
-      (define-values (start end annotation)
+    ;; Do not expose interval-maps. Bounds are the atomic range over which this
+    ;; exact winner remains active.
+    (define/public (annotation-at pos)
+      (define-values (start end stored-annotation)
         (interval-map-ref/bounds mouse-over-by-range pos #f))
       (values start
               end
-              (and annotation
-                   (Hover-Annotation-text annotation))))
+              (and stored-annotation
+                   (Stored-Hover-Annotation-annotation stored-annotation))))
 
     ;; Do not expose interval-maps. Returns start, end, Hover-Detail, or #f #f #f.
     ;; Replay may return #f when a deletion broke the detail. Treat that as a miss.
@@ -111,17 +118,29 @@
       ;; When start = end, check-syntax had no source span. Skip it so we do
       ;; not create a zero-width hover range.
       (when (< start end)
-        (interval-map-set! mouse-over-by-range
-                           start
-                           end
-                           (Hover-Annotation 'mouse-over-status text))))
+        (store-annotation! 'mouse-over-status start end text)))
 
     (define/override (add-log-tooltip _src start end text)
       (when (< start end)
-        (interval-map-set! mouse-over-by-range
-                           start
-                           end
-                           (Hover-Annotation 'log-tooltip text))))
+        (store-annotation! 'log-tooltip start end text)))
+
+    (define/private (store-annotation! kind start end text)
+      (define source-span
+        (- end start))
+      (define candidate
+        (Stored-Hover-Annotation
+          (Hover-Annotation kind text)
+          source-span))
+      (interval-map-update*!
+        mouse-over-by-range
+        start
+        end
+        (lambda (current)
+          (if (<= source-span
+                  (Stored-Hover-Annotation-source-span current))
+              candidate
+              current))
+        candidate))
 
     (define/override (syncheck:add-definition-target src-obj start end _id _mods)
       (when (and (equal? src src-obj)

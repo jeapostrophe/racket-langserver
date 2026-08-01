@@ -673,8 +673,11 @@
   (define typed-racket-service
     (send doc-trace get-typed-racket))
   (define pos* (doc-pos->abs-pos doc pos))
-  (define-values (start end hover-text)
-    (send hover-service mouse-over-at pos*))
+  (define-values (start end annotation)
+    (send hover-service annotation-at pos*))
+  (define hover-text
+    (and annotation
+         (Hover-Annotation-text annotation)))
   (define-values (type-start type-end type-text)
     (send typed-racket-service inferred-type-at pos*))
   ;; While a trace refreshes, show current buffer text from shifted ranges.
