@@ -51,8 +51,8 @@
       (for ([tooltip (in-list tooltips)])
         (record-inferred-type! tooltip)))
 
-    ;; One log record may describe a compound error with equal-message endpoint
-    ;; tooltips. Keep the record boundary so those endpoints become one range.
+    ;; One log record may emit equal-message endpoint tooltips for a compound
+    ;; error. Keep the record boundary so those endpoints become one range.
     (define/public (consume-type-error-tooltips tooltips)
       (match tooltips
         ['() (void)]

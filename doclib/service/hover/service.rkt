@@ -33,7 +33,7 @@
 
 ;; The interval map splits overlaps into atomic segments. Keep the producer's
 ;; original span width in each value so a narrower annotation wins every
-;; overlap; equal spans use the later callback.
+;; overlap; equal spans keep the later annotation.
 (struct Stored-Hover-Annotation
   (annotation source-span)
   #:transparent)

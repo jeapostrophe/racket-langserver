@@ -2,7 +2,7 @@
 
 ;; Decode tooltip syntax properties carried by `online-check-syntax` logs.
 ;; Message classification is routing policy; property decoding is shared by all
-;; providers. Invalid logs and leaves fail closed.
+;; providers. Invalid logs and leaves are ignored.
 
 (require racket/contract
          racket/match

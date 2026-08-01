@@ -18,8 +18,8 @@
          (struct-out Hover-Comment-Line)
          (struct-out Hover-Detail))
 
-;; One winning hover annotation. `kind` records the ingestion mechanism so the
-;; renderer can label it without exposing storage details.
+;; One winning hover annotation. `kind` is the ingestion mechanism
+;; (`mouse-over-status` or `log-tooltip`) so the renderer can label it.
 (struct/contract Hover-Annotation
   ([kind (or/c 'mouse-over-status 'log-tooltip)]
    [text string?])

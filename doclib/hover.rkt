@@ -2,8 +2,8 @@
 
 ;; Hover card data and Markdown rendering.
 ;;
-;; `doc-hover` collects type, source, annotation, and documentation facts. This
-;; module maps them onto fixed slots and renders each present slot with a label.
+;; Maps type, source, annotation, and documentation facts onto fixed slots and
+;; renders each present slot with a label. `doc-hover` collects the facts.
 ;;
 ;; Invariant: every character inside a slot is verbatim from its source. Do not
 ;; trim, inline, paraphrase, or length-gate presentation here.
