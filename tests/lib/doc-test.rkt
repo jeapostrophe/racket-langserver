@@ -897,7 +897,7 @@ END
                     (Hover-Annotation 'mouse-over-status
                                       "bound occurrence of count")
                     #f))
-      "**Mouse-over status**\nbound occurrence of count"))
+      "**Mouse-over status**\n\nbound occurrence of count"))
 
   (test-case
     "Hover card renders the fixed slot stack"
@@ -918,8 +918,7 @@ END
 (parse-config raw)
 ```
 
-**Documentation**
-[Online docs](https://docs.example.test/parse-config)
+**Documentation** | [Online docs](https://docs.example.test/parse-config)
 
 Parse a configuration value.
 END
@@ -935,9 +934,19 @@ END
                     #f
                     (Hover-Documentation ""
                                          "https://docs.example.test/parse-config")))
-      (string-append
-        "**Documentation**\n"
-        "[Online docs](https://docs.example.test/parse-config)")))
+      "**Documentation** | [Online docs](https://docs.example.test/parse-config)"))
+
+  (test-case
+    "Hover card separates documentation body without an online link"
+    (check-equal?
+      (render-hover-card
+        (Hover-Card #f
+                    #f
+                    #f
+                    #f
+                    (Hover-Documentation "Parse a configuration value."
+                                         #f)))
+      "**Documentation**\n\nParse a configuration value."))
 
   (test-case
     "Hover card labels a lone Rhombus source fence"
@@ -991,7 +1000,7 @@ END
                   (string-append
                     "**Type**\n"
                     "```racket\nInteger\n```\n\n"
-                    "**Mouse-over status**\n"
+                    "**Mouse-over status**\n\n"
                     " \n Integer \t")))
 
   (test-case
@@ -1026,7 +1035,7 @@ END
       (string-append
         "**Type**\n"
         "```racket\nInteger\n```\n\n"
-        "**Mouse-over status**\n"
+        "**Mouse-over status**\n\n"
         "bound occurrence"))
     (define with-source
       (build-hover-card #:type-text #f
@@ -1046,7 +1055,7 @@ END
       (string-append
         "**Source**\n"
         "```racket\n(define count 1)\n```\n\n"
-        "**Mouse-over status**\n"
+        "**Mouse-over status**\n\n"
         "1 bound occurrence"))
     (define with-docs
       (build-hover-card #:type-text #f
@@ -1064,10 +1073,9 @@ END
     (check-equal?
       (render-hover-card with-docs)
       (string-append
-        "**Log tooltip**\n"
+        "**Log tooltip**\n\n"
         "imported from racket\n\n"
-        "**Documentation**\n"
-        "[Online docs](https://docs.example.test/map)\n\n"
+        "**Documentation** | [Online docs](https://docs.example.test/map)\n\n"
         "Applies proc.")))
 
   (test-case
@@ -1086,7 +1094,7 @@ END
                   (Hover-Annotation 'mouse-over-status
                                     "bound occurrence"))
     (check-equal? (render-hover-card card)
-                  "**Mouse-over status**\nbound occurrence"))
+                  "**Mouse-over status**\n\nbound occurrence"))
 
   (test-case
     "build-hover-card prefers source over signature"
@@ -1361,7 +1369,7 @@ END
       (string-append
         "**Source**\n"
         "```racket\n(define (parse-config raw) raw)\n```\n\n"
-        "**Mouse-over status**\n"
+        "**Mouse-over status**\n\n"
         "1 bound occurrence"))
     ;; A function use shows the declaration, not the call site.
     (check-equal?
@@ -1374,7 +1382,7 @@ END
       (string-append
         "**Source**\n"
         "```racket\n(for/list ([element (list 1)]) element)\n```\n\n"
-        "**Mouse-over status**\n"
+        "**Mouse-over status**\n\n"
         "1 bound occurrence")))
 
   (test-case
@@ -1391,7 +1399,7 @@ END
       (string-append
         "**Source**\n"
         "```racket\n[limit 10]\n```\n\n"
-        "**Mouse-over status**\n"
+        "**Mouse-over status**\n\n"
         "1 bound occurrence"))
     ;; No same-line header. Show the full nearest form.
     (check-equal?
@@ -1399,7 +1407,7 @@ END
       (string-append
         "**Source**\n"
         "```racket\n(fib\n         n)\n```\n\n"
-        "**Mouse-over status**\n"
+        "**Mouse-over status**\n\n"
         "1 bound occurrence"))
     ;; A complete one-line declaration stays complete.
     (check-equal?
@@ -1407,7 +1415,7 @@ END
       (string-append
         "**Source**\n"
         "```racket\n(define answer (string-length \"input\"))\n```\n\n"
-        "**Mouse-over status**\n"
+        "**Mouse-over status**\n\n"
         "no bound occurrences"))
     ;; A same-line header keeps its comment and marks the omitted body.
     (check-equal?
@@ -1415,7 +1423,7 @@ END
       (string-append
         "**Source**\n"
         "```racket\n(define (parse raw) ; accepts overrides\n  ...\n```\n\n"
-        "**Mouse-over status**\n"
+        "**Mouse-over status**\n\n"
         "no bound occurrences")))
 
   (test-case
@@ -1430,14 +1438,14 @@ END
       (string-append
         "**Source**\n"
         "```racket\n;; Produces the next Fibonacci value.\n;; Kept separate from callers for reuse.\n(define (fib value)\n  ...\n```\n\n"
-        "**Mouse-over status**\n"
+        "**Mouse-over status**\n\n"
         "no bound occurrences"))
     (check-equal?
       (Hover-contents (doc-hover d (Pos 7 7)))
       (string-append
         "**Source**\n"
         "```racket\n;; Counts visits in this branch.\n[count 1]\n```\n\n"
-        "**Mouse-over status**\n"
+        "**Mouse-over status**\n\n"
         "1 bound occurrence")))
 
   (test-case
@@ -1491,7 +1499,7 @@ END
       (string-append
         "**Source**\n"
         "```racket\n[ln (in-naturals)]\n```\n\n"
-        "**Mouse-over status**\n"
+        "**Mouse-over status**\n\n"
         "3 bound occurrences")))
 
   (test-case
@@ -1506,7 +1514,7 @@ END
       (string-append
         "**Source**\n"
         "```racket\n(struct RopeNode\n  (left\n   right\n   chars\n   newlines\n   height)\n  #:transparent)\n```\n\n"
-        "**Mouse-over status**\n"
+        "**Mouse-over status**\n\n"
         "no bound occurrences")))
 
   (test-case
@@ -1633,14 +1641,14 @@ END
         (string-append
           "**Source**\n"
           "```rhombus\ndef value = 1\n```\n\n"
-          "**Mouse-over status**\n"
+          "**Mouse-over status**\n\n"
           "no bound occurrences"))
       (check-equal?
         (Hover-contents (doc-hover d (Pos 2 4)))
         (string-append
           "**Source**\n"
           "```rhombus\nfun parse_value(raw): raw\n```\n\n"
-          "**Mouse-over status**\n"
+          "**Mouse-over status**\n\n"
           "no bound occurrences"))
       (define comment-d
         (make-doc "file:///tmp/hover-detail-comments.rhm"
@@ -1651,7 +1659,7 @@ END
         (string-append
           "**Source**\n"
           "```rhombus\n// Converts the value.\nfun documented(value): value\n```\n\n"
-          "**Mouse-over status**\n"
+          "**Mouse-over status**\n\n"
           "no bound occurrences"))
       ;; A bound use must find detail through `declaration-at`, not only through
       ;; definition targets.

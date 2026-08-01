@@ -124,7 +124,7 @@
 (define (render-annotation annotation)
   (and annotation
        (non-empty-text? (Hover-Annotation-text annotation))
-       (format "**~a**\n~a"
+       (format "**~a**\n\n~a"
                (annotation-label (Hover-Annotation-kind annotation))
                (Hover-Annotation-text annotation))))
 
@@ -139,16 +139,16 @@
      (define online-link
        (and (non-empty-text? link)
             (format "[Online docs](~a)" link)))
-     (define parts
-       (append (if online-link
-                   (list online-link)
-                   '())
-               (if (non-empty-text? body)
-                   (list body)
-                   '())))
-     (and (pair? parts)
-          (format "**Documentation**\n~a"
-                  (string-join parts "\n\n")))]))
+     (define body-present?
+       (non-empty-text? body))
+     (define heading
+       (if online-link
+           (format "**Documentation** | ~a" online-link)
+           "**Documentation**"))
+     (and (or online-link body-present?)
+          (if body-present?
+              (format "~a\n\n~a" heading body)
+              heading))]))
 
 (define (hover-card-has-content? card)
   (or (Hover-Card-type card)
