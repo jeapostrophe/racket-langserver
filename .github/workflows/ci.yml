@@ -58,6 +58,26 @@ jobs:
       - name: Running resyntax tests
         run: raco test tests/textDocument/resyntax/
 
+  tooltip-languages:
+    name: "Nanopass and Pie tooltip integration"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3.1.0
+      - uses: Bogdanp/setup-racket@v1.14
+        with:
+          architecture: x64
+          distribution: full
+          variant: CS
+          version: stable
+      - name: Installing racket-langserver and its dependencies
+        run: raco pkg install --no-docs --auto --name racket-langserver
+      - name: Installing tooltip language packages
+        run: raco pkg install --no-docs --auto --skip-installed nanopass pie
+      - name: Running tooltip language integration tests
+        env:
+          RACKET_LANGSERVER_REQUIRE_TOOLTIP_LANGUAGES: "1"
+        run: raco test tests/lib/tooltip-language-integration-test.rkt
+
   formatting:
     name: "Code formatting check"
     runs-on: ubuntu-latest
