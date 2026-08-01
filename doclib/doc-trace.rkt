@@ -12,6 +12,7 @@
          "service/diagnostic.rkt"
          "service/declaration.rkt"
          "service/highlight.rkt"
+         "service/tooltip-log.rkt"
          "service/typed-racket/service.rkt"
          "service/workspace-references.rkt"
          "../common/interfaces.rkt")
@@ -72,7 +73,18 @@
 
     (define/public (walk-log text)
       (for ([s services])
-        (send s walk-log text)))
+        (send s walk-log text))
+      (for ([log (in-list text)]
+            #:when (online-tooltip-log? log)
+            #:when (eq? (tooltip-log-kind (online-tooltip-log-message log))
+                        'mouse-over))
+        (for ([tooltip (in-list (online-tooltip-log-tooltips log src))])
+          (send this
+                add-log-tooltip
+                (Tooltip-source tooltip)
+                (Tooltip-start tooltip)
+                (Tooltip-end tooltip)
+                (Tooltip-text tooltip)))))
 
     ;; Named reads for services. Do not add getters that expose interval-maps.
     (define/public (get-hover) hovers)
@@ -133,6 +145,10 @@
       (for ([s services])
         (send s syncheck:add-mouse-over-status src-obj start finish text)))
 
+    (define/public (add-log-tooltip src-obj start finish text)
+      (for ([s services])
+        (send s add-log-tooltip src-obj start finish text)))
+
     ;; Docs
     (define/override (syncheck:add-docs-menu text start finish id label path def-tag url-tag)
       (for ([s services])
@@ -166,4 +182,3 @@
     (super-new)))
 
 (provide build-trace%)
-

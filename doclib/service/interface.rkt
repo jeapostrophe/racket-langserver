@@ -13,7 +13,8 @@
     contract
     reset
     walk-stx
-    walk-log))
+    walk-log
+    add-log-tooltip))
 
 (define base-service%
   (class* (annotations-mixin object%)
@@ -43,5 +44,7 @@
 
     (define/public (walk-log log)
       (void))
-    ))
 
+    (define/public (add-log-tooltip source start end text)
+      (void))
+    ))

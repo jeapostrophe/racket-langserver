@@ -35,7 +35,9 @@
     (init-field src doc-text lexer-state)
     (super-new)
 
-    ;; Identifier range -> check-syntax hover text.
+    ;; Identifier range -> winning hover annotation. The full specificity
+    ;; policy lands with `annotation-at`; this vertical slice preserves the
+    ;; existing later-write behavior.
     (define mouse-over-by-range (make-interval-map))
     ;; Identifier range -> same-file `Hover-Detail` at declaration ranges.
     ;; `doc-hover` finds uses. We do not copy detail onto every use.
@@ -62,7 +64,12 @@
 
     ;; Do not expose interval-maps. Returns start, end, text, or #f #f #f.
     (define/public (mouse-over-at pos)
-      (interval-map-ref/bounds mouse-over-by-range pos #f))
+      (define-values (start end annotation)
+        (interval-map-ref/bounds mouse-over-by-range pos #f))
+      (values start
+              end
+              (and annotation
+                   (Hover-Annotation-text annotation))))
 
     ;; Do not expose interval-maps. Returns start, end, Hover-Detail, or #f #f #f.
     ;; Replay may return #f when a deletion broke the detail. Treat that as a miss.
@@ -104,7 +111,17 @@
       ;; When start = end, check-syntax had no source span. Skip it so we do
       ;; not create a zero-width hover range.
       (when (< start end)
-        (interval-map-set! mouse-over-by-range start end text)))
+        (interval-map-set! mouse-over-by-range
+                           start
+                           end
+                           (Hover-Annotation 'mouse-over-status text))))
+
+    (define/override (add-log-tooltip _src start end text)
+      (when (< start end)
+        (interval-map-set! mouse-over-by-range
+                           start
+                           end
+                           (Hover-Annotation 'log-tooltip text))))
 
     (define/override (syncheck:add-definition-target src-obj start end _id _mods)
       (when (and (equal? src src-obj)
