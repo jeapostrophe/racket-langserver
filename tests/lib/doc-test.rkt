@@ -888,15 +888,16 @@ END
     (check-false result))
 
   (test-case
-    "Hover card renders a note without definition"
+    "Hover card labels a mouse-over status without definition"
     (check-equal?
       (render-hover-card
         (Hover-Card #f
                     #f
                     #f
-                    "bound occurrence of count"
+                    (Hover-Annotation 'mouse-over-status
+                                      "bound occurrence of count")
                     #f))
-      "bound occurrence of count"))
+      "**Mouse-over status**\n\nbound occurrence of count"))
 
   (test-case
     "Hover card renders the fixed slot stack"
@@ -912,13 +913,12 @@ END
           (Hover-Documentation "Parse a configuration value."
                                "https://docs.example.test/parse-config")))
 #<<END
+**Source**
 ```racket
 (parse-config raw)
 ```
 
----
-
-[Online docs](https://docs.example.test/parse-config)
+**Documentation** | [Online docs](https://docs.example.test/parse-config)
 
 Parse a configuration value.
 END
@@ -934,10 +934,22 @@ END
                     #f
                     (Hover-Documentation ""
                                          "https://docs.example.test/parse-config")))
-      "[Online docs](https://docs.example.test/parse-config)"))
+      "**Documentation** | [Online docs](https://docs.example.test/parse-config)"))
 
   (test-case
-    "Hover card renders a lone Rhombus source fence without a label"
+    "Hover card separates documentation body without an online link"
+    (check-equal?
+      (render-hover-card
+        (Hover-Card #f
+                    #f
+                    #f
+                    #f
+                    (Hover-Documentation "Parse a configuration value."
+                                         #f)))
+      "**Documentation**\n\nParse a configuration value."))
+
+  (test-case
+    "Hover card labels a lone Rhombus source fence"
     (check-equal?
       (render-hover-card
         (Hover-Card #f
@@ -947,10 +959,12 @@ END
                       (Hover-Code-Summary "fun parse_config(raw): raw" "rhombus"))
                     #f
                     #f))
-      "```rhombus\nfun parse_config(raw): raw\n```"))
+      (string-append
+        "**Source**\n"
+        "```rhombus\nfun parse_config(raw): raw\n```")))
 
   (test-case
-    "Hover card labels definition only when a type precedes it"
+    "Hover card labels definition when a type precedes it"
     (check-equal?
       (render-hover-card
         (Hover-Card
@@ -968,101 +982,126 @@ END
         "```racket\n(define count 1)\n```")))
 
   (test-case
-    "build-hover-card keeps non-empty check-syntax note beside type"
+    "build-hover-card keeps a non-empty annotation beside type"
     (define card
       (build-hover-card #:type-text "Integer"
                         #:type-stale? #f
-                        #:hover-text " \n Integer \t"
+                        #:annotation
+                        (Hover-Annotation 'mouse-over-status
+                                          " \n Integer \t")
                         #:link #f
                         #:signature #f
                         #:source-summary #f
                         #:documentation-text #f))
-    (check-equal? (Hover-Card-note card) " \n Integer \t")
+    (check-equal? (Hover-Card-annotation card)
+                  (Hover-Annotation 'mouse-over-status
+                                    " \n Integer \t"))
     (check-equal? (render-hover-card card)
                   (string-append
                     "**Type**\n"
                     "```racket\nInteger\n```\n\n"
+                    "**Mouse-over status**\n\n"
                     " \n Integer \t")))
 
   (test-case
-    "build-hover-card omits empty check-syntax text"
+    "build-hover-card omits an empty annotation"
     (define card
       (build-hover-card #:type-text #f
                         #:type-stale? #f
-                        #:hover-text ""
+                        #:annotation (Hover-Annotation 'log-tooltip "")
                         #:link #f
                         #:signature #f
                         #:source-summary #f
                         #:documentation-text #f))
-    (check-false (Hover-Card-note card)))
+    (check-false (Hover-Card-annotation card)))
 
   (test-case
-    "build-hover-card keeps non-empty check-syntax note beside richer slots"
+    "build-hover-card keeps annotations beside richer slots"
     (define with-type
       (build-hover-card #:type-text "Integer"
                         #:type-stale? #f
-                        #:hover-text "bound occurrence"
+                        #:annotation
+                        (Hover-Annotation 'mouse-over-status
+                                          "bound occurrence")
                         #:link #f
                         #:signature #f
                         #:source-summary #f
                         #:documentation-text #f))
-    (check-equal? (Hover-Card-note with-type) "bound occurrence")
+    (check-equal? (Hover-Card-annotation with-type)
+                  (Hover-Annotation 'mouse-over-status
+                                    "bound occurrence"))
     (check-equal?
       (render-hover-card with-type)
       (string-append
         "**Type**\n"
         "```racket\nInteger\n```\n\n"
+        "**Mouse-over status**\n\n"
         "bound occurrence"))
     (define with-source
       (build-hover-card #:type-text #f
                         #:type-stale? #f
-                        #:hover-text "1 bound occurrence"
+                        #:annotation
+                        (Hover-Annotation 'mouse-over-status
+                                          "1 bound occurrence")
                         #:link #f
                         #:signature #f
                         #:source-summary (Hover-Code-Summary "(define count 1)" "racket")
                         #:documentation-text #f))
-    (check-equal? (Hover-Card-note with-source) "1 bound occurrence")
+    (check-equal? (Hover-Card-annotation with-source)
+                  (Hover-Annotation 'mouse-over-status
+                                    "1 bound occurrence"))
     (check-equal?
       (render-hover-card with-source)
       (string-append
+        "**Source**\n"
         "```racket\n(define count 1)\n```\n\n"
+        "**Mouse-over status**\n\n"
         "1 bound occurrence"))
     (define with-docs
       (build-hover-card #:type-text #f
                         #:type-stale? #f
-                        #:hover-text "imported from racket"
+                        #:annotation
+                        (Hover-Annotation 'log-tooltip
+                                          "imported from racket")
                         #:link "https://docs.example.test/map"
                         #:signature #f
                         #:source-summary #f
                         #:documentation-text "Applies proc."))
-    (check-equal? (Hover-Card-note with-docs) "imported from racket")
+    (check-equal? (Hover-Card-annotation with-docs)
+                  (Hover-Annotation 'log-tooltip
+                                    "imported from racket"))
     (check-equal?
       (render-hover-card with-docs)
       (string-append
+        "**Log tooltip**\n\n"
         "imported from racket\n\n"
-        "[Online docs](https://docs.example.test/map)\n\n"
+        "**Documentation** | [Online docs](https://docs.example.test/map)\n\n"
         "Applies proc.")))
 
   (test-case
-    "build-hover-card keeps note-only cards"
+    "build-hover-card keeps annotation-only cards"
     (define card
       (build-hover-card #:type-text #f
                         #:type-stale? #f
-                        #:hover-text "bound occurrence"
+                        #:annotation
+                        (Hover-Annotation 'mouse-over-status
+                                          "bound occurrence")
                         #:link #f
                         #:signature #f
                         #:source-summary #f
                         #:documentation-text #f))
-    (check-equal? (Hover-Card-note card) "bound occurrence")
+    (check-equal? (Hover-Card-annotation card)
+                  (Hover-Annotation 'mouse-over-status
+                                    "bound occurrence"))
     (check-equal? (render-hover-card card)
-                  "bound occurrence"))
+                  "**Mouse-over status**\n\nbound occurrence"))
 
   (test-case
-    "build-hover-card prefers source over signature and labels when typed"
+    "build-hover-card prefers source over signature"
     (define typed-signature
       (build-hover-card #:type-text "Integer"
                         #:type-stale? #f
-                        #:hover-text #f
+                        #:annotation #f
                         #:link #f
                         #:signature "(add1 z) -> number?"
                         #:source-summary #f
@@ -1077,7 +1116,7 @@ END
     (define source-over-signature
       (build-hover-card #:type-text #f
                         #:type-stale? #f
-                        #:hover-text #f
+                        #:annotation #f
                         #:link #f
                         #:signature "(add1 z) -> number?"
                         #:source-summary (Hover-Code-Summary "(define count 1)" "racket")
@@ -1087,21 +1126,25 @@ END
       'source)
     (check-equal?
       (render-hover-card source-over-signature)
-      "```racket\n(define count 1)\n```"))
+      (string-append
+        "**Source**\n"
+        "```racket\n(define count 1)\n```")))
 
   (test-case
-    "build-hover-card leaves a lone signature unlabeled"
+    "build-hover-card labels a lone signature"
     (define card
       (build-hover-card #:type-text #f
                         #:type-stale? #f
-                        #:hover-text #f
+                        #:annotation #f
                         #:link #f
                         #:signature "(add1 z) -> number?"
                         #:source-summary #f
                         #:documentation-text #f))
     (check-equal?
       (render-hover-card card)
-      "```racket\n(add1 z) -> number?\n```"))
+      (string-append
+        "**Signature**\n"
+        "```racket\n(add1 z) -> number?\n```")))
 
   (test-case
     "build-hover-card marks stale only when a type is present"
@@ -1109,7 +1152,9 @@ END
       (Hover-Card-type-stale?
         (build-hover-card #:type-text #f
                           #:type-stale? #t
-                          #:hover-text "bound occurrence"
+                          #:annotation
+                          (Hover-Annotation 'mouse-over-status
+                                            "bound occurrence")
                           #:link #f
                           #:signature #f
                           #:source-summary #f
@@ -1118,7 +1163,7 @@ END
       (Hover-Card-type-stale?
         (build-hover-card #:type-text "Integer"
                           #:type-stale? #t
-                          #:hover-text #f
+                          #:annotation #f
                           #:link #f
                           #:signature #f
                           #:source-summary #f
@@ -1308,28 +1353,36 @@ END
     (define d (make-doc "file:///tmp/hover-detail.rkt" text))
     (check-true (doc-expand! d))
 
-    ;; No check-syntax hover text. Source detail alone opens the card and sets range.
+    ;; No hover annotation. Source detail alone opens the card and sets range.
     (define use-hover (doc-hover d (Pos 2 5)))
     (check-not-false use-hover)
     (check-equal? (Hover-range use-hover)
                   (Range (Pos 2 5) (Pos 2 10)))
     (check-equal? (Hover-contents use-hover)
-                  "```racket\n(let ([count (length (list 1))])\n  ...\n```")
+                  (string-append
+                    "**Source**\n"
+                    "```racket\n(let ([count (length (list 1))])\n  ...\n```"))
 
     ;; Headers and macro binders get outer context. Binder names are not matched.
     (check-equal?
       (Hover-contents (doc-hover d (Pos 3 9)))
       (string-append
+        "**Source**\n"
         "```racket\n(define (parse-config raw) raw)\n```\n\n"
+        "**Mouse-over status**\n\n"
         "1 bound occurrence"))
     ;; A function use shows the declaration, not the call site.
     (check-equal?
       (Hover-contents (doc-hover d (Pos 5 2)))
-      "```racket\n(define (parse-config raw) raw)\n```")
+      (string-append
+        "**Source**\n"
+        "```racket\n(define (parse-config raw) raw)\n```"))
     (check-equal?
       (Hover-contents (doc-hover d (Pos 4 12)))
       (string-append
+        "**Source**\n"
         "```racket\n(for/list ([element (list 1)]) element)\n```\n\n"
+        "**Mouse-over status**\n\n"
         "1 bound occurrence")))
 
   (test-case
@@ -1344,25 +1397,33 @@ END
     (check-equal?
       (Hover-contents (doc-hover d (Pos 2 7)))
       (string-append
+        "**Source**\n"
         "```racket\n[limit 10]\n```\n\n"
+        "**Mouse-over status**\n\n"
         "1 bound occurrence"))
     ;; No same-line header. Show the full nearest form.
     (check-equal?
       (Hover-contents (doc-hover d (Pos 5 9)))
       (string-append
+        "**Source**\n"
         "```racket\n(fib\n         n)\n```\n\n"
+        "**Mouse-over status**\n\n"
         "1 bound occurrence"))
     ;; A complete one-line declaration stays complete.
     (check-equal?
       (Hover-contents (doc-hover d (Pos 7 8)))
       (string-append
+        "**Source**\n"
         "```racket\n(define answer (string-length \"input\"))\n```\n\n"
+        "**Mouse-over status**\n\n"
         "no bound occurrences"))
     ;; A same-line header keeps its comment and marks the omitted body.
     (check-equal?
       (Hover-contents (doc-hover d (Pos 8 9)))
       (string-append
+        "**Source**\n"
         "```racket\n(define (parse raw) ; accepts overrides\n  ...\n```\n\n"
+        "**Mouse-over status**\n\n"
         "no bound occurrences")))
 
   (test-case
@@ -1375,12 +1436,16 @@ END
     (check-equal?
       (Hover-contents (doc-hover d (Pos 3 9)))
       (string-append
+        "**Source**\n"
         "```racket\n;; Produces the next Fibonacci value.\n;; Kept separate from callers for reuse.\n(define (fib value)\n  ...\n```\n\n"
+        "**Mouse-over status**\n\n"
         "no bound occurrences"))
     (check-equal?
       (Hover-contents (doc-hover d (Pos 7 7)))
       (string-append
+        "**Source**\n"
         "```racket\n;; Counts visits in this branch.\n[count 1]\n```\n\n"
+        "**Mouse-over status**\n\n"
         "1 bound occurrence")))
 
   (test-case
@@ -1432,7 +1497,9 @@ END
     (check-equal?
       (Hover-contents (doc-hover d (Pos 4 14)))
       (string-append
+        "**Source**\n"
         "```racket\n[ln (in-naturals)]\n```\n\n"
+        "**Mouse-over status**\n\n"
         "3 bound occurrences")))
 
   (test-case
@@ -1445,7 +1512,9 @@ END
     (check-equal?
       (Hover-contents (doc-hover d (Pos 1 8)))
       (string-append
+        "**Source**\n"
         "```racket\n(struct RopeNode\n  (left\n   right\n   chars\n   newlines\n   height)\n  #:transparent)\n```\n\n"
+        "**Mouse-over status**\n\n"
         "no bound occurrences")))
 
   (test-case
@@ -1499,10 +1568,12 @@ END
                      (Range (Pos 1 13) (Pos 1 14))
                      "2")
     (doc-update-version! d 1)
-    ;; No check-syntax text. Shifted ranges still build a source-only card from
+    ;; No hover annotation. Shifted ranges still build a source-only card from
     ;; the edited buffer. The binding link may be wrong or incomplete.
     (check-equal? (Hover-contents (doc-hover d (Pos 1 22)))
-                  "```racket\n(let ([count 2]) (+ count 1))\n```")
+                  (string-append
+                    "**Source**\n"
+                    "```racket\n(let ([count 2]) (+ count 1))\n```"))
     (define declaration-hover (doc-hover d (Pos 1 7)))
     (check-not-false declaration-hover)
     (check-true (string-contains? (Hover-contents declaration-hover)
@@ -1522,7 +1593,9 @@ END
     (doc-update-version! d 1)
     (check-equal?
       (Hover-contents (doc-hover d (Pos 1 24)))
-      "```racket\n(let ([count 1]) (+ count 1))\n```")
+      (string-append
+        "**Source**\n"
+        "```racket\n(let ([count 1]) (+ count 1))\n```"))
     (check-true
       (string-contains? (Hover-contents (doc-hover d (Pos 1 9)))
                         "(let ([count 1])")))
@@ -1541,7 +1614,7 @@ END
     (define d (make-doc "file:///tmp/hover-detail-truncate.rkt" text))
     (check-true (doc-expand! d))
     (define result (Hover-contents (doc-hover d (Pos 1 7))))
-    (check-true (string-prefix? result "```racket\n"))
+    (check-true (string-prefix? result "**Source**\n```racket\n"))
     (define match
       (regexp-match #px"```racket\n((?:.|\n)*)\n```" result))
     (check-not-false match)
@@ -1566,12 +1639,16 @@ END
       (check-equal?
         (Hover-contents (doc-hover d (Pos 1 4)))
         (string-append
+          "**Source**\n"
           "```rhombus\ndef value = 1\n```\n\n"
+          "**Mouse-over status**\n\n"
           "no bound occurrences"))
       (check-equal?
         (Hover-contents (doc-hover d (Pos 2 4)))
         (string-append
+          "**Source**\n"
           "```rhombus\nfun parse_value(raw): raw\n```\n\n"
+          "**Mouse-over status**\n\n"
           "no bound occurrences"))
       (define comment-d
         (make-doc "file:///tmp/hover-detail-comments.rhm"
@@ -1580,7 +1657,9 @@ END
       (check-equal?
         (Hover-contents (doc-hover comment-d (Pos 2 4)))
         (string-append
+          "**Source**\n"
           "```rhombus\n// Converts the value.\nfun documented(value): value\n```\n\n"
+          "**Mouse-over status**\n\n"
           "no bound occurrences"))
       ;; A bound use must find detail through `declaration-at`, not only through
       ;; definition targets.
@@ -1590,7 +1669,9 @@ END
       (check-true (doc-expand! use-d))
       (check-equal?
         (Hover-contents (doc-hover use-d (Pos 2 0)))
-        "```rhombus\nfun parse_value(raw): raw\n```")))
+        (string-append
+          "**Source**\n"
+          "```rhombus\nfun parse_value(raw): raw\n```"))))
 
   (test-case
     "Document signature help"

@@ -92,30 +92,29 @@ Slots, top to bottom:
 1. **Type** - Typed Racket inferred type in a `racket` fence, labeled `Type` or
    `Type (stale)` when it comes from a retained trace. Always fenced; never
    inlined by length.
-2. **Definition** - same-file source snippet when the trace confirms a local
+2. **Source / Signature** - same-file source snippet when the trace confirms a local
    declaration or use, otherwise a Scribble bluebox / docs signature. Source
    wins when both exist. Local uses share declaration detail. Display prefers
    the outermost same-line structural candidate when one exists: a compact
    binding clause, a collapsed one-line header, or a complete one-line form.
    Otherwise it shows the full nearest enclosing form. Contiguous own-line
    leading comments above the form are included. Racket-family forms use a
-   `racket` fence. Rhombus forms use a `rhombus` fence. A lone definition
-   fence is unlabeled; when a type precedes it, the fence is labeled `Source`
-   or `Signature`.
-3. **Documentation** - online docs link, then locally installed docs excerpt
-   when available. At most one `---` appears, and only immediately before this
-   section when earlier slots are also present.
-4. **Check-syntax text** - raw mouse-over status, unlabeled, whenever it is a
-   non-empty string. With a docs link, it appears immediately before
-   `[Online docs]`; otherwise it follows the earlier slots.
+   `racket` fence. Rhombus forms use a `rhombus` fence. This slot is always
+   labeled `Source` or `Signature`.
+3. **Annotation** - the winning Check Syntax callback or logged tooltip,
+   labeled `Mouse-over status` or `Log tooltip`. At every character, the
+   narrowest source range wins; equal-width conflicts prefer the annotation
+   collected later.
+4. **Documentation** - online docs link, then locally installed docs excerpt
+   when available, always labeled `Documentation`.
 
 Language behavior: source forms are read from the current buffer using kept
 trace ranges while a refresh runs. When the trace is old, retained types stay
 visible as `Type (stale)`. The shown form or type can be useful, but the
 binding link or type may be wrong until expansion finishes. The hover range
 prefers the inferred-type interval when present (including literal and
-expression-delimiter spans); otherwise it uses check-syntax mouse-over status
-or a kept same-file source-detail range. Code context is limited to 10 lines
+expression-delimiter spans); otherwise it uses the winning annotation or a
+kept same-file source-detail range. Code context is limited to 10 lines
 and 1000 source characters. Leading comments are limited to 10 lines and 200
 source characters per line. Other hover data works where expansion succeeds
 and check-syntax produces hover and documentation data with reliable source

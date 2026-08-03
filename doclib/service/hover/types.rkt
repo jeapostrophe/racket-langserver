@@ -14,8 +14,16 @@
 
 (require racket/contract)
 
-(provide (struct-out Hover-Comment-Line)
+(provide (struct-out Hover-Annotation)
+         (struct-out Hover-Comment-Line)
          (struct-out Hover-Detail))
+
+;; One winning hover annotation. `kind` is the ingestion mechanism
+;; (`mouse-over-status` or `log-tooltip`) so the renderer can label it.
+(struct/contract Hover-Annotation
+  ([kind (or/c 'mouse-over-status 'log-tooltip)]
+   [text string?])
+  #:transparent)
 
 ;; Own-line comment above the display window.
 ;; Ranges are recorded when the trace is built. `doc-hover` reads [start, end)
