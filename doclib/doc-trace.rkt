@@ -4,6 +4,7 @@
          racket/set
          racket/string
          drracket/check-syntax
+         "check-syntax-compat.rkt"
          "service/completion.rkt"
          "service/hover/service.rkt"
          "service/docs.rkt"
@@ -18,7 +19,7 @@
          "../common/interfaces.rkt")
 
 (define build-trace%
-  (class (annotations-mixin object%)
+  (class (phase+space-annotations-mixin object%)
     (init-field src
                 doc-text
                 lexer-state)

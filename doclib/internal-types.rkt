@@ -8,10 +8,10 @@
 ;; - Do not place protocol JSON payload structs here; those belong in
 ;;   `interfaces.rkt` as `define-json-struct` types.
 
-(require racket/contract
+(require "check-syntax-compat.rkt"
+         racket/contract
          racket/dict
          racket/logging
-         racket/phase+space
          data/interval-map)
 
 (provide

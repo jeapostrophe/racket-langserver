@@ -10,6 +10,7 @@
          "../common/path-util.rkt"
          "lazy-cache.rkt"
          "doc-trace.rkt"
+         "check-syntax-compat.rkt"
          "formatting.rkt"
          "internal-types.rkt"
          "lexer.rkt"
@@ -31,7 +32,6 @@
          racket/class
          racket/set
          racket/list
-         racket/phase+space
          racket/string
          data/interval-map
          "check-syntax.rkt"
@@ -326,10 +326,14 @@
 
 (define (get-def path doc-text submods phase+space id)
   (define collector
-    (new (class (annotations-mixin object%)
+    (new (class (phase+space-annotations-mixin object%)
            (define defs (make-hash))
            (define/public (get submods phase+space id)
-             (hash-ref defs (list submods phase+space id) #f))
+             (or (hash-ref defs (list submods phase+space id) #f)
+                 ;; Legacy Check Syntax cannot report phase or space. Preserve
+                 ;; navigation by matching the phase-0 identity it supplied.
+                 (and (not phase+space-callbacks?)
+                      (hash-ref defs (list submods 0 id) #f))))
            (define/override (syncheck:add-definition-target/phase-level+space
                               _source-obj start end id submods phase+space)
              (hash-set! defs
