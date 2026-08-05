@@ -31,6 +31,7 @@
          racket/class
          racket/set
          racket/list
+         racket/phase+space
          racket/string
          data/interval-map
          "check-syntax.rkt"
@@ -323,25 +324,30 @@
 
 ;; definition BEG ;;
 
-(define (get-def path doc-text id)
+(define (get-def path doc-text submods phase+space id)
   (define collector
     (new (class (annotations-mixin object%)
            (define defs (make-hash))
-           (define/public (get id) (hash-ref defs id #f))
-           (define/override (syncheck:add-definition-target source-obj start end id mods)
-             (hash-set! defs id (cons start end)))
+           (define/public (get submods phase+space id)
+             (hash-ref defs (list submods phase+space id) #f))
+           (define/override (syncheck:add-definition-target/phase-level+space
+                              _source-obj start end id submods phase+space)
+             (hash-set! defs
+                        (list submods phase+space id)
+                        (cons start end)))
            (super-new))))
   (define in (open-input-string (send doc-text get-text)))
 
   ;; expand-source handles traversal and adding syntax to collector
   (expand-source path in collector)
-  (send collector get id))
+  (send collector get submods phase+space id))
 
-(define/contract (doc-get-definition-by-id path id)
-  (-> path-string? symbol? Range?)
+(define/contract (doc-get-definition-by-id path submods phase+space id)
+  (-> path-string? (listof symbol?) phase+space-shift? symbol? Range?)
   (define doc-text (new lsp-editor%))
   (send doc-text load-file path)
-  (match-define (cons start end) (get-def path doc-text id))
+  (match-define (cons start end)
+    (get-def path doc-text submods phase+space id))
   (Range (abs-pos->Pos doc-text start)
          (abs-pos->Pos doc-text end)))
 
@@ -786,7 +792,7 @@
   (-> Doc? Decl? (listof Range?))
   (define doc-trace (Doc-trace doc))
   (define doc-decls (send doc-trace get-sym-decls))
-  (match-define (Decl req? id left right) decl)
+  (match-define (struct* Decl ([left left])) decl)
   (define-values (bind-start bind-end bindings)
     (interval-map-ref/bounds doc-decls left #f))
   (if bindings
@@ -852,21 +858,32 @@
   (define-values (start end decl) (doc-get-decl doc pos))
   (match decl
     [#f #f]
-    [(Decl #f id start end)
+    [(struct* Decl ([filepath #f]
+                    [left start]
+                    [right end]))
      (Location #:uri uri
                #:range (abs-range->range doc start end))]
-    [(Decl path id 0 0)
+    [(struct* Decl ([filepath path]
+                    [submods submods]
+                    [phase+space phase+space]
+                    [id id]
+                    [left 0]
+                    [right 0]))
      (Location #:uri (path->uri path)
-               #:range (doc-get-definition-by-id path id))]))
+               #:range (doc-get-definition-by-id
+                         path submods phase+space id))]))
 
 ;; References: returns a list of Locations or #f.
 (define/contract (doc-references doc uri pos include-decl?)
   (-> Doc? string? Pos? boolean? (or/c (listof Location?) #f))
   (define-values (start end decl) (doc-get-decl doc pos))
   (match decl
-    [(Decl req? id left right)
+    [(struct* Decl ([filepath filepath]
+                    [id id]
+                    [left left]
+                    [right right]))
      (define ranges
-       (if req?
+       (if filepath
            (list (abs-range->range doc start end)
                  (abs-range->range doc left right))
            (or (doc-get-bindings doc decl))))
@@ -876,8 +893,10 @@
      ;; id can be #f. Use position range to get its name
      (define ws-id
        (or id
-           (for/or ([(sym def) (in-hash (send (Doc-trace doc) get-definitions))])
-             (and (= (Decl-left def) left) (= (Decl-right def) right) sym))))
+           (for/or ([def (in-hash-values (send (Doc-trace doc) get-definitions))])
+             (and (= (Decl-left def) left)
+                  (= (Decl-right def) right)
+                  (Decl-id def)))))
      (define workspace-locations
        (if ws-id
            (send (Doc-trace doc) get-workspace-bindings (Doc-uri doc) ws-id)
@@ -890,7 +909,9 @@
   (-> Doc? Pos? (or/c (listof DocumentHighlight?) #f))
   (define-values (start end decl) (doc-get-decl doc pos))
   (match decl
-    [(Decl filepath id left right)
+    [(struct* Decl ([filepath filepath]
+                    [left left]
+                    [right right]))
      (define ranges
        (if filepath
            (list (abs-range->range doc start end)
@@ -906,8 +927,10 @@
   (-> Doc? string? Pos? string? (or/c WorkspaceEdit? #f))
   (define-values (start end decl) (doc-get-decl doc pos))
   (match decl
-    [(Decl req? id left right)
-     (cond [req? #f]
+    [(struct* Decl ([filepath filepath]
+                    [left left]
+                    [right right]))
+     (cond [filepath #f]
            [else
             (define ranges (cons (abs-range->range doc left right)
                                  (doc-get-bindings doc decl)))

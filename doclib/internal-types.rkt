@@ -11,6 +11,7 @@
 (require racket/contract
          racket/dict
          racket/logging
+         racket/phase+space
          data/interval-map)
 
 (provide
@@ -63,8 +64,12 @@
        (ExpandResult-post-syntax er)
        #t))
 
+;; Module-backed values preserve Check Syntax identity and use 0,0 as the
+;; unresolved target range. Local lexical values use #f for all identity fields.
 (struct/contract Decl
   ([filepath (or/c path-string? #f)]
+   [submods (or/c (listof symbol?) #f)]
+   [phase+space phase+space-shift?]
    [id (or/c symbol? #f)]
    [left exact-nonnegative-integer?]
    [right exact-nonnegative-integer?])

@@ -12,6 +12,7 @@
            "../../common/interfaces.rkt"
            racket/class
            racket/file
+           drracket/check-syntax
            data/interval-map)
 
   (test-case
@@ -617,10 +618,91 @@
     (define text "#lang racket\n(define x 1)\nx")
     (with-output-to-file tmp-file #:exists 'replace (lambda () (display text)))
 
-    (define def-range (doc-get-definition-by-id tmp-file 'x))
+    (define def-range (doc-get-definition-by-id tmp-file '() 0 'x))
     (check-pred Range? def-range)
 
     (delete-file tmp-file))
+
+  (test-case
+    "Get definition uses exact submodule and phase identity"
+    (define tmp-file (make-temporary-file "binding-identity~a.rkt"))
+    (define text
+      (string-append
+        "#lang racket/base\n"
+        "(module first racket/base\n"
+        "  (define same 1))\n"
+        "(module second racket/base\n"
+        "  (require (for-syntax racket/base))\n"
+        "  (begin-for-syntax\n"
+        "    (define same 2)))\n"))
+    (with-output-to-file tmp-file
+      #:exists 'replace
+      (lambda ()
+        (display text)))
+
+    (define first-range
+      (doc-get-definition-by-id tmp-file '(first) 0 'same))
+    (define second-range
+      (doc-get-definition-by-id tmp-file '(second) 1 'same))
+    (check-equal? first-range (Range (Pos 2 10) (Pos 2 14)))
+    (check-equal? second-range (Range (Pos 6 12) (Pos 6 16)))
+
+    (delete-file tmp-file))
+
+  (test-case
+    "binding identity distinguishes equal symbols across submodules and phases"
+    (define path (string->path "/tmp/binding-identity-test.rkt"))
+    (define uri "file:///tmp/binding-identity-test.rkt")
+    (define text (make-string 40 #\space))
+    (define doc-text (new lsp-editor%))
+    (send doc-text insert text 0)
+    (define trace
+      (new build-trace%
+        [src path]
+        [doc-text doc-text]
+        [lexer-state (build-lexer-state text uri)]))
+
+    (send trace
+          syncheck:add-jump-to-definition/phase-level+space
+          path 1 2 'same path '(first) 0)
+    (send trace
+          syncheck:add-jump-to-definition/phase-level+space
+          path 3 4 'same path '(second) 1)
+    (send trace
+          syncheck:add-definition-target/phase-level+space
+          path 10 11 'same '(first) 0)
+    (send trace
+          syncheck:add-definition-target/phase-level+space
+          path 20 21 'same '(second) 1)
+
+    (define declaration-service (send trace get-declaration))
+    (define-values (_first-start _first-end first-decl)
+      (send declaration-service declaration-at 1))
+    (define-values (_second-start _second-end second-decl)
+      (send declaration-service declaration-at 3))
+    (check-equal? (Decl-submods first-decl) '(first))
+    (check-equal? (Decl-phase+space first-decl) 0)
+    (check-equal? (Decl-submods second-decl) '(second))
+    (check-equal? (Decl-phase+space second-decl) 1)
+    (check-equal? (list (Decl-left first-decl) (Decl-right first-decl)) '(0 0))
+    (check-equal? (list (Decl-left second-decl) (Decl-right second-decl)) '(0 0))
+
+    (define definitions
+      (hash-values (send trace get-definitions)))
+    (check-equal? (length definitions) 2)
+    (check-not-false
+      (member (Decl path '(first) 0 'same 10 11) definitions))
+    (check-not-false
+      (member (Decl path '(second) 1 'same 20 21) definitions))
+
+    (send trace expand 0 2)
+    (define-values (_shifted-start _shifted-end shifted-decl)
+      (send declaration-service declaration-at 3))
+    (check-equal? shifted-decl (Decl path '(first) 0 'same 0 0))
+    (send trace contract 0 2)
+    (define-values (_restored-start _restored-end restored-decl)
+      (send declaration-service declaration-at 1))
+    (check-equal? restored-decl (Decl path '(first) 0 'same 0 0)))
 
   ;; Tests for newly extracted doc-* functions
   ;; All use a common expanded document:
@@ -690,6 +772,9 @@ END
     (check-equal? start 26 "usage start pos")
     (check-equal? end 27 "usage end pos")
     (check-false (Decl-filepath decl) "local binding has no filepath")
+    (check-false (Decl-submods decl) "local binding has no submodules")
+    (check-false (Decl-phase+space decl) "local binding has no phase and space")
+    (check-false (Decl-id decl) "local binding has no module identifier")
     (check-equal? (Decl-left decl) 21 "declaration left pos")
     (check-equal? (Decl-right decl) 22 "declaration right pos"))
 
@@ -712,6 +797,11 @@ END
     (check-equal? start 14 "imported define start pos")
     (check-equal? end 20 "imported define end pos")
     (check-not-false (Decl-filepath decl) "imported binding has a filepath")
+    (check-equal? (Decl-submods decl) '())
+    (check-equal? (Decl-phase+space decl) 0)
+    ;; Check Syntax reports the target identifier, which may differ from the
+    ;; source spelling after a rename transformer.
+    (check-equal? (Decl-id decl) 'new-define)
     ;; Imported symbols have left=0, right=0
     (check-equal? (Decl-left decl) 0)
     (check-equal? (Decl-right decl) 0))

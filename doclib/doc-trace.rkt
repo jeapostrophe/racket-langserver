@@ -138,9 +138,11 @@
            src))
 
     ;; Definitions
-    (define/override (syncheck:add-definition-target src-obj start end id mods)
+    (define/override (syncheck:add-definition-target/phase-level+space
+                       src-obj start end id mods phase+space)
       (for ([s services])
-        (send s syncheck:add-definition-target src-obj start end id mods)))
+        (send s syncheck:add-definition-target/phase-level+space
+              src-obj start end id mods phase+space)))
 
     ;; Track requires
     (define/override (syncheck:add-require-open-menu text start finish file)
@@ -160,9 +162,11 @@
       (for ([s services])
         (send s syncheck:add-docs-menu text start finish id label path def-tag url-tag)))
 
-    (define/override (syncheck:add-jump-to-definition src-obj start end id filename submods)
+    (define/override (syncheck:add-jump-to-definition/phase-level+space
+                       src-obj start end id filename submods phase+space)
       (for ([s services])
-        (send s syncheck:add-jump-to-definition src-obj start end id filename submods)))
+        (send s syncheck:add-jump-to-definition/phase-level+space
+              src-obj start end id filename submods phase+space)))
 
     ;; References
     (define/override (syncheck:add-arrow/name-dup _start-src-obj start-left start-right
