@@ -33,7 +33,8 @@
     ;
     ; Basically here means, in file `src` absolute position from `start` to `end`
     ; references to a definition with name `id` in the file `filepath`.
-    (define/override (syncheck:add-jump-to-definition _src-obj start end id filepath _submods)
+    (define/override (syncheck:add-jump-to-definition/phase-level+space
+                       _src-obj start end id filepath _submods _phase+space)
       ;; NOTE start <= end. In some situations, it may be that start = end.
       (define end- (if (= start end) (add1 end) end))
       (when (workspace-contains? filepath)

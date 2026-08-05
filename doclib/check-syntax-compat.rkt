@@ -28,8 +28,8 @@
       (dynamic-require 'racket/phase+space 'phase+space-shift?)
       legacy-phase+space-shift?))
 
-;; Old Check Syntax has only the legacy callbacks. Route them through the new
-;; callback shape with phase 0, since the old API cannot report another phase.
+;; Old Check Syntax calls the legacy methods. Route them into the canonical
+;; `/phase-level+space` methods with phase 0 so collectors use one callback path.
 (define (legacy-phase+space-annotations-mixin %)
   (class (annotations-mixin %)
     (define/override (syncheck:add-definition-target
