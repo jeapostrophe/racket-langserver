@@ -4,9 +4,9 @@
          racket/class
          drracket/check-syntax)
 
-(provide phase+space-callbacks?
-         phase+space-annotations-mixin
-         phase+space-shift?)
+(provide phase+space-annotations-mixin
+         phase+space-shift?
+         phase+space-callbacks?)
 
 ;; racket/phase+space is unavailable on supported old Racket versions.
 (define (legacy-phase+space-shift? value)
@@ -21,7 +21,8 @@
                     (symbol-interned? (cdr value)))))))
 
 (define phase+space-callbacks?
-  (version>=8.8?))
+  (and support/check-syntax-phase-level+space-callback?
+       support/racket/phase+space?))
 
 (define phase+space-shift?
   (if phase+space-callbacks?
