@@ -9,6 +9,7 @@
 ;;   `interfaces.rkt` as `define-json-struct` types.
 
 (require "check-syntax-compat.rkt"
+         "../common/interfaces.rkt"
          racket/contract
          racket/dict
          racket/logging
@@ -19,6 +20,8 @@
   ExpandResult?
   ExpandResult-logs
   (struct-out Decl)
+  (struct-out Binding-Key)
+  (struct-out Doc-Contribution)
   interval-map-of
   ExpandResult-pre-syntax
   ExpandResult-post-syntax
@@ -73,6 +76,20 @@
    [id (or/c symbol? #f)]
    [left exact-nonnegative-integer?]
    [right exact-nonnegative-integer?])
+  #:transparent)
+
+;; Exact identity for a module-backed binding.
+(struct/contract Binding-Key
+  ([filepath path-string?]
+   [submods (listof symbol?)]
+   [phase+space phase+space-shift?]
+   [id symbol?])
+  #:transparent)
+
+;; Immutable cross-file facts derived from one completed document analysis.
+(struct/contract Doc-Contribution
+  ([path path-string?]
+   [references (hash/c Binding-Key? (listof Location?) #:immutable #t)])
   #:transparent)
 
 (define (interval-map-of value/c)

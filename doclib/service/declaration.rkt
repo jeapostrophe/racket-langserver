@@ -21,6 +21,10 @@
     (define/override (get)
       (list sym-decls sym-bindings))
 
+    ;; Named reads for document assembly and contribution building.
+    (define/public (get-sym-decls) sym-decls)
+    (define/public (get-sym-bindings) sym-bindings)
+
     ;; Named read for document assembly. Returns start, end, and Decl for the
     ;; binding at `pos`. At declaration positions, find the Decl through a first
     ;; use. Returns #f #f #f when nothing matches.

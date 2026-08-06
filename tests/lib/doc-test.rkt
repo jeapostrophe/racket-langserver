@@ -20,6 +20,7 @@
     (define d (make-doc "file:///test.rkt" "hello world"))
     (check-equal? (Doc-version d) 0)
     (check-equal? (Doc-uri d) "file:///test.rkt")
+    (check-false (Doc-contribution d))
     (check-equal? (doc-get-text d) "hello world"))
 
   (test-case
@@ -704,6 +705,83 @@
       (send declaration-service declaration-at 1))
     (check-equal? restored-decl (Decl path '(first) 0 'same 0 0)))
 
+  (test-case
+    "trace contribution groups module uses by exact binding identity"
+    (define path (string->path "/tmp/contribution-test.rkt"))
+    (define uri "file:///tmp/contribution-test.rkt")
+    (define text "first use\nsecond use\n")
+    (define doc-text (new lsp-editor%))
+    (send doc-text insert text 0)
+    (define trace
+      (new build-trace%
+        [src path]
+        [doc-text doc-text]
+        [lexer-state (build-lexer-state text uri)]))
+
+    (send trace
+          syncheck:add-jump-to-definition/phase-level+space
+          path 0 5 'same path '(first) 0)
+    (send trace
+          syncheck:add-jump-to-definition/phase-level+space
+          path 10 16 'same path '(first) 0)
+    (send trace
+          syncheck:add-jump-to-definition/phase-level+space
+          path 17 20 'same path '(second) 1)
+    ;; Local lexical bindings are not cross-file contribution entries.
+    (send trace
+          syncheck:add-arrow/name-dup
+          path 6 9 path 21 21 #t 0 #f #f)
+
+    (define contribution (send trace get-contribution))
+    (define references (Doc-Contribution-references contribution))
+    (define first-key (Binding-Key path '(first) 0 'same))
+    (define second-key (Binding-Key path '(second) 1 'same))
+    (check-equal? (Doc-Contribution-path contribution) path)
+    (check-true (immutable? references))
+    (check-equal? (hash-count references) 2)
+    (check-equal?
+      (sort (hash-ref references first-key)
+            <
+            #:key (lambda (location)
+                    (Pos-line (Range-start (Location-range location)))))
+      (list (Location uri (Range (Pos 0 0) (Pos 0 5)))
+            (Location uri (Range (Pos 1 0) (Pos 1 6)))))
+    (check-equal? (hash-ref references second-key)
+                  (list (Location uri (Range (Pos 1 7) (Pos 1 10)))))
+
+    (define d (make-doc uri text 7))
+    (doc-update-trace! d trace contribution 7)
+    (check-eq? (Doc-contribution d) contribution)
+    (check-true (doc-trace-latest? d))
+    (define-values (_start _end installed-decl)
+      (doc-get-decl d (Pos 0 0)))
+    (check-equal? installed-decl (Decl path '(first) 0 'same 0 0)))
+
+  (test-case
+    "failed expansion preserves the accepted contribution"
+    (define d
+      (make-doc "file:///tmp/contribution-lifecycle-test.rkt"
+                "#lang racket/base\n(require racket/list)\nfirst\n"))
+    (check-true (doc-expand! d))
+    (define accepted-contribution (Doc-contribution d))
+    (check-equal? (Doc-Contribution-path accepted-contribution)
+                  "/tmp/contribution-lifecycle-test.rkt")
+    (check-true
+      (positive? (hash-count (Doc-Contribution-references accepted-contribution))))
+    (define-values (_start _end accepted-decl)
+      (doc-get-decl d (Pos 2 0)))
+
+    (doc-apply-edit! d (Range (Pos 3 0) (Pos 3 0)) "(")
+    (check-false (doc-expand! d))
+    (check-eq? (Doc-contribution d) accepted-contribution)
+    (define-values (_failed-start _failed-end preserved-decl)
+      (doc-get-decl d (Pos 2 0)))
+    (check-equal? preserved-decl accepted-decl)
+
+    (doc-reset! d "#lang racket/base\n42\n")
+    (check-true (doc-expand! d))
+    (check-not-eq? (Doc-contribution d) accepted-contribution))
+
   ;; Tests for newly extracted doc-* functions
   ;; All use a common expanded document:
   ;;   #lang racket
@@ -761,7 +839,11 @@ END
         (define/override (get-completions) '())
         (define/override (get-online-completions str-before-cursor)
           (hash-ref prefix->completions str-before-cursor '()))))
-    (doc-update-trace! d (new test-trace%) (Doc-version d))
+    (define trace (new test-trace%))
+    (doc-update-trace! d
+                       trace
+                       (send trace get-contribution)
+                       (Doc-version d))
     d)
 
   (test-case

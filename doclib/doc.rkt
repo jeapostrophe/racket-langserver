@@ -47,11 +47,29 @@
   ([uri string?]
    [text (is-a?/c lsp-editor%)]
    [trace (is-a?/c build-trace%)]
+   [contribution (or/c #f Doc-Contribution?)]
    [version exact-nonnegative-integer?]
    [trace-version (or/c false/c exact-nonnegative-integer?)]
    [resyntax-results (listof Resyntax-Result?)]
    [lexer-state (lazy-cache-of LexerState?)])
   #:mutable)
+
+(define (make-Doc #:uri uri
+                  #:text text
+                  #:trace trace
+                  #:contribution [contribution #f]
+                  #:version version
+                  #:trace-version [trace-version #f]
+                  #:resyntax-results [resyntax-results (list)]
+                  #:lexer-state [lexer-state (make-lazy-cache)])
+  (Doc uri
+       text
+       trace
+       contribution
+       version
+       trace-version
+       resyntax-results
+       lexer-state))
 
 (define/contract (make-doc uri text [version 0])
   (->* (string? string?)
@@ -66,7 +84,10 @@
       [src (uri->path uri)]
       [doc-text doc-text]
       [lexer-state lexer-state]))
-  (Doc uri doc-text doc-trace version #f (list) (make-lazy-cache)))
+  (make-Doc #:uri uri
+            #:text doc-text
+            #:trace doc-trace
+            #:version version))
 
 (define (invalidate-resyntax-results! doc)
   (set-Doc-resyntax-results! doc (list)))
@@ -208,9 +229,14 @@
   (-> string? (is-a?/c lsp-editor%) LexerState? CSResult?)
   (check-syntax uri doc-text lexer-state))
 
-(define/contract (doc-update-trace! doc new-trace new-version)
-  (-> Doc? (is-a?/c build-trace%) exact-nonnegative-integer? void?)
+(define/contract (doc-update-trace! doc new-trace new-contribution new-version)
+  (-> Doc?
+      (is-a?/c build-trace%)
+      Doc-Contribution?
+      exact-nonnegative-integer?
+      void?)
   (set-Doc-trace! doc new-trace)
+  (set-Doc-contribution! doc new-contribution)
   (set-Doc-trace-version! doc new-version))
 
 (define/contract (doc-trace-latest? doc)
@@ -225,7 +251,11 @@
                 (doc-lexer-state doc)))
   (define new-trace (CSResult-trace result))
   (cond [(CSResult-succeed? result)
-         (doc-update-trace! doc new-trace (Doc-version doc))
+         (define new-contribution (send new-trace get-contribution))
+         (doc-update-trace! doc
+                            new-trace
+                            new-contribution
+                            (Doc-version doc))
          #t]
         [else #f]))
 
@@ -1157,6 +1187,7 @@
 (provide Doc?
          Doc-version
          Doc-uri
+         Doc-contribution
          make-doc
          doc-apply-edit!
          doc-apply-edits!
