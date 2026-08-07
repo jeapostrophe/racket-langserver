@@ -5,6 +5,7 @@
          directory-contains?)
 
 (require net/url
+         racket/contract
          racket/list
          racket/path)
 
@@ -12,7 +13,8 @@
 
 (define uri->path (compose path->string url->path string->url))
 
-(define (directory-contains? dir filepath)
+(define/contract (directory-contains? dir filepath)
+  (-> path-string? path-string? boolean?)
   (define dir-parts (explode-path (simple-form-path dir)))
   (define file-parts (explode-path (simple-form-path filepath)))
   (and (>= (length file-parts) (length dir-parts))

@@ -78,7 +78,8 @@
    [right exact-nonnegative-integer?])
   #:transparent)
 
-;; Exact identity for a module-backed binding.
+;; Unique identity for a module-backed binding: filepath, submods, phase+space,
+;; and id. Local lexical Decl values have no Binding-Key.
 (struct/contract Binding-Key
   ([filepath path-string?]
    [submods (listof symbol?)]
