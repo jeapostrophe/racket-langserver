@@ -21,6 +21,10 @@
     (define/override (get)
       (list sym-decls sym-bindings))
 
+    ;; Named reads for document assembly and contribution building.
+    (define/public (get-sym-decls) sym-decls)
+    (define/public (get-sym-bindings) sym-bindings)
+
     ;; Named read for document assembly. Returns start, end, and Decl for the
     ;; binding at `pos`. At declaration positions, find the Decl through a first
     ;; use. Returns #f #f #f when nothing matches.
@@ -66,8 +70,11 @@
                        (define result (cond
                                         [(Decl? decl-set)
                                          (define d-range (cons (Decl-left decl-set) (Decl-right decl-set)))
-                                         (if (> (car d-range) after)
-                                             (Decl (Decl-filepath decl-set) #f (+ (car d-range) amt) (+ (cdr d-range) amt))
+                                         (if (and (not (Decl-filepath decl-set))
+                                                  (> (car d-range) after))
+                                             (struct-copy Decl decl-set
+                                               [left (+ (car d-range) amt)]
+                                               [right (+ (cdr d-range) amt)])
                                              #f)]
                                         [else
                                          (list->set (set-map decl-set (lambda (d-range)
@@ -77,8 +84,9 @@
                        (when result
                          (interval-map-set! int-map (car range) (cdr range) result)))))
 
-    (define/override (syncheck:add-jump-to-definition _src-obj start end id filename _submods)
-      (define decl (Decl filename id 0 0))
+    (define/override (syncheck:add-jump-to-definition/phase-level+space
+                       _src-obj start end id filename submods phase+space)
+      (define decl (Decl filename submods phase+space id 0 0))
       ;; NOTE start <= end. In some situations, it may be that start = end.
       (interval-map-set! sym-bindings start (if (= start end) (add1 end) end) decl))
 
@@ -96,7 +104,7 @@
       (interval-map-set! sym-decls start-left start-right new-bindings)
       ;; Mapping from binding to declaration.
       (unless require-arrow?
-        (define new-decl (Decl #f #f start-left start-right))
+        (define new-decl (Decl #f #f #f #f start-left start-right))
         (interval-map-set! sym-bindings end-left end-right new-decl)))
     ))
 

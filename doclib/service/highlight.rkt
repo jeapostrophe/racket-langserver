@@ -38,7 +38,8 @@
       (when (< start end)
         (set! styles (cons (Token start end (string->symbol style)) styles))))
 
-    (define/override (syncheck:add-definition-target src start finish id mods)
+    (define/override (syncheck:add-definition-target/phase-level+space
+                       _src start finish _id _submods _phase+space)
       (when (< start finish)
         (set! styles (cons (Token start finish SemanticTokenModifier-definition) styles))))
 

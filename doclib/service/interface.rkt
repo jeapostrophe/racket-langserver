@@ -1,6 +1,7 @@
 #lang racket/base
 
-(require racket/class
+(require "../check-syntax-compat.rkt"
+         racket/class
          drracket/check-syntax)
 
 (provide service<%>
@@ -17,7 +18,7 @@
     add-log-tooltip))
 
 (define base-service%
-  (class* (annotations-mixin object%)
+  (class* (phase+space-annotations-mixin object%)
     (service<%> syncheck-annotations<%>)
 
     (super-new)

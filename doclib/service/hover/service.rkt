@@ -142,7 +142,8 @@
               current))
         candidate))
 
-    (define/override (syncheck:add-definition-target src-obj start end _id _mods)
+    (define/override (syncheck:add-definition-target/phase-level+space
+                       src-obj start end _id _submods _phase+space)
       (when (and (equal? src src-obj)
                  (< start end))
         (set-add! definition-target-ranges (cons start end))))

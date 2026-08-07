@@ -20,6 +20,7 @@
     (define/override (reset)
       (set! definitions (make-hash)))
 
-    (define/override (syncheck:add-definition-target _src-obj start end id _mods)
-      (hash-set! definitions id (Decl src id start end)))))
-
+    (define/override (syncheck:add-definition-target/phase-level+space
+                       _src-obj start end id submods phase+space)
+      (define decl (Decl src submods phase+space id start end))
+      (hash-set! definitions (list submods phase+space id) decl))))

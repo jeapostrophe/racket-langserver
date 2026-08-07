@@ -1,9 +1,12 @@
 #lang racket/base
 
 (require racket/class
+         racket/dict
+         racket/match
          racket/set
          racket/string
          drracket/check-syntax
+         "check-syntax-compat.rkt"
          "service/completion.rkt"
          "service/hover/service.rkt"
          "service/docs.rkt"
@@ -15,10 +18,12 @@
          "service/tooltip-log.rkt"
          "service/typed-racket/service.rkt"
          "service/workspace-references.rkt"
-         "../common/interfaces.rkt")
+         "../common/interfaces.rkt"
+         "../common/path-util.rkt"
+         "internal-types.rkt")
 
 (define build-trace%
-  (class (annotations-mixin object%)
+  (class (phase+space-annotations-mixin object%)
     (init-field src
                 doc-text
                 lexer-state)
@@ -97,6 +102,32 @@
     (define/public (get-declaration) decls)
     (define/public (get-typed-racket) typed-racket)
 
+    ;; Derive accepted cross-file state from this trace's frozen editor.
+    (define/public (get-contribution)
+      (define references
+        (for/fold ([references (hash)])
+                  ([(range decl) (in-dict (send decls get-sym-bindings))]
+                   #:when (Decl-filepath decl))
+          (define key
+            (Binding-Key (Decl-filepath decl)
+                         (Decl-submods decl)
+                         (Decl-phase+space decl)
+                         (Decl-id decl)))
+          (define start (car range))
+          (define end
+            (if (= start (cdr range))
+                (add1 start)
+                (cdr range)))
+          (define (abs->pos pos)
+            (match-define (list line char)
+              (send doc-text pos->line/char pos))
+            (Pos line char))
+          (define location
+            (Location (path->uri src)
+                      (Range (abs->pos start) (abs->pos end))))
+          (hash-update references key (lambda (locations) (cons location locations)) '())))
+      (Doc-Contribution src references))
+
     ;; Chosen over putting Typed Racket type-error diagnostics on diag%:
     ;; inferred types and type errors share one online-check-syntax channel
     ;; owned by typed-racket%. Union both sets here for LSP publish.
@@ -125,8 +156,8 @@
     (define/public (get-online-completions str-before-cursor)
       (send completions get-online-completions str-before-cursor))
     (define/public (get-requires) (send requires get))
-    (define/public (get-sym-decls) (car (send decls get)))
-    (define/public (get-sym-bindings) (cadr (send decls get)))
+    (define/public (get-sym-decls) (send decls get-sym-decls))
+    (define/public (get-sym-bindings) (send decls get-sym-bindings))
     (define/public (get-definitions) (send definitions get))
     (define/public (get-quickfixs) (cadr (send diag get)))
     (define/public (get-semantic-tokens) (send semantic-tokens get))
@@ -138,9 +169,11 @@
            src))
 
     ;; Definitions
-    (define/override (syncheck:add-definition-target src-obj start end id mods)
+    (define/override (syncheck:add-definition-target/phase-level+space
+                       src-obj start end id mods phase+space)
       (for ([s services])
-        (send s syncheck:add-definition-target src-obj start end id mods)))
+        (send s syncheck:add-definition-target/phase-level+space
+              src-obj start end id mods phase+space)))
 
     ;; Track requires
     (define/override (syncheck:add-require-open-menu text start finish file)
@@ -160,9 +193,11 @@
       (for ([s services])
         (send s syncheck:add-docs-menu text start finish id label path def-tag url-tag)))
 
-    (define/override (syncheck:add-jump-to-definition src-obj start end id filename submods)
+    (define/override (syncheck:add-jump-to-definition/phase-level+space
+                       src-obj start end id filename submods phase+space)
       (for ([s services])
-        (send s syncheck:add-jump-to-definition src-obj start end id filename submods)))
+        (send s syncheck:add-jump-to-definition/phase-level+space
+              src-obj start end id filename submods phase+space)))
 
     ;; References
     (define/override (syncheck:add-arrow/name-dup _start-src-obj start-left start-right

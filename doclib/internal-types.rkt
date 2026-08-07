@@ -8,7 +8,9 @@
 ;; - Do not place protocol JSON payload structs here; those belong in
 ;;   `interfaces.rkt` as `define-json-struct` types.
 
-(require racket/contract
+(require "check-syntax-compat.rkt"
+         "../common/interfaces.rkt"
+         racket/contract
          racket/dict
          racket/logging
          data/interval-map)
@@ -18,6 +20,8 @@
   ExpandResult?
   ExpandResult-logs
   (struct-out Decl)
+  (struct-out Binding-Key)
+  (struct-out Doc-Contribution)
   interval-map-of
   ExpandResult-pre-syntax
   ExpandResult-post-syntax
@@ -63,11 +67,30 @@
        (ExpandResult-post-syntax er)
        #t))
 
+;; Module-backed values preserve Check Syntax identity and use 0,0 as the
+;; unresolved target range. Local lexical values use #f for all identity fields.
 (struct/contract Decl
   ([filepath (or/c path-string? #f)]
+   [submods (or/c (listof symbol?) #f)]
+   [phase+space phase+space-shift?]
    [id (or/c symbol? #f)]
    [left exact-nonnegative-integer?]
    [right exact-nonnegative-integer?])
+  #:transparent)
+
+;; Unique identity for a module-backed binding: filepath, submods, phase+space,
+;; and id. Local lexical Decl values have no Binding-Key.
+(struct/contract Binding-Key
+  ([filepath path-string?]
+   [submods (listof symbol?)]
+   [phase+space phase+space-shift?]
+   [id symbol?])
+  #:transparent)
+
+;; Immutable cross-file facts derived from one completed document analysis.
+(struct/contract Doc-Contribution
+  ([path path-string?]
+   [references (hash/c Binding-Key? (listof Location?) #:immutable #t)])
   #:transparent)
 
 (define (interval-map-of value/c)

@@ -116,18 +116,23 @@
     (define text (send text-buffer-copy get-text))
     (define lexer-state (build-lexer-state text uri))
     (define result (doc-expand uri text-buffer-copy lexer-state))
+    (define trace (CSResult-trace result))
+    ;; Contribution derivation reads the candidate trace and frozen text. Keep
+    ;; it outside the SafeDoc write lock so installation remains a short swap.
+    (define contribution
+      (and (CSResult-succeed? result)
+           (send trace get-contribution)))
 
     (with-write-safedoc safe-doc
       (lambda (sd)
         (define doc (SafeDoc-doc sd))
         (define cur-version (Doc-version doc))
-        (define trace (CSResult-trace result))
         (define diags (set->list (send trace get-warn-diags)))
         (send-diagnostics notify-client uri diags)
 
         (when (and (CSResult-succeed? result)
                    (equal? working-version cur-version))
-          (doc-update-trace! doc trace cur-version)
+          (doc-update-trace! doc trace contribution cur-version)
           (when (and (get-resyntax-enabled) (resyntax-available?))
             (scheduler-push-task! token 'resyntax resyntax-task)))
         (when (equal? working-version (Doc-version doc))
