@@ -5,6 +5,7 @@
          "../internal-types.rkt"
          data/interval-map
          racket/dict
+         racket/path
          racket/set
          drracket/check-syntax)
 
@@ -86,7 +87,15 @@
 
     (define/override (syncheck:add-jump-to-definition/phase-level+space
                        _src-obj start end id filename submods phase+space)
-      (define decl (Decl filename submods phase+space id 0 0))
+      ;; Interim: Check Syntax passes path values; Binding-Key identity still
+      ;; uses strings (uri->path). Convert here so jump and definition keys
+      ;; match. Preferred later: path-canonical Decl/Binding-Key filepaths.
+      (define filepath
+        (and filename
+             (if (path? filename)
+                 (path->string filename)
+                 filename)))
+      (define decl (Decl filepath submods phase+space id 0 0))
       ;; NOTE start <= end. In some situations, it may be that start = end.
       (interval-map-set! sym-bindings start (if (= start end) (add1 end) end) decl))
 
