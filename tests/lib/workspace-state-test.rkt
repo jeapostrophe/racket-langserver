@@ -48,9 +48,9 @@
       workspace
       (contribution source
                     (list (cons new-key (list (location "new"))))))
-    (check-equal? (workspace-find-references workspace old-key) '())
-    (check-equal? (workspace-find-references workspace new-key)
-                  (list (location "new"))))
+    (check-equal? (workspace-reference-sources workspace old-key) '())
+    (check-equal? (workspace-reference-sources workspace new-key)
+                  (list (Reference-Source source (list (location "new"))))))
 
   (test-case
     "replacement removes only the replaced source from a shared binding"
@@ -67,8 +67,8 @@
       workspace
       (contribution source-b (list (cons key (list (location "b"))))))
     (workspace-set-contribution! workspace (contribution source-a '()))
-    (check-equal? (workspace-find-references workspace key)
-                  (list (location "b"))))
+    (check-equal? (workspace-reference-sources workspace key)
+                  (list (Reference-Source source-b (list (location "b"))))))
 
   (test-case
     "overlapping roots retain contributions until all coverage is removed"
@@ -81,10 +81,10 @@
       workspace
       (contribution source (list (cons key (list (location "nested"))))))
     (workspace-remove-folder! workspace root)
-    (check-equal? (workspace-find-references workspace key)
-                  (list (location "nested")))
+    (check-equal? (workspace-reference-sources workspace key)
+                  (list (Reference-Source source (list (location "nested")))))
     (workspace-remove-folder! workspace nested-root)
-    (check-equal? (workspace-find-references workspace key) '()))
+    (check-equal? (workspace-reference-sources workspace key) '()))
 
   (test-case
     "lookup uses every exact binding identity field"
@@ -105,8 +105,10 @@
           (cons key (list (location name))))))
     (for ([key (in-list keys)]
           [name (in-list '(one two phase identifier))])
-      (check-equal? (workspace-find-references workspace key)
-                    (list (location name)))))
+      (check-equal?
+        (workspace-reference-sources workspace key)
+        (list (Reference-Source (build-path root "source.rkt")
+                                (list (location name)))))))
 
   (test-case
     "set rejects uncovered sources but allows outside Binding-Key filepaths"
@@ -121,13 +123,15 @@
       workspace
       (contribution (build-path outside-root "source.rkt")
                     (list (cons outside-key (list (location "rejected"))))))
-    (check-equal? (workspace-find-references workspace outside-key) '())
+    (check-equal? (workspace-reference-sources workspace outside-key) '())
     (workspace-set-contribution!
       workspace
       (contribution (build-path root "source.rkt")
                     (list (cons outside-key (list (location "accepted"))))))
-    (check-equal? (workspace-find-references workspace outside-key)
-                  (list (location "accepted"))))
+    (check-equal?
+      (workspace-reference-sources workspace outside-key)
+      (list (Reference-Source (build-path root "source.rkt")
+                              (list (location "accepted"))))))
 
   (test-case
     "removing a path drops only that path's contribution"
@@ -147,7 +151,11 @@
                     (list (cons removed-key (list (location "still-present")))
                           (cons other-key (list (location "preserved"))))))
     (workspace-remove-path! workspace removed-path)
-    (check-equal? (workspace-find-references workspace removed-key)
-                  (list (location "still-present")))
-    (check-equal? (workspace-find-references workspace other-key)
-                  (list (location "preserved")))))
+    (check-equal?
+      (workspace-reference-sources workspace removed-key)
+      (list (Reference-Source (build-path root "consumer.rkt")
+                              (list (location "still-present")))))
+    (check-equal?
+      (workspace-reference-sources workspace other-key)
+      (list (Reference-Source (build-path root "consumer.rkt")
+                              (list (location "preserved")))))))

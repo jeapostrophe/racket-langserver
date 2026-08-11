@@ -907,9 +907,10 @@
                #:range (doc-get-definition-by-id
                          path submods phase+space id))]))
 
-;; References: returns a list of Locations or #f.
+;; References: live locations for this document, plus an optional Binding-Key
+;; for workspace lookup when the identifier is module-backed.
 (define/contract (doc-references doc uri pos include-decl?)
-  (-> Doc? string? Pos? boolean? (or/c (listof Location?) #f))
+  (-> Doc? string? Pos? boolean? (or/c Document-Reference-Result? #f))
   (define-values (start end decl) (doc-get-decl doc pos))
   (match decl
     [(struct* Decl ([filepath filepath]
@@ -924,18 +925,25 @@
      (define local-locations
        (for/list ([range (in-list ranges)])
          (Location #:uri uri #:range range)))
-     ;; id can be #f. Use position range to get its name
-     (define ws-id
-       (or id
-           (for/or ([def (in-hash-values (send (Doc-trace doc) get-definitions))])
-             (and (= (Decl-left def) left)
-                  (= (Decl-right def) right)
-                  (Decl-id def)))))
-     (define workspace-locations
-       (if ws-id
-           (send (Doc-trace doc) get-workspace-bindings (Doc-uri doc) ws-id)
-           '()))
-     (append local-locations workspace-locations)]
+     ;; At a same-file module definition, declaration-at returns the local Decl.
+     ;; Recover the definition service's exact module identity for workspace lookup.
+     (define binding-decl
+       (or (and filepath (Decl-id decl) decl)
+           (for/or ([definition
+                     (in-hash-values (send (Doc-trace doc) get-definitions))])
+             (and (= (Decl-left definition) left)
+                  (= (Decl-right definition) right)
+                  definition))))
+     (define binding-key
+       (and binding-decl
+            (Decl-id binding-decl)
+            (Binding-Key (Decl-filepath binding-decl)
+                         (Decl-submods binding-decl)
+                         (Decl-phase+space binding-decl)
+                         (Decl-id binding-decl))))
+     (Document-Reference-Result
+       (Reference-Source (uri->path uri) local-locations)
+       binding-key)]
     [#f #f]))
 
 ;; Document Highlight: returns a list of DocumentHighlights or #f.

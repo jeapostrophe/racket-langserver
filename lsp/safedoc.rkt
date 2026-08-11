@@ -10,6 +10,8 @@
          "../doclib/check-syntax.rkt"
          "../doclib/lexer.rkt"
          "../doclib/external/resyntax.rkt"
+         "../workspace/current.rkt"
+         "../workspace/state.rkt"
          "resyntax-place.rkt"
          "scheduler.rkt"
          racket/set
@@ -133,6 +135,7 @@
         (when (and (CSResult-succeed? result)
                    (equal? working-version cur-version))
           (doc-update-trace! doc trace contribution cur-version)
+          (workspace-set-contribution! current-workspace contribution)
           (when (and (get-resyntax-enabled) (resyntax-available?))
             (scheduler-push-task! token 'resyntax resyntax-task)))
         (when (equal? working-version (Doc-version doc))

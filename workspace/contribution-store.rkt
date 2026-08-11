@@ -9,9 +9,9 @@
          contribution-store-source-paths
          contribution-store-add!
          contribution-store-remove-source!
-         contribution-store-find-references)
+         contribution-store-reference-sources)
 
-;; Authoritative contributions plus a derived index for fast find-references.
+;; Authoritative contributions plus a derived index for reference-sources lookup.
 ;; key->path->locations maps Binding-Key -> citing-path -> locations in that path.
 ;; No lock; Workspace serializes every operation.
 (struct/contract Contribution-Store
@@ -69,11 +69,10 @@
       (hash-ref! key->path->locations binding-key make-hash))
     (hash-set! path->locations source-path locations)))
 
-;; Time: expected O(s + L), s = citing sources for the key, L = |result|.
-(define/contract (contribution-store-find-references store binding-key)
-  (-> Contribution-Store? Binding-Key? (listof Location?))
+;; Time: expected O(s), s = citing sources for the key.
+(define/contract (contribution-store-reference-sources store binding-key)
+  (-> Contribution-Store? Binding-Key? (listof Reference-Source?))
   (define path->locations
     (hash-ref (Contribution-Store-key->path->locations store) binding-key (hash)))
-  (for*/list ([locations (in-hash-values path->locations)]
-              [location (in-list locations)])
-    location))
+  (for/list ([(path locations) (in-hash path->locations)])
+    (Reference-Source path locations)))

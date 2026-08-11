@@ -14,7 +14,7 @@
          workspace-contains?
          workspace-set-contribution!
          workspace-remove-path!
-         workspace-find-references)
+         workspace-reference-sources)
 
 ;; Workspace owns folders and immutable accepted contributions.
 ;; Paths are assumed already simple-form; this layer does not convert them.
@@ -81,9 +81,9 @@
     (lambda ()
       (contribution-store-remove-source! (Workspace-contributions workspace) path))))
 
-(define/contract (workspace-find-references workspace binding-key)
-  (-> Workspace? Binding-Key? (listof Location?))
+(define/contract (workspace-reference-sources workspace binding-key)
+  (-> Workspace? Binding-Key? (listof Reference-Source?))
   (call-with-semaphore
     (Workspace-lock workspace)
     (lambda ()
-      (contribution-store-find-references (Workspace-contributions workspace) binding-key))))
+      (contribution-store-reference-sources (Workspace-contributions workspace) binding-key))))

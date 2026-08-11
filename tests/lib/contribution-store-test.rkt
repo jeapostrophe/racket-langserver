@@ -74,8 +74,8 @@
     (check-store-consistent store)
     (contribution-store-remove-source! store "source-a.rkt")
     (check-store-consistent store)
-    (check-equal? (contribution-store-find-references store key)
-                  (list (location "b"))))
+    (check-equal? (contribution-store-reference-sources store key)
+                  (list (Reference-Source "source-b.rkt" (list (location "b"))))))
 
   (test-case
     "removing a path drops only that path's contribution"
@@ -103,7 +103,11 @@
     (check-false
       (member "removed.rkt" (contribution-store-source-paths store)))
     (check-equal?
-      (list->set (contribution-store-find-references store removed-key))
-      (set (location "still-a") (location "still-b")))
-    (check-equal? (contribution-store-find-references store preserved-key)
-                  (list (location "preserved")))))
+      (list->set (contribution-store-reference-sources store removed-key))
+      (set (Reference-Source "consumer-a.rkt" (list (location "still-a")))
+           (Reference-Source "consumer-b.rkt" (list (location "still-b")))))
+    (check-equal? (contribution-store-reference-sources store preserved-key)
+                  (list
+                    (Reference-Source
+                      "consumer-a.rkt"
+                      (list (location "preserved")))))))

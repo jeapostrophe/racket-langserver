@@ -22,6 +22,8 @@
   (struct-out Decl)
   (struct-out Binding-Key)
   (struct-out Doc-Contribution)
+  (struct-out Reference-Source)
+  (struct-out Document-Reference-Result)
   interval-map-of
   ExpandResult-pre-syntax
   ExpandResult-post-syntax
@@ -91,6 +93,18 @@
 (struct/contract Doc-Contribution
   ([path path-string?]
    [references (hash/c Binding-Key? (listof Location?) #:immutable #t)])
+  #:transparent)
+
+;; Reference locations supplied by exactly one document.
+(struct/contract Reference-Source
+  ([path path-string?]
+   [locations (listof Location?)])
+  #:transparent)
+
+;; Live document references plus the exact cross-document identity, when any.
+(struct/contract Document-Reference-Result
+  ([source Reference-Source?]
+   [binding-key (or/c Binding-Key? #f)])
   #:transparent)
 
 (define (interval-map-of value/c)

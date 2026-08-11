@@ -10,6 +10,7 @@
            "../../doclib/internal-types.rkt"
            "../../doclib/lexer.rkt"
            "../../common/interfaces.rkt"
+           "../../common/path-util.rkt"
            racket/class
            racket/file
            drracket/check-syntax
@@ -999,12 +1000,15 @@ END
     (check-false result))
 
   (test-case
-    "doc-references for local x"
+    "doc-references returns a live source for same-document x"
     (define-values (d uri) (make-expanded-doc))
-    ;; "x" usage at (2,0) is a local binding, so doc-references returns bindings
+    ;; "x" at (2,0) resolves to a module binding and one live use in this document.
     (define result (doc-references d uri (Pos 2 0) #t))
-    (check-equal? (length result) 1)
-    (define ref (first result))
+    (check-true (Binding-Key? (Document-Reference-Result-binding-key result)))
+    (define source (Document-Reference-Result-source result))
+    (check-equal? (Reference-Source-path source) (uri->path uri))
+    (check-equal? (length (Reference-Source-locations source)) 1)
+    (define ref (first (Reference-Source-locations source)))
     (check-equal? (Location-uri ref) uri)
     (check-equal? (Location-range ref)
                   (Range (Pos 2 0) (Pos 2 1))))

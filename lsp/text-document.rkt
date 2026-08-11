@@ -9,6 +9,8 @@
          "responses.rkt"
          "safedoc.rkt"
          "../doclib/doc.rkt"
+         "../workspace/current.rkt"
+         "compose/references.rkt"
          "semantic-token-lsp.rkt"
          "scheduler.rkt"
          "lsp.rkt"
@@ -152,9 +154,13 @@
                  ['position (as-Pos pos)]
                  ['context (hash-table ['includeDeclaration include-decl?])])
      (define safe-doc (lsp-get-doc uri))
-     (define result
+     (define document-result
        (with-read-doc safe-doc
          (λ (doc) (doc-references doc uri pos include-decl?))))
+     (define result
+       (and document-result
+            (reference-sources->locations
+              (merge-reference-sources current-workspace document-result))))
      (success/enc id result)]
     [_
      (error-response id ErrorCode-InvalidParams "textDocument/references failed")]))
