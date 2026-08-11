@@ -15,10 +15,10 @@
 ;; key->path->locations maps Binding-Key -> citing-path -> locations in that path.
 ;; No lock; Workspace serializes every operation.
 (struct/contract Contribution-Store
-  ([path->contribution (hash/c path-string? Doc-Contribution? #:immutable #f)]
+  ([path->contribution (hash/c path? Doc-Contribution? #:immutable #f)]
    [key->path->locations
     (hash/c Binding-Key?
-            (hash/c path-string? (listof Location?) #:immutable #f)
+            (hash/c path? (listof Location?) #:immutable #f)
             #:immutable #f)]))
 
 ;; Time: O(1).
@@ -28,7 +28,7 @@
 
 ;; Time: O(m), m = number of stored contributions.
 (define/contract (contribution-store-source-paths store)
-  (-> Contribution-Store? (listof path-string?))
+  (-> Contribution-Store? (listof path?))
   (hash-keys (Contribution-Store-path->contribution store)))
 
 ;; Unhook one citing source-path from Binding-Key in the derived index.
@@ -47,7 +47,7 @@
 ;; stay unchanged.
 ;; Time: expected O(n), n = |Doc-Contribution-references| of the source.
 (define/contract (contribution-store-remove-source! store source-path)
-  (-> Contribution-Store? path-string? void?)
+  (-> Contribution-Store? path? void?)
   (define path->contribution (Contribution-Store-path->contribution store))
   (define contribution (hash-ref path->contribution source-path #f))
   (when contribution

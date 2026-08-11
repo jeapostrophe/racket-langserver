@@ -6,6 +6,7 @@
          racket/match
          racket/class
          racket/async-channel
+         racket/path
          "../common/interfaces.rkt"
          "../common/json-util.rkt"
          "responses.rkt"
@@ -251,7 +252,7 @@
        [(not (equal? root-uri (json-null)))
         (add-workspace-folder! (uri->path root-uri))]
        [(not (equal? root-path (json-null)))
-        (add-workspace-folder! root-path)]
+        (add-workspace-folder! (string->path root-path))]
        [else (void)])
 
      (define server-capabilities

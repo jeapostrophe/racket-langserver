@@ -1,5 +1,10 @@
 #lang racket/base
 
+;; Keep filesystem paths as path? inside the program; URI strings stay at the
+;; LSP / protocol edge. Converting to string in uri->path would mix two
+;; representations for the same path. path? is type-safer and a little cheaper
+;; for path ops.
+
 (provide path->uri
          uri->path
          directory-contains?)
@@ -9,9 +14,13 @@
          racket/list
          racket/path)
 
-(define path->uri (compose url->string path->url))
+(define/contract (path->uri path)
+  (-> path? string?)
+  (url->string (path->url path)))
 
-(define uri->path (compose path->string url->path string->url))
+(define/contract (uri->path uri)
+  (-> string? path?)
+  (url->path (string->url uri)))
 
 (define/contract (directory-contains? dir filepath)
   (-> path-string? path-string? boolean?)

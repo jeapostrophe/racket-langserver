@@ -3,6 +3,7 @@
 (require "../../common/interfaces.rkt"
          "../../doclib/internal-types.rkt"
          "../../workspace/contribution-store.rkt"
+         racket/path
          racket/set
          rackunit)
 
@@ -46,68 +47,69 @@
   (test-case
     "replacement keeps derived indexes consistent"
     (define store (make-contribution-store))
-    (define old-key (binding-key "defined.rkt" 'old))
-    (define new-key (binding-key "defined.rkt" 'new))
+    (define old-key (binding-key (string->path "defined.rkt") 'old))
+    (define new-key (binding-key (string->path "defined.rkt") 'new))
     (contribution-store-add!
       store
-      (contribution "source.rkt"
+      (contribution (string->path "source.rkt")
                     (list (cons old-key (list (location "old"))))))
     (check-store-consistent store)
     (contribution-store-add!
       store
-      (contribution "source.rkt"
+      (contribution (string->path "source.rkt")
                     (list (cons new-key (list (location "new"))))))
     (check-store-consistent store))
 
   (test-case
     "shared sources and source removal keep derived indexes consistent"
     (define store (make-contribution-store))
-    (define key (binding-key "defined.rkt" 'shared))
+    (define key (binding-key (string->path "defined.rkt") 'shared))
     (contribution-store-add!
       store
-      (contribution "source-a.rkt"
+      (contribution (string->path "source-a.rkt")
                     (list (cons key (list (location "a"))))))
     (contribution-store-add!
       store
-      (contribution "source-b.rkt"
+      (contribution (string->path "source-b.rkt")
                     (list (cons key (list (location "b"))))))
     (check-store-consistent store)
-    (contribution-store-remove-source! store "source-a.rkt")
+    (contribution-store-remove-source! store (string->path "source-a.rkt"))
     (check-store-consistent store)
     (check-equal? (contribution-store-reference-sources store key)
-                  (list (Reference-Source "source-b.rkt" (list (location "b"))))))
+                  (list (Reference-Source (string->path "source-b.rkt")
+                                          (list (location "b"))))))
 
   (test-case
     "removing a path drops only that path's contribution"
     (define store (make-contribution-store))
-    (define removed-key (binding-key "removed.rkt" 'removed))
-    (define preserved-key (binding-key "preserved.rkt" 'preserved))
+    (define removed-key (binding-key (string->path "removed.rkt") 'removed))
+    (define preserved-key (binding-key (string->path "preserved.rkt") 'preserved))
     (contribution-store-add!
       store
       (contribution
-        "removed.rkt"
+        (string->path "removed.rkt")
         (list (cons preserved-key (list (location "removed-source"))))))
     (contribution-store-add!
       store
       (contribution
-        "consumer-a.rkt"
+        (string->path "consumer-a.rkt")
         (list (cons removed-key (list (location "still-a")))
               (cons preserved-key (list (location "preserved"))))))
     (contribution-store-add!
       store
       (contribution
-        "consumer-b.rkt"
+        (string->path "consumer-b.rkt")
         (list (cons removed-key (list (location "still-b"))))))
-    (contribution-store-remove-source! store "removed.rkt")
+    (contribution-store-remove-source! store (string->path "removed.rkt"))
     (check-store-consistent store)
     (check-false
-      (member "removed.rkt" (contribution-store-source-paths store)))
+      (member (string->path "removed.rkt") (contribution-store-source-paths store)))
     (check-equal?
       (list->set (contribution-store-reference-sources store removed-key))
-      (set (Reference-Source "consumer-a.rkt" (list (location "still-a")))
-           (Reference-Source "consumer-b.rkt" (list (location "still-b")))))
+      (set (Reference-Source (string->path "consumer-a.rkt") (list (location "still-a")))
+           (Reference-Source (string->path "consumer-b.rkt") (list (location "still-b")))))
     (check-equal? (contribution-store-reference-sources store preserved-key)
                   (list
                     (Reference-Source
-                      "consumer-a.rkt"
+                      (string->path "consumer-a.rkt")
                       (list (location "preserved")))))))

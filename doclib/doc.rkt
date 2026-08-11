@@ -377,7 +377,7 @@
   (send collector get submods phase+space id))
 
 (define/contract (doc-get-definition-by-id path submods phase+space id)
-  (-> path-string? (listof symbol?) phase+space-shift? symbol? Range?)
+  (-> path? (listof symbol?) phase+space-shift? symbol? Range?)
   (define doc-text (new lsp-editor%))
   (send doc-text load-file path)
   (match-define (cons start end)

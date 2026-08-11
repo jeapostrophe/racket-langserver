@@ -17,11 +17,12 @@
          workspace-reference-sources)
 
 ;; Workspace owns folders and immutable accepted contributions.
-;; Paths are assumed already simple-form; this layer does not convert them.
+;; Folder and contribution paths are path? and assumed already simple-form;
+;; this layer does not convert them.
 ;; Keep this lock as a leaf: operations under it must not call document services.
 (struct/contract Workspace
   ([lock semaphore?]
-   [folders (set/c path-string? #:kind 'mutable)]
+   [folders (set/c path? #:kind 'mutable)]
    [contributions Contribution-Store?]))
 
 ;; Workspace folder count is normally one and is a small practical constant.
@@ -37,7 +38,7 @@
              (make-contribution-store)))
 
 (define/contract (workspace-add-folder! workspace path)
-  (-> Workspace? path-string? void?)
+  (-> Workspace? path? void?)
   (call-with-semaphore
     (Workspace-lock workspace)
     (lambda ()
@@ -51,7 +52,7 @@
     (contribution-store-remove-source! contributions path)))
 
 (define/contract (workspace-remove-folder! workspace path)
-  (-> Workspace? path-string? void?)
+  (-> Workspace? path? void?)
   (call-with-semaphore
     (Workspace-lock workspace)
     (lambda ()
@@ -59,7 +60,7 @@
       (purge-uncovered-contributions! workspace))))
 
 (define/contract (workspace-contains? workspace path)
-  (-> Workspace? path-string? boolean?)
+  (-> Workspace? path? boolean?)
   (call-with-semaphore
     (Workspace-lock workspace)
     (lambda ()
@@ -75,7 +76,7 @@
         (contribution-store-add! (Workspace-contributions workspace) contribution)))))
 
 (define/contract (workspace-remove-path! workspace path)
-  (-> Workspace? path-string? void?)
+  (-> Workspace? path? void?)
   (call-with-semaphore
     (Workspace-lock workspace)
     (lambda ()

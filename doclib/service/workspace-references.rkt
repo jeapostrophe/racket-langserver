@@ -42,7 +42,7 @@
           (define lc (send doc-text pos->line/char p))
           (Pos #:line (first lc) #:char (second lc)))
         (hash-update! workspace-references
-                      (list (path->string filepath) id)
+                      (list filepath id)
                       (lambda (refs)
                         (set-add refs
                                  (Location #:uri (path->uri src)

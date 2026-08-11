@@ -72,7 +72,7 @@
 ;; Module-backed values preserve Check Syntax identity and use 0,0 as the
 ;; unresolved target range. Local lexical values use #f for all identity fields.
 (struct/contract Decl
-  ([filepath (or/c path-string? #f)]
+  ([filepath (or/c path? #f)]
    [submods (or/c (listof symbol?) #f)]
    [phase+space phase+space-shift?]
    [id (or/c symbol? #f)]
@@ -83,7 +83,7 @@
 ;; Unique identity for a module-backed binding: filepath, submods, phase+space,
 ;; and id. Local lexical Decl values have no Binding-Key.
 (struct/contract Binding-Key
-  ([filepath path-string?]
+  ([filepath path?]
    [submods (listof symbol?)]
    [phase+space phase+space-shift?]
    [id symbol?])
@@ -91,13 +91,13 @@
 
 ;; Immutable cross-file facts derived from one completed document analysis.
 (struct/contract Doc-Contribution
-  ([path path-string?]
+  ([path path?]
    [references (hash/c Binding-Key? (listof Location?) #:immutable #t)])
   #:transparent)
 
 ;; Reference locations supplied by exactly one document.
 (struct/contract Reference-Source
-  ([path path-string?]
+  ([path path?]
    [locations (listof Location?)])
   #:transparent)
 

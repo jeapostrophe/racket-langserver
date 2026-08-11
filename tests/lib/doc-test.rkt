@@ -766,7 +766,7 @@
     (check-true (doc-expand! d))
     (define accepted-contribution (Doc-contribution d))
     (check-equal? (Doc-Contribution-path accepted-contribution)
-                  "/tmp/contribution-lifecycle-test.rkt")
+                  (string->path "/tmp/contribution-lifecycle-test.rkt"))
     (check-true
       (positive? (hash-count (Doc-Contribution-references accepted-contribution))))
     (define-values (_start _end accepted-decl)
