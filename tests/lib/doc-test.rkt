@@ -735,19 +735,19 @@
 
     (define contribution (send trace get-contribution))
     (define references (Doc-Contribution-references contribution))
-    (define first-key (Binding-Key path '(first) 0 'same))
-    (define second-key (Binding-Key path '(second) 1 'same))
+    (define first-module-binding (Module-Binding path '(first) 0 'same))
+    (define second-module-binding (Module-Binding path '(second) 1 'same))
     (check-equal? (Doc-Contribution-path contribution) path)
     (check-true (immutable? references))
     (check-equal? (hash-count references) 2)
     (check-equal?
-      (sort (hash-ref references first-key)
+      (sort (hash-ref references first-module-binding)
             <
             #:key (lambda (location)
                     (Pos-line (Range-start (Location-range location)))))
       (list (Location uri (Range (Pos 0 0) (Pos 0 5)))
             (Location uri (Range (Pos 1 0) (Pos 1 6)))))
-    (check-equal? (hash-ref references second-key)
+    (check-equal? (hash-ref references second-module-binding)
                   (list (Location uri (Range (Pos 1 7) (Pos 1 10)))))
 
     (define d (make-doc uri text 7))
@@ -1004,7 +1004,7 @@ END
     (define-values (d uri) (make-expanded-doc))
     ;; "x" at (2,0) resolves to a module binding and one live use in this document.
     (define result (doc-references d uri (Pos 2 0) #t))
-    (check-true (Binding-Key? (Document-Reference-Result-binding-key result)))
+    (check-true (Module-Binding? (Document-Reference-Result-module-binding result)))
     (define source (Document-Reference-Result-source result))
     (check-equal? (Reference-Source-path source) (uri->path uri))
     (check-equal? (length (Reference-Source-locations source)) 1)

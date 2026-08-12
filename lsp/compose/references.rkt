@@ -18,12 +18,12 @@
 (define/contract (merge-reference-sources workspace document-result)
   (-> Workspace? Document-Reference-Result? (listof Reference-Source?))
   (define live-source (Document-Reference-Result-source document-result))
-  (define binding-key (Document-Reference-Result-binding-key document-result))
+  (define module-binding (Document-Reference-Result-module-binding document-result))
   ;; Last successful workspace contributions for this binding (may include
   ;; a stale same-path snapshot, filtered out below).
   (define workspace-sources
-    (if binding-key
-        (workspace-reference-sources workspace binding-key)
+    (if module-binding
+        (workspace-reference-sources workspace module-binding)
         '()))
   (cons live-source
         (filter (lambda (source)

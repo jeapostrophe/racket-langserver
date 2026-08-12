@@ -82,9 +82,9 @@
     (lambda ()
       (contribution-store-remove-source! (Workspace-contributions workspace) path))))
 
-(define/contract (workspace-reference-sources workspace binding-key)
-  (-> Workspace? Binding-Key? (listof Reference-Source?))
+(define/contract (workspace-reference-sources workspace module-binding)
+  (-> Workspace? Module-Binding? (listof Reference-Source?))
   (call-with-semaphore
     (Workspace-lock workspace)
     (lambda ()
-      (contribution-store-reference-sources (Workspace-contributions workspace) binding-key))))
+      (contribution-store-reference-sources (Workspace-contributions workspace) module-binding))))

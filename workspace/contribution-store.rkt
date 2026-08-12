@@ -12,12 +12,12 @@
          contribution-store-reference-sources)
 
 ;; Authoritative contributions plus a derived index for reference-sources lookup.
-;; key->path->locations maps Binding-Key -> citing-path -> locations in that path.
+;; module-binding->path->locations maps Module-Binding -> citing-path -> locations in that path.
 ;; No lock; Workspace serializes every operation.
 (struct/contract Contribution-Store
   ([path->contribution (hash/c path? Doc-Contribution? #:immutable #f)]
-   [key->path->locations
-    (hash/c Binding-Key?
+   [module-binding->path->locations
+    (hash/c Module-Binding?
             (hash/c path? (listof Location?) #:immutable #f)
             #:immutable #f)]))
 
@@ -31,16 +31,16 @@
   (-> Contribution-Store? (listof path?))
   (hash-keys (Contribution-Store-path->contribution store)))
 
-;; Unhook one citing source-path from Binding-Key in the derived index.
-;; Drop the Binding-Key entry when no citing sources remain.
+;; Unhook one citing source-path from Module-Binding in the derived index.
+;; Drop the Module-Binding entry when no citing sources remain.
 ;; Time: expected O(1).
-(define (remove-source-from-key! store binding-key source-path)
-  (define key->path->locations (Contribution-Store-key->path->locations store))
-  (define path->locations (hash-ref key->path->locations binding-key #f))
+(define (remove-source-from-module-binding! store module-binding source-path)
+  (define module-binding->path->locations (Contribution-Store-module-binding->path->locations store))
+  (define path->locations (hash-ref module-binding->path->locations module-binding #f))
   (when path->locations
     (hash-remove! path->locations source-path)
     (when (hash-empty? path->locations)
-      (hash-remove! key->path->locations binding-key))))
+      (hash-remove! module-binding->path->locations module-binding))))
 
 ;; Drop this path as a citer: remove its Doc-Contribution and unhook only its
 ;; locations from the index. Other documents that cite bindings defined here
@@ -52,8 +52,8 @@
   (define contribution (hash-ref path->contribution source-path #f))
   (when contribution
     (hash-remove! path->contribution source-path)
-    (for ([binding-key (in-hash-keys (Doc-Contribution-references contribution))])
-      (remove-source-from-key! store binding-key source-path))))
+    (for ([module-binding (in-hash-keys (Doc-Contribution-references contribution))])
+      (remove-source-from-module-binding! store module-binding source-path))))
 
 ;; Time: expected O(n_old + n_new), each n = |references| of the old/new
 ;; contribution at the same path.
@@ -61,18 +61,18 @@
   (-> Contribution-Store? Doc-Contribution? void?)
   (define source-path (Doc-Contribution-path contribution))
   (contribution-store-remove-source! store source-path)
-  (define key->path->locations (Contribution-Store-key->path->locations store))
+  (define module-binding->path->locations (Contribution-Store-module-binding->path->locations store))
   (hash-set! (Contribution-Store-path->contribution store) source-path contribution)
-  (for ([(binding-key locations)
+  (for ([(module-binding locations)
          (in-hash (Doc-Contribution-references contribution))])
     (define path->locations
-      (hash-ref! key->path->locations binding-key make-hash))
+      (hash-ref! module-binding->path->locations module-binding make-hash))
     (hash-set! path->locations source-path locations)))
 
-;; Time: expected O(s), s = citing sources for the key.
-(define/contract (contribution-store-reference-sources store binding-key)
-  (-> Contribution-Store? Binding-Key? (listof Reference-Source?))
+;; Time: expected O(s), s = citing sources for the module-binding.
+(define/contract (contribution-store-reference-sources store module-binding)
+  (-> Contribution-Store? Module-Binding? (listof Reference-Source?))
   (define path->locations
-    (hash-ref (Contribution-Store-key->path->locations store) binding-key (hash)))
+    (hash-ref (Contribution-Store-module-binding->path->locations store) module-binding (hash)))
   (for/list ([(path locations) (in-hash path->locations)])
     (Reference-Source path locations)))

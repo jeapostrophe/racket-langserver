@@ -108,11 +108,11 @@
         (for/fold ([references (hash)])
                   ([(range decl) (in-dict (send decls get-sym-bindings))]
                    #:when (Decl-filepath decl))
-          (define key
-            (Binding-Key (Decl-filepath decl)
-                         (Decl-submods decl)
-                         (Decl-phase+space decl)
-                         (Decl-id decl)))
+          (define module-binding
+            (Module-Binding (Decl-filepath decl)
+                            (Decl-submods decl)
+                            (Decl-phase+space decl)
+                            (Decl-id decl)))
           (define start (car range))
           (define end
             (if (= start (cdr range))
@@ -125,7 +125,10 @@
           (define location
             (Location (path->uri src)
                       (Range (abs->pos start) (abs->pos end))))
-          (hash-update references key (lambda (locations) (cons location locations)) '())))
+          (hash-update references
+                       module-binding
+                       (lambda (locations) (cons location locations))
+                       '())))
       (Doc-Contribution src references))
 
     ;; Chosen over putting Typed Racket type-error diagnostics on diag%:

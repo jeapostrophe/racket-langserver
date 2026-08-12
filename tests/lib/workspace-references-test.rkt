@@ -41,9 +41,9 @@
         (define document-result
           (doc-references lib-doc lib-uri (Pos 2 9) #t))
         (check-true (Document-Reference-Result? document-result))
-        (check-true (Binding-Key? (Document-Reference-Result-binding-key document-result)))
+        (check-true (Module-Binding? (Document-Reference-Result-module-binding document-result)))
         (check-not-false
-          (member (Document-Reference-Result-binding-key document-result)
+          (member (Document-Reference-Result-module-binding document-result)
                   (hash-keys
                     (Doc-Contribution-references (Doc-contribution client-doc)))))
 

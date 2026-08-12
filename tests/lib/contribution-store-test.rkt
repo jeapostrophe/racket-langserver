@@ -9,7 +9,7 @@
 
 (require/expose "../../workspace/contribution-store.rkt"
                 (Contribution-Store-path->contribution
-                  Contribution-Store-key->path->locations))
+                  Contribution-Store-module-binding->path->locations))
 
 (define range-0
   (Range (Pos 0 0) (Pos 0 1)))
@@ -17,8 +17,8 @@
 (define (location name)
   (Location (format "file:///~a.rkt" name) range-0))
 
-(define (binding-key filepath id)
-  (Binding-Key filepath '() 0 id))
+(define (module-binding filepath id)
+  (Module-Binding filepath '() 0 id))
 
 (define (contribution source entries)
   (Doc-Contribution
@@ -28,87 +28,87 @@
 
 ;; Rebuild the derived index from path->contribution using the same mutable
 ;; shape as Contribution-Store, so check-equal? can compare them directly.
-(define (rebuild-key->path->locations store)
-  (define key->path->locations (make-hash))
+(define (rebuild-module-binding->path->locations store)
+  (define module-binding->path->locations (make-hash))
   (for* ([(source contribution)
           (in-hash (Contribution-Store-path->contribution store))]
-         [(key locations)
+         [(module-binding locations)
           (in-hash (Doc-Contribution-references contribution))])
     (define path->locations
-      (hash-ref! key->path->locations key make-hash))
+      (hash-ref! module-binding->path->locations module-binding make-hash))
     (hash-set! path->locations source locations))
-  key->path->locations)
+  module-binding->path->locations)
 
 (define (check-store-consistent store)
-  (check-equal? (Contribution-Store-key->path->locations store)
-                (rebuild-key->path->locations store)))
+  (check-equal? (Contribution-Store-module-binding->path->locations store)
+                (rebuild-module-binding->path->locations store)))
 
 (module+ test
   (test-case
     "replacement keeps derived indexes consistent"
     (define store (make-contribution-store))
-    (define old-key (binding-key (string->path "defined.rkt") 'old))
-    (define new-key (binding-key (string->path "defined.rkt") 'new))
+    (define old-module-binding (module-binding (string->path "defined.rkt") 'old))
+    (define new-module-binding (module-binding (string->path "defined.rkt") 'new))
     (contribution-store-add!
       store
       (contribution (string->path "source.rkt")
-                    (list (cons old-key (list (location "old"))))))
+                    (list (cons old-module-binding (list (location "old"))))))
     (check-store-consistent store)
     (contribution-store-add!
       store
       (contribution (string->path "source.rkt")
-                    (list (cons new-key (list (location "new"))))))
+                    (list (cons new-module-binding (list (location "new"))))))
     (check-store-consistent store))
 
   (test-case
     "shared sources and source removal keep derived indexes consistent"
     (define store (make-contribution-store))
-    (define key (binding-key (string->path "defined.rkt") 'shared))
+    (define shared (module-binding (string->path "defined.rkt") 'shared))
     (contribution-store-add!
       store
       (contribution (string->path "source-a.rkt")
-                    (list (cons key (list (location "a"))))))
+                    (list (cons shared (list (location "a"))))))
     (contribution-store-add!
       store
       (contribution (string->path "source-b.rkt")
-                    (list (cons key (list (location "b"))))))
+                    (list (cons shared (list (location "b"))))))
     (check-store-consistent store)
     (contribution-store-remove-source! store (string->path "source-a.rkt"))
     (check-store-consistent store)
-    (check-equal? (contribution-store-reference-sources store key)
+    (check-equal? (contribution-store-reference-sources store shared)
                   (list (Reference-Source (string->path "source-b.rkt")
                                           (list (location "b"))))))
 
   (test-case
     "removing a path drops only that path's contribution"
     (define store (make-contribution-store))
-    (define removed-key (binding-key (string->path "removed.rkt") 'removed))
-    (define preserved-key (binding-key (string->path "preserved.rkt") 'preserved))
+    (define removed-module-binding (module-binding (string->path "removed.rkt") 'removed))
+    (define preserved-module-binding (module-binding (string->path "preserved.rkt") 'preserved))
     (contribution-store-add!
       store
       (contribution
         (string->path "removed.rkt")
-        (list (cons preserved-key (list (location "removed-source"))))))
+        (list (cons preserved-module-binding (list (location "removed-source"))))))
     (contribution-store-add!
       store
       (contribution
         (string->path "consumer-a.rkt")
-        (list (cons removed-key (list (location "still-a")))
-              (cons preserved-key (list (location "preserved"))))))
+        (list (cons removed-module-binding (list (location "still-a")))
+              (cons preserved-module-binding (list (location "preserved"))))))
     (contribution-store-add!
       store
       (contribution
         (string->path "consumer-b.rkt")
-        (list (cons removed-key (list (location "still-b"))))))
+        (list (cons removed-module-binding (list (location "still-b"))))))
     (contribution-store-remove-source! store (string->path "removed.rkt"))
     (check-store-consistent store)
     (check-false
       (member (string->path "removed.rkt") (contribution-store-source-paths store)))
     (check-equal?
-      (list->set (contribution-store-reference-sources store removed-key))
+      (list->set (contribution-store-reference-sources store removed-module-binding))
       (set (Reference-Source (string->path "consumer-a.rkt") (list (location "still-a")))
            (Reference-Source (string->path "consumer-b.rkt") (list (location "still-b")))))
-    (check-equal? (contribution-store-reference-sources store preserved-key)
+    (check-equal? (contribution-store-reference-sources store preserved-module-binding)
                   (list
                     (Reference-Source
                       (string->path "consumer-a.rkt")

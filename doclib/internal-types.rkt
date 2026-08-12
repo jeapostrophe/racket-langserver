@@ -20,7 +20,7 @@
   ExpandResult?
   ExpandResult-logs
   (struct-out Decl)
-  (struct-out Binding-Key)
+  (struct-out Module-Binding)
   (struct-out Doc-Contribution)
   (struct-out Reference-Source)
   (struct-out Document-Reference-Result)
@@ -81,8 +81,8 @@
   #:transparent)
 
 ;; Unique identity for a module-backed binding: filepath, submods, phase+space,
-;; and id. Local lexical Decl values have no Binding-Key.
-(struct/contract Binding-Key
+;; and id. Local lexical Decl values have no Module-Binding.
+(struct/contract Module-Binding
   ([filepath path?]
    [submods (listof symbol?)]
    [phase+space phase+space-shift?]
@@ -92,7 +92,7 @@
 ;; Immutable cross-file facts derived from one completed document analysis.
 (struct/contract Doc-Contribution
   ([path path?]
-   [references (hash/c Binding-Key? (listof Location?) #:immutable #t)])
+   [references (hash/c Module-Binding? (listof Location?) #:immutable #t)])
   #:transparent)
 
 ;; Reference locations supplied by exactly one document.
@@ -104,7 +104,7 @@
 ;; Live document references plus the exact cross-document identity, when any.
 (struct/contract Document-Reference-Result
   ([source Reference-Source?]
-   [binding-key (or/c Binding-Key? #f)])
+   [module-binding (or/c Module-Binding? #f)])
   #:transparent)
 
 (define (interval-map-of value/c)

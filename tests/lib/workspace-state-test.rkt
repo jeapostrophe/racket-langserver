@@ -24,8 +24,8 @@
                     (for/hash ([entry (in-list entries)])
                       (values (car entry) (cdr entry)))))
 
-(define (binding-key path submods phase+space id)
-  (Binding-Key path submods phase+space id))
+(define (module-binding path submods phase+space id)
+  (Module-Binding path submods phase+space id))
 
 (module+ test
   (test-case
@@ -36,85 +36,85 @@
     "contributions replace by source path"
     (define workspace (make-workspace))
     (define source (build-path root "source.rkt"))
-    (define key-filepath (build-path root "defined.rkt"))
-    (define old-key (binding-key key-filepath '(lib) 0 'old))
-    (define new-key (binding-key key-filepath '(lib) 0 'new))
+    (define module-binding-filepath (build-path root "defined.rkt"))
+    (define old-module-binding (module-binding module-binding-filepath '(lib) 0 'old))
+    (define new-module-binding (module-binding module-binding-filepath '(lib) 0 'new))
     (workspace-add-folder! workspace root)
     (workspace-set-contribution!
       workspace
       (contribution source
-                    (list (cons old-key (list (location "old"))))))
+                    (list (cons old-module-binding (list (location "old"))))))
     (workspace-set-contribution!
       workspace
       (contribution source
-                    (list (cons new-key (list (location "new"))))))
-    (check-equal? (workspace-reference-sources workspace old-key) '())
-    (check-equal? (workspace-reference-sources workspace new-key)
+                    (list (cons new-module-binding (list (location "new"))))))
+    (check-equal? (workspace-reference-sources workspace old-module-binding) '())
+    (check-equal? (workspace-reference-sources workspace new-module-binding)
                   (list (Reference-Source source (list (location "new"))))))
 
   (test-case
     "replacement removes only the replaced source from a shared binding"
     (define workspace (make-workspace))
-    (define key-filepath (build-path root "defined.rkt"))
-    (define key (binding-key key-filepath '() 0 'shared))
+    (define module-binding-filepath (build-path root "defined.rkt"))
+    (define shared (module-binding module-binding-filepath '() 0 'shared))
     (define source-a (build-path root "source-a.rkt"))
     (define source-b (build-path root "source-b.rkt"))
     (workspace-add-folder! workspace root)
     (workspace-set-contribution!
       workspace
-      (contribution source-a (list (cons key (list (location "a"))))))
+      (contribution source-a (list (cons shared (list (location "a"))))))
     (workspace-set-contribution!
       workspace
-      (contribution source-b (list (cons key (list (location "b"))))))
+      (contribution source-b (list (cons shared (list (location "b"))))))
     (workspace-set-contribution! workspace (contribution source-a '()))
-    (check-equal? (workspace-reference-sources workspace key)
+    (check-equal? (workspace-reference-sources workspace shared)
                   (list (Reference-Source source-b (list (location "b"))))))
 
   (test-case
     "overlapping roots retain contributions until all coverage is removed"
     (define workspace (make-workspace))
     (define source (build-path nested-root "source.rkt"))
-    (define key (binding-key (build-path root "defined.rkt") '() 0 'value))
+    (define value-binding (module-binding (build-path root "defined.rkt") '() 0 'value))
     (workspace-add-folder! workspace root)
     (workspace-add-folder! workspace nested-root)
     (workspace-set-contribution!
       workspace
-      (contribution source (list (cons key (list (location "nested"))))))
+      (contribution source (list (cons value-binding (list (location "nested"))))))
     (workspace-remove-folder! workspace root)
-    (check-equal? (workspace-reference-sources workspace key)
+    (check-equal? (workspace-reference-sources workspace value-binding)
                   (list (Reference-Source source (list (location "nested")))))
     (workspace-remove-folder! workspace nested-root)
-    (check-equal? (workspace-reference-sources workspace key) '()))
+    (check-equal? (workspace-reference-sources workspace value-binding) '()))
 
   (test-case
     "lookup uses every exact binding identity field"
     (define workspace (make-workspace))
-    (define key-filepath (build-path root "defined.rkt"))
-    (define keys
-      (list (binding-key key-filepath '(one) 0 'same)
-            (binding-key key-filepath '(two) 0 'same)
-            (binding-key key-filepath '(one) 1 'same)
-            (binding-key key-filepath '(one) 0 'other)))
+    (define module-binding-filepath (build-path root "defined.rkt"))
+    (define module-bindings
+      (list (module-binding module-binding-filepath '(one) 0 'same)
+            (module-binding module-binding-filepath '(two) 0 'same)
+            (module-binding module-binding-filepath '(one) 1 'same)
+            (module-binding module-binding-filepath '(one) 0 'other)))
     (workspace-add-folder! workspace root)
     (workspace-set-contribution!
       workspace
       (contribution
         (build-path root "source.rkt")
-        (for/list ([key (in-list keys)]
+        (for/list ([mb (in-list module-bindings)]
                    [name (in-list '(one two phase identifier))])
-          (cons key (list (location name))))))
-    (for ([key (in-list keys)]
+          (cons mb (list (location name))))))
+    (for ([mb (in-list module-bindings)]
           [name (in-list '(one two phase identifier))])
       (check-equal?
-        (workspace-reference-sources workspace key)
+        (workspace-reference-sources workspace mb)
         (list (Reference-Source (build-path root "source.rkt")
                                 (list (location name)))))))
 
   (test-case
-    "set rejects uncovered sources but allows outside Binding-Key filepaths"
+    "set rejects uncovered sources but allows outside Module-Binding filepaths"
     (define workspace (make-workspace))
-    (define outside-key
-      (binding-key (build-path outside-root "defined.rkt") '() 0 'outside))
+    (define outside-module-binding
+      (module-binding (build-path outside-root "defined.rkt") '() 0 'outside))
     (workspace-add-folder! workspace root)
     (check-true (workspace-contains? workspace (build-path root "inside.rkt")))
     (check-false
@@ -122,14 +122,14 @@
     (workspace-set-contribution!
       workspace
       (contribution (build-path outside-root "source.rkt")
-                    (list (cons outside-key (list (location "rejected"))))))
-    (check-equal? (workspace-reference-sources workspace outside-key) '())
+                    (list (cons outside-module-binding (list (location "rejected"))))))
+    (check-equal? (workspace-reference-sources workspace outside-module-binding) '())
     (workspace-set-contribution!
       workspace
       (contribution (build-path root "source.rkt")
-                    (list (cons outside-key (list (location "accepted"))))))
+                    (list (cons outside-module-binding (list (location "accepted"))))))
     (check-equal?
-      (workspace-reference-sources workspace outside-key)
+      (workspace-reference-sources workspace outside-module-binding)
       (list (Reference-Source (build-path root "source.rkt")
                               (list (location "accepted"))))))
 
@@ -138,24 +138,24 @@
     (define workspace (make-workspace))
     (define removed-path (build-path root "removed.rkt"))
     (define other-path (build-path root "other.rkt"))
-    (define removed-key (binding-key removed-path '() 0 'removed))
-    (define other-key (binding-key other-path '() 0 'other))
+    (define removed-module-binding (module-binding removed-path '() 0 'removed))
+    (define other-module-binding (module-binding other-path '() 0 'other))
     (workspace-add-folder! workspace root)
     (workspace-set-contribution!
       workspace
       (contribution removed-path
-                    (list (cons other-key (list (location "removed-source"))))))
+                    (list (cons other-module-binding (list (location "removed-source"))))))
     (workspace-set-contribution!
       workspace
       (contribution (build-path root "consumer.rkt")
-                    (list (cons removed-key (list (location "still-present")))
-                          (cons other-key (list (location "preserved"))))))
+                    (list (cons removed-module-binding (list (location "still-present")))
+                          (cons other-module-binding (list (location "preserved"))))))
     (workspace-remove-path! workspace removed-path)
     (check-equal?
-      (workspace-reference-sources workspace removed-key)
+      (workspace-reference-sources workspace removed-module-binding)
       (list (Reference-Source (build-path root "consumer.rkt")
                               (list (location "still-present")))))
     (check-equal?
-      (workspace-reference-sources workspace other-key)
+      (workspace-reference-sources workspace other-module-binding)
       (list (Reference-Source (build-path root "consumer.rkt")
                               (list (location "preserved")))))))

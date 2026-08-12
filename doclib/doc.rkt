@@ -907,7 +907,7 @@
                #:range (doc-get-definition-by-id
                          path submods phase+space id))]))
 
-;; References: live locations for this document, plus an optional Binding-Key
+;; References: live locations for this document, plus an optional Module-Binding
 ;; for workspace lookup when the identifier is module-backed.
 (define/contract (doc-references doc uri pos include-decl?)
   (-> Doc? string? Pos? boolean? (or/c Document-Reference-Result? #f))
@@ -934,16 +934,16 @@
              (and (= (Decl-left definition) left)
                   (= (Decl-right definition) right)
                   definition))))
-     (define binding-key
+     (define module-binding
        (and binding-decl
             (Decl-id binding-decl)
-            (Binding-Key (Decl-filepath binding-decl)
-                         (Decl-submods binding-decl)
-                         (Decl-phase+space binding-decl)
-                         (Decl-id binding-decl))))
+            (Module-Binding (Decl-filepath binding-decl)
+                            (Decl-submods binding-decl)
+                            (Decl-phase+space binding-decl)
+                            (Decl-id binding-decl))))
      (Document-Reference-Result
        (Reference-Source (uri->path uri) local-locations)
-       binding-key)]
+       module-binding)]
     [#f #f]))
 
 ;; Document Highlight: returns a list of DocumentHighlights or #f.
