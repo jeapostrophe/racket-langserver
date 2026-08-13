@@ -57,7 +57,26 @@
           (list
             (Location client-uri (Range (Pos 2 1) (Pos 2 4)))
             (Location lib-uri (Range (Pos 1 9) (Pos 1 12)))
-            (Location lib-uri (Range (Pos 2 9) (Pos 2 12))))))
+            (Location lib-uri (Range (Pos 2 9) (Pos 2 12)))))
+
+        ;; The workspace still has the last accepted lib contribution. The
+        ;; request path must use only the shifted live source after an edit.
+        (define accepted-lib-contribution (Doc-contribution lib-doc))
+        (doc-apply-edit! lib-doc (Range (Pos 1 0) (Pos 1 0)) ";; shift\n")
+        (define shifted-result
+          (doc-references lib-doc lib-uri (Pos 3 9) #t))
+        (check-eq? (Doc-contribution lib-doc) accepted-lib-contribution)
+        (define shifted-sources
+          (merge-reference-sources workspace shifted-result))
+        (check-equal? (map Reference-Source-path shifted-sources)
+                      (list (Doc-Contribution-path accepted-lib-contribution)
+                            (Doc-Contribution-path (Doc-contribution client-doc))))
+        (check-equal?
+          (reference-sources->locations shifted-sources)
+          (list
+            (Location client-uri (Range (Pos 2 1) (Pos 2 4)))
+            (Location lib-uri (Range (Pos 2 9) (Pos 2 12)))
+            (Location lib-uri (Range (Pos 3 9) (Pos 3 12))))))
       (lambda ()
         (delete-file lib-path)
         (delete-file client-path)
