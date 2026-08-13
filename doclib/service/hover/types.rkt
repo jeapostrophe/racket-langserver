@@ -10,7 +10,7 @@
 ;; detail on every edit.
 ;;
 ;; Offsets are 0-based, absolute, and end-exclusive. Details are stored at
-;; declaration ranges. `doc-hover` finds uses through `declaration-at`.
+;; declaration ranges. `doc-hover` finds uses through `occurrence-at`.
 
 (require racket/contract)
 

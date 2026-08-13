@@ -5,7 +5,7 @@
          "../../doclib/doc.rkt"
          "../../doclib/internal-types.rkt"
          "../../lsp/compose/references.rkt"
-         "../../workspace/state.rkt"
+         "../../workspace/api.rkt"
          racket/file
          racket/path
          rackunit)
@@ -55,6 +55,7 @@
         (check-equal?
           (reference-sources->locations sources)
           (list
+            (Location lib-uri (Range (Pos 2 9) (Pos 2 12)))
             (Location lib-uri (Range (Pos 1 9) (Pos 1 12)))
             (Location client-uri (Range (Pos 2 1) (Pos 2 4))))))
       (lambda ()

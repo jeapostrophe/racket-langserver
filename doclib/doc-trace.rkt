@@ -11,7 +11,6 @@
          "service/hover/service.rkt"
          "service/docs.rkt"
          "service/require.rkt"
-         "service/definition.rkt"
          "service/diagnostic.rkt"
          "service/declaration.rkt"
          "service/highlight.rkt"
@@ -30,12 +29,11 @@
     (define docs (new docs%))
     (define completions (new completion%))
     (define requires (new require%))
-    (define definitions (new definition% [src src]))
     (define diag (new diag%
                    [src src]
                    [doc-text doc-text]
                    [lexer-state lexer-state]))
-    (define decls (new declaration%))
+    (define decls (new declaration% [src src]))
     (define hovers
       (new hover%
         [src src]
@@ -53,7 +51,6 @@
             docs
             completions
             requires
-            definitions
             diag
             typed-racket
             decls
@@ -106,18 +103,14 @@
     (define/public (get-contribution)
       (define references
         (for/fold ([references (hash)])
-                  ([(range decl) (in-dict (send decls get-sym-bindings))]
-                   #:when (Decl-filepath decl))
-          (define module-binding
-            (Module-Binding (Decl-filepath decl)
-                            (Decl-submods decl)
-                            (Decl-phase+space decl)
-                            (Decl-id decl)))
-          (define start (car range))
+                  ([entry (in-list (send decls module-binding-uses))])
+          (define range (car entry))
+          (define module-binding (cdr entry))
+          (define start (CharRange-start range))
           (define end
-            (if (= start (cdr range))
+            (if (= start (CharRange-end range))
                 (add1 start)
-                (cdr range)))
+                (CharRange-end range)))
           (define (abs->pos pos)
             (match-define (list line char)
               (send doc-text pos->line/char pos))
@@ -159,9 +152,6 @@
     (define/public (get-online-completions str-before-cursor)
       (send completions get-online-completions str-before-cursor))
     (define/public (get-requires) (send requires get))
-    (define/public (get-sym-decls) (send decls get-sym-decls))
-    (define/public (get-sym-bindings) (send decls get-sym-bindings))
-    (define/public (get-definitions) (send definitions get))
     (define/public (get-quickfixs) (cadr (send diag get)))
     (define/public (get-semantic-tokens) (send semantic-tokens get))
     (define/public (get-workspace-bindings uri symbol) (find-workspace-bindings uri symbol))

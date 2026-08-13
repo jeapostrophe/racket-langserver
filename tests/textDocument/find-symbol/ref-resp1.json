@@ -5,6 +5,19 @@
         {
             "range": {
                 "end": {
+                    "character": 8,
+                    "line": 4
+                },
+                "start": {
+                    "character": 7,
+                    "line": 4
+                }
+            },
+            "uri": "file:///test.rkt"
+        },
+        {
+            "range": {
+                "end": {
                     "character": 3,
                     "line": 5
                 },

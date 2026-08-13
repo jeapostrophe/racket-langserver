@@ -19,7 +19,6 @@
   ExpandResult
   ExpandResult?
   ExpandResult-logs
-  (struct-out Decl)
   (struct-out Module-Binding)
   (struct-out Doc-Contribution)
   (struct-out Reference-Source)
@@ -69,19 +68,8 @@
        (ExpandResult-post-syntax er)
        #t))
 
-;; Module-backed values preserve Check Syntax identity and use 0,0 as the
-;; unresolved target range. Local lexical values use #f for all identity fields.
-(struct/contract Decl
-  ([filepath (or/c path? #f)]
-   [submods (or/c (listof symbol?) #f)]
-   [phase+space phase+space-shift?]
-   [id (or/c symbol? #f)]
-   [left exact-nonnegative-integer?]
-   [right exact-nonnegative-integer?])
-  #:transparent)
-
 ;; Unique identity for a module-backed binding: filepath, submods, phase+space,
-;; and id. Local lexical Decl values have no Module-Binding.
+;; and id.
 (struct/contract Module-Binding
   ([filepath path?]
    [submods (listof symbol?)]

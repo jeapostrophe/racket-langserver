@@ -3,7 +3,7 @@
 (require "../../common/interfaces.rkt"
          "../../doclib/internal-types.rkt"
          "../../workspace/current.rkt"
-         "../../workspace/state.rkt"
+         "../../workspace/api.rkt"
          rackunit)
 
 (define root
@@ -24,7 +24,7 @@
                     (for/hash ([entry (in-list entries)])
                       (values (car entry) (cdr entry)))))
 
-(define (module-binding path submods phase+space id)
+(define (make-module-binding path submods phase+space id)
   (Module-Binding path submods phase+space id))
 
 (module+ test
@@ -37,8 +37,8 @@
     (define workspace (make-workspace))
     (define source (build-path root "source.rkt"))
     (define module-binding-filepath (build-path root "defined.rkt"))
-    (define old-module-binding (module-binding module-binding-filepath '(lib) 0 'old))
-    (define new-module-binding (module-binding module-binding-filepath '(lib) 0 'new))
+    (define old-module-binding (make-module-binding module-binding-filepath '(lib) 0 'old))
+    (define new-module-binding (make-module-binding module-binding-filepath '(lib) 0 'new))
     (workspace-add-folder! workspace root)
     (workspace-set-contribution!
       workspace
@@ -56,7 +56,7 @@
     "replacement removes only the replaced source from a shared binding"
     (define workspace (make-workspace))
     (define module-binding-filepath (build-path root "defined.rkt"))
-    (define shared (module-binding module-binding-filepath '() 0 'shared))
+    (define shared (make-module-binding module-binding-filepath '() 0 'shared))
     (define source-a (build-path root "source-a.rkt"))
     (define source-b (build-path root "source-b.rkt"))
     (workspace-add-folder! workspace root)
@@ -74,7 +74,7 @@
     "overlapping roots retain contributions until all coverage is removed"
     (define workspace (make-workspace))
     (define source (build-path nested-root "source.rkt"))
-    (define value-binding (module-binding (build-path root "defined.rkt") '() 0 'value))
+    (define value-binding (make-module-binding (build-path root "defined.rkt") '() 0 'value))
     (workspace-add-folder! workspace root)
     (workspace-add-folder! workspace nested-root)
     (workspace-set-contribution!
@@ -91,10 +91,10 @@
     (define workspace (make-workspace))
     (define module-binding-filepath (build-path root "defined.rkt"))
     (define module-bindings
-      (list (module-binding module-binding-filepath '(one) 0 'same)
-            (module-binding module-binding-filepath '(two) 0 'same)
-            (module-binding module-binding-filepath '(one) 1 'same)
-            (module-binding module-binding-filepath '(one) 0 'other)))
+      (list (make-module-binding module-binding-filepath '(one) 0 'same)
+            (make-module-binding module-binding-filepath '(two) 0 'same)
+            (make-module-binding module-binding-filepath '(one) 1 'same)
+            (make-module-binding module-binding-filepath '(one) 0 'other)))
     (workspace-add-folder! workspace root)
     (workspace-set-contribution!
       workspace
@@ -114,7 +114,7 @@
     "set rejects uncovered sources but allows outside Module-Binding filepaths"
     (define workspace (make-workspace))
     (define outside-module-binding
-      (module-binding (build-path outside-root "defined.rkt") '() 0 'outside))
+      (make-module-binding (build-path outside-root "defined.rkt") '() 0 'outside))
     (workspace-add-folder! workspace root)
     (check-true (workspace-contains? workspace (build-path root "inside.rkt")))
     (check-false
@@ -138,8 +138,8 @@
     (define workspace (make-workspace))
     (define removed-path (build-path root "removed.rkt"))
     (define other-path (build-path root "other.rkt"))
-    (define removed-module-binding (module-binding removed-path '() 0 'removed))
-    (define other-module-binding (module-binding other-path '() 0 'other))
+    (define removed-module-binding (make-module-binding removed-path '() 0 'removed))
+    (define other-module-binding (make-module-binding other-path '() 0 'other))
     (workspace-add-folder! workspace root)
     (workspace-set-contribution!
       workspace

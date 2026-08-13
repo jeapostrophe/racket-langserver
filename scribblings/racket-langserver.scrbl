@@ -2,7 +2,16 @@
 @(require scribble/extract
           (for-label racket
                      (file "../doclib/doc.rkt")
-                     (file "../common/interfaces.rkt")))
+                     (file "../common/interfaces.rkt")
+                     (only-in (file "../workspace/api.rkt")
+                              Workspace?
+                              make-workspace
+                              workspace-add-folder!
+                              workspace-remove-folder!
+                              workspace-contains?
+                              workspace-set-contribution!
+                              workspace-remove-path!
+                              workspace-reference-sources)))
 
 @title{racket-langserver}
 
@@ -10,6 +19,8 @@ The @tt{racket-langserver} is a @hyperlink["https://langserver.org/"]{Language S
 implementation for Racket. This project seeks to use
 @seclink[#:indirect? #t #:doc '(lib "scribblings/drracket-tools/drracket-tools.scrbl") "top"]{DrRacket's public APIs}
 to provide functionality that mimics DrRacket's code tools as closely as possible.
+
+The documented library API is not stable or polished. Breaking changes can happen.
 
 @section{Installation and usage}
 
@@ -387,6 +398,21 @@ without touching the network or a thread scheduler, making them suitable for dir
   @racket[Doc-version] returns the current nonnegative edit version.
 }
 
+@defproc[(Doc-contribution [doc Doc?]) (or/c Doc-Contribution? #f)]{
+  Returns the last accepted @racket[Doc-Contribution], or @racket[#f] before
+  the first successful expansion.
+}
+
+@defstruct*[Doc-Contribution ([path path?]
+                              [references (hash/c Module-Binding? (listof Location?))])
+            #:transparent]{
+  Immutable cross-file facts from one successful document analysis.
+  The @tt{path} field is the contributing file.
+  The @tt{references} field maps each @racket[Module-Binding] cited by that
+  file to the @racket[Location] values in that file.
+  Workspace stores this value; it does not store the live trace.
+}
+
 @defproc[(make-doc [uri string?]
                   [text string?]
                   [version exact-nonnegative-integer? 0])
@@ -673,17 +699,50 @@ Exceptions are noted in individual entries.
   expansion), or @racket[#f] if not found.
 }
 
+@defstruct*[Module-Binding ([filepath path?]
+                            [submods (listof symbol?)]
+                            [phase+space any/c]
+                            [id symbol?])
+            #:transparent]{
+  Unique identity for a module-backed binding.
+  The @tt{filepath} field is the defining file.
+  The @tt{submods} field is the submodule path from the file root.
+  The @tt{phase+space} field is the Check Syntax phase and space of the binding.
+  The @tt{id} field is the bound identifier.
+  Document queries produce this value; workspace uses it as a lookup key.
+}
+
+@defstruct*[Reference-Source ([path path?]
+                              [locations (listof Location?)])
+            #:transparent]{
+  Reference locations supplied by exactly one document.
+  The @tt{path} field is that document's filesystem path.
+  The @tt{locations} field is the list of @racket[Location] values in that document.
+  A live query builds one source for the request document; workspace returns
+  one source per accepted contributing file.
+}
+
+@defstruct*[Document-Reference-Result ([source Reference-Source?]
+                                       [module-binding (or/c Module-Binding? #f)])
+            #:transparent]{
+  Result of a same-document references query from @racket[doc-references].
+  The @tt{source} field holds the live locations in the request document.
+  The @tt{module-binding} field is the cross-document identity when the
+  identifier is module-backed, or @racket[#f] for a purely lexical binding.
+  Pass this value to workspace composition to add locations from other files.
+}
+
 @defproc[(doc-references [doc Doc?]
                          [uri string?]
                          [pos Pos?]
                          [include-decl? boolean?])
-         (or/c (listof Location?) #f)]{
-  Returns all reference locations for the identifier at @tt{pos}, or @racket[#f]
-  if no binding is found.
+         (or/c Document-Reference-Result? #f)]{
+  Returns the live reference source for the identifier at @tt{pos}, plus its
+  module binding when workspace lookup applies, or @racket[#f] if no binding is
+  found.
 
-  @margin-note{The @tt{include-decl?} parameter is accepted for API compatibility
-  with the LSP protocol but is not currently used in the implementation; the declaration
-  site is always included when the binding is in the same file.}
+  When @tt{include-decl?} is true, a same-document declaration site is included.
+  Imported declaration sites are supplied by workspace reference composition.
 }
 
 @defproc[(doc-highlights [doc Doc?]
@@ -777,4 +836,68 @@ Exceptions are noted in individual entries.
   Formatting is performed on an internal copy of the document; the doc is not
   mutated by this call. Pass the result to @racket[doc-apply-edits!] to apply
   the edits.
+}
+
+@section{Workspace}
+
+@defmodule[racket-langserver/workspace/api]
+
+The workspace is the second public library. A document owns the live trace.
+The workspace stores only accepted @racket[Doc-Contribution] values for paths
+under its folders. It does not call document services.
+
+Cross-file references use both libraries: @racket[doc-references] returns a
+live @racket[Document-Reference-Result], and @racket[workspace-reference-sources]
+returns other files' accepted @racket[Reference-Source] values.
+
+@racket[Module-Binding], @racket[Doc-Contribution], and @racket[Reference-Source]
+are the shared contract. This module provides them, and so does
+@racketmodname[racket-langserver/doclib/doc].
+
+@defproc[(Workspace? [v any/c]) boolean?]{
+  Returns @racket[#t] if @tt{v} is a workspace.
+}
+
+@defproc[(make-workspace) Workspace?]{
+  Creates an empty workspace with no folders and no contributions.
+}
+
+@defproc[(workspace-add-folder! [workspace Workspace?]
+                                [path path?])
+         void?]{
+  Adds @tt{path} as a workspace folder root.
+}
+
+@defproc[(workspace-remove-folder! [workspace Workspace?]
+                                   [path path?])
+         void?]{
+  Removes @tt{path} as a folder root and drops contributions no longer covered
+  by any remaining root.
+}
+
+@defproc[(workspace-contains? [workspace Workspace?]
+                              [path path?])
+         boolean?]{
+  Returns @racket[#t] if @tt{path} is under a current workspace folder.
+}
+
+@defproc[(workspace-set-contribution! [workspace Workspace?]
+                                      [contribution Doc-Contribution?])
+         void?]{
+  Stores @tt{contribution} when its path is under a workspace folder.
+  Uncovered paths are not retained.
+}
+
+@defproc[(workspace-remove-path! [workspace Workspace?]
+                                 [path path?])
+         void?]{
+  Drops that path as a citing source. Other documents that cite bindings
+  defined there stay unchanged.
+}
+
+@defproc[(workspace-reference-sources [workspace Workspace?]
+                                      [module-binding Module-Binding?])
+         (listof Reference-Source?)]{
+  Returns accepted reference locations for @tt{module-binding}, grouped by
+  contributing document.
 }

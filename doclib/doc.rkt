@@ -692,18 +692,20 @@
                   "\n")
                 (Hover-Detail-fence-language detail))))))
 
-;; Find same-file detail through use-to-declaration lookup. Skip imports and
-;; cross-file `Decl-filepath` values. Keep the use span even when no stored
-;; detail exists yet, so annotation-range fallback still works.
+;; Find same-file detail through the resolved binding. Keep the use span
+;; even when no stored detail exists yet, so annotation-range fallback works.
 (define (hover-detail-via-declaration hover-service declaration-service pos)
-  (define-values (use-start use-end decl)
-    (send declaration-service declaration-at pos))
-  (match decl
-    [(struct* Decl ([filepath #f] [left left]))
-     (define-values (_ds _de detail)
-       (send hover-service source-detail-at left))
-     (values use-start use-end detail)]
-    [_ (values #f #f #f)]))
+  (define occurrence-range (send declaration-service occurrence-at pos))
+  (define definition-range (send declaration-service definition-at pos))
+  (cond
+    [definition-range
+     (define-values (_definition-start _definition-end detail)
+       (send hover-service source-detail-at (CharRange-start definition-range)))
+     (values (CharRange-start occurrence-range)
+             (CharRange-end occurrence-range)
+             detail)]
+    [else
+     (values #f #f #f)]))
 
 (define/contract (doc-hover doc pos)
   (-> Doc? Pos? (or/c Hover? #f))
@@ -809,30 +811,45 @@
          (doc-signature-tag doc-trace (doc-lexer-snapshot doc) callee-pos)))
   (and tag (tag->signature-help tag)))
 
-;; Get the declaration at a given position in the document.
-;; Returns (values start end decl) where decl is a Decl or #f.
-(define/contract (doc-get-decl doc pos)
-  (-> Doc?
-      Pos?
-      (values (or/c exact-nonnegative-integer? #f)
-              (or/c exact-nonnegative-integer? #f)
-              (or/c Decl? #f)))
+;; Position queries convert service-owned absolute CharRanges at the document
+;; boundary. Private declaration ids never leave declaration%.
+(define/contract (doc-occurrence-at doc pos)
+  (-> Doc? Pos? (or/c Range? #f))
   (define pos* (doc-pos->abs-pos doc pos))
-  (send (send (Doc-trace doc) get-declaration) declaration-at pos*))
+  (define range
+    (send (send (Doc-trace doc) get-declaration) occurrence-at pos*))
+  (and range
+       (abs-range->range doc (CharRange-start range) (CharRange-end range))))
 
-;; Get binding ranges for a declaration.
-;; Returns a list of Range values.
-(define/contract (doc-get-bindings doc decl)
-  (-> Doc? Decl? (listof Range?))
-  (define doc-trace (Doc-trace doc))
-  (define doc-decls (send doc-trace get-sym-decls))
-  (match-define (struct* Decl ([left left])) decl)
-  (define-values (bind-start bind-end bindings)
-    (interval-map-ref/bounds doc-decls left #f))
-  (if bindings
-      (for/list ([range (in-set bindings)])
-        (abs-range->range doc (car range) (cdr range)))
-      empty))
+(define/contract (doc-definition-at doc pos)
+  (-> Doc? Pos? (or/c Range? #f))
+  (define pos* (doc-pos->abs-pos doc pos))
+  (define range
+    (send (send (Doc-trace doc) get-declaration) definition-at pos*))
+  (and range
+       (abs-range->range doc (CharRange-start range) (CharRange-end range))))
+
+(define/contract (doc-uses-at doc pos)
+  (-> Doc? Pos? (listof Range?))
+  (define pos* (doc-pos->abs-pos doc pos))
+  (for/list ([range (in-list (send (send (Doc-trace doc) get-declaration) uses-at pos*))])
+    (abs-range->range doc (CharRange-start range) (CharRange-end range))))
+
+;; Same-document ranges of the binding at pos: definition first when it
+;; exists, then uses. Imported bindings have no definition range here.
+(define/contract (doc-binding-ranges-at doc pos)
+  (-> Doc? Pos? (listof Range?))
+  (define definition-range (doc-definition-at doc pos))
+  (define use-ranges (doc-uses-at doc pos))
+  (cond
+    [definition-range
+     (cons definition-range use-ranges)]
+    [else use-ranges]))
+
+(define/contract (doc-module-binding-at doc pos)
+  (-> Doc? Pos? (or/c Module-Binding? #f))
+  (define pos* (doc-pos->abs-pos doc pos))
+  (send (send (Doc-trace doc) get-declaration) module-binding-at pos*))
 
 (define (doc-completion-online-prefix token left-fragment cursor-pos)
   ;; Only two token classes currently produce a useful module-path prefix in
@@ -889,107 +906,67 @@
 ;; Definition: returns a Location or #f.
 (define/contract (doc-definition doc uri pos)
   (-> Doc? string? Pos? (or/c Location? #f))
-  (define-values (start end decl) (doc-get-decl doc pos))
-  (match decl
-    [#f #f]
-    [(struct* Decl ([filepath #f]
-                    [left start]
-                    [right end]))
+  (define definition-range (doc-definition-at doc pos))
+  (cond
+    [definition-range
      (Location #:uri uri
-               #:range (abs-range->range doc start end))]
-    [(struct* Decl ([filepath path]
-                    [submods submods]
-                    [phase+space phase+space]
-                    [id id]
-                    [left 0]
-                    [right 0]))
-     (Location #:uri (path->uri path)
-               #:range (doc-get-definition-by-id
-                         path submods phase+space id))]))
+               #:range definition-range)]
+    [else
+     (match (doc-module-binding-at doc pos)
+       [(Module-Binding path submods phase+space id)
+        (Location #:uri (path->uri path)
+                  #:range (doc-get-definition-by-id path submods phase+space id))]
+       [#f #f])]))
 
 ;; References: live locations for this document, plus an optional Module-Binding
 ;; for workspace lookup when the identifier is module-backed.
 (define/contract (doc-references doc uri pos include-decl?)
   (-> Doc? string? Pos? boolean? (or/c Document-Reference-Result? #f))
-  (define-values (start end decl) (doc-get-decl doc pos))
-  (match decl
-    [(struct* Decl ([filepath filepath]
-                    [id id]
-                    [left left]
-                    [right right]))
+  (define occurrence-range (doc-occurrence-at doc pos))
+  (cond
+    [occurrence-range
      (define ranges
-       (if filepath
-           (list (abs-range->range doc start end)
-                 (abs-range->range doc left right))
-           (or (doc-get-bindings doc decl))))
+       (cond
+         [include-decl? (doc-binding-ranges-at doc pos)]
+         [else (doc-uses-at doc pos)]))
      (define local-locations
        (for/list ([range (in-list ranges)])
          (Location #:uri uri #:range range)))
-     ;; At a same-file module definition, declaration-at returns the local Decl.
-     ;; Recover the definition service's exact module identity for workspace lookup.
-     (define binding-decl
-       (or (and filepath (Decl-id decl) decl)
-           (for/or ([definition
-                     (in-hash-values (send (Doc-trace doc) get-definitions))])
-             (and (= (Decl-left definition) left)
-                  (= (Decl-right definition) right)
-                  definition))))
-     (define module-binding
-       (and binding-decl
-            (Decl-id binding-decl)
-            (Module-Binding (Decl-filepath binding-decl)
-                            (Decl-submods binding-decl)
-                            (Decl-phase+space binding-decl)
-                            (Decl-id binding-decl))))
      (Document-Reference-Result
        (Reference-Source (uri->path uri) local-locations)
-       module-binding)]
-    [#f #f]))
+       (doc-module-binding-at doc pos))]
+    [else #f]))
 
 ;; Document Highlight: returns a list of DocumentHighlights or #f.
 (define/contract (doc-highlights doc pos)
   (-> Doc? Pos? (or/c (listof DocumentHighlight?) #f))
-  (define-values (start end decl) (doc-get-decl doc pos))
-  (match decl
-    [(struct* Decl ([filepath filepath]
-                    [left left]
-                    [right right]))
-     (define ranges
-       (if filepath
-           (list (abs-range->range doc start end)
-                 (abs-range->range doc left right))
-           (or (append (doc-get-bindings doc decl)
-                       (list (abs-range->range doc left right))))))
-     (for/list ([range (in-list ranges)])
+  (define occurrence-range (doc-occurrence-at doc pos))
+  (cond
+    [occurrence-range
+     (for/list ([range (in-list (doc-binding-ranges-at doc pos))])
        (DocumentHighlight #:range range))]
-    [#f #f]))
+    [else #f]))
 
 ;; Rename: returns a WorkspaceEdit or #f.
 (define/contract (doc-rename doc uri pos new-name)
   (-> Doc? string? Pos? string? (or/c WorkspaceEdit? #f))
-  (define-values (start end decl) (doc-get-decl doc pos))
-  (match decl
-    [(struct* Decl ([filepath filepath]
-                    [left left]
-                    [right right]))
-     (cond [filepath #f]
-           [else
-            (define ranges (cons (abs-range->range doc left right)
-                                 (doc-get-bindings doc decl)))
-            (WorkspaceEdit
-              #:changes
-              (hasheq (string->symbol uri)
-                      (for/list ([range (in-list ranges)])
-                        (TextEdit #:range range #:newText new-name))))])]
-    [#f #f]))
+  (define definition-range (doc-definition-at doc pos))
+  (cond
+    [definition-range
+     (define ranges (doc-binding-ranges-at doc pos))
+     (WorkspaceEdit
+       #:changes
+       (hasheq (string->symbol uri)
+               (for/list ([range (in-list ranges)])
+                 (TextEdit #:range range #:newText new-name))))]
+    [else #f]))
 
 ;; Prepare Rename: returns a Range or #f.
 (define/contract (doc-prepare-rename doc pos)
   (-> Doc? Pos? (or/c Range? #f))
-  (define-values (start end decl) (doc-get-decl doc pos))
-  (if (and decl (not (Decl-filepath decl)))
-      (abs-range->range doc start end)
-      #f))
+  (define occurrence-range (doc-occurrence-at doc pos))
+  (define definition-range (doc-definition-at doc pos))
+  (and definition-range occurrence-range))
 
 ;; Document Symbols: returns a list of SymbolInformation.
 (define/contract (doc-symbols doc uri)
@@ -1196,6 +1173,7 @@
          Doc-version
          Doc-uri
          Doc-contribution
+         (struct-out Doc-Contribution)
          make-doc
          doc-apply-edit!
          doc-apply-edits!
@@ -1233,8 +1211,14 @@
          doc-hover
          doc-code-action
          doc-signature-help
-         doc-get-decl
-         doc-get-bindings
+         doc-occurrence-at
+         doc-definition-at
+         doc-uses-at
+         doc-binding-ranges-at
+         doc-module-binding-at
+         (struct-out Module-Binding)
+         (struct-out Reference-Source)
+         (struct-out Document-Reference-Result)
          doc-completion
          doc-definition
          doc-references
