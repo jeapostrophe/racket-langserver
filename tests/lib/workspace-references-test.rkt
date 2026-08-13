@@ -72,6 +72,11 @@
                       (list (Doc-Contribution-path accepted-lib-contribution)
                             (Doc-Contribution-path (Doc-contribution client-doc))))
         (check-equal?
+          (Reference-Source-locations (car shifted-sources))
+          (list
+            (Location lib-uri (Range (Pos 3 9) (Pos 3 12)))
+            (Location lib-uri (Range (Pos 2 9) (Pos 2 12)))))
+        (check-equal?
           (reference-sources->locations shifted-sources)
           (list
             (Location client-uri (Range (Pos 2 1) (Pos 2 4)))

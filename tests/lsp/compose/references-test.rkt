@@ -53,6 +53,19 @@
                   (list live-location)))
 
   (test-case
+    "merge for a local binding returns only the live source"
+    (define workspace (make-workspace))
+    (define live-source
+      (Reference-Source (build-path root "local.rkt")
+                        (list (location "file:///local.rkt" 1 0 1 1))))
+
+    (check-equal?
+      (merge-reference-sources
+        workspace
+        (Document-Reference-Result live-source #f))
+      (list live-source)))
+
+  (test-case
     "aggregation deduplicates and orders locations by URI and range"
     (define a-short (location "file:///a.rkt" 0 0 0 1))
     (define a-long (location "file:///a.rkt" 0 0 0 2))
