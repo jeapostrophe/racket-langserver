@@ -55,9 +55,9 @@
         (check-equal?
           (reference-sources->locations sources)
           (list
-            (Location lib-uri (Range (Pos 2 9) (Pos 2 12)))
+            (Location client-uri (Range (Pos 2 1) (Pos 2 4)))
             (Location lib-uri (Range (Pos 1 9) (Pos 1 12)))
-            (Location client-uri (Range (Pos 2 1) (Pos 2 4))))))
+            (Location lib-uri (Range (Pos 2 9) (Pos 2 12))))))
       (lambda ()
         (delete-file lib-path)
         (delete-file client-path)
