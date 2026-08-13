@@ -1259,6 +1259,72 @@ END
       (list (Range (Pos 2 0) (Pos 2 1)))))
 
   (test-case
+    "doc-references preserves local binding behavior"
+    (define uri "file:///tmp/doc-local-reference-test.rkt")
+    (define d
+      (make-doc uri
+                "#lang racket\n(let ([x 1])\n  x\n  x)\n"))
+    (check-true (doc-expand! d))
+
+    (define with-declaration (doc-references d uri (Pos 2 2) #t))
+    (check-false (Document-Reference-Result-module-binding with-declaration))
+    (check-equal?
+      (map Location-range
+           (Reference-Source-locations
+             (Document-Reference-Result-source with-declaration)))
+      (list (Range (Pos 1 7) (Pos 1 8))
+            (Range (Pos 2 2) (Pos 2 3))
+            (Range (Pos 3 2) (Pos 3 3))))
+
+    (define uses-only (doc-references d uri (Pos 2 2) #f))
+    (check-equal?
+      (map Location-range
+           (Reference-Source-locations
+             (Document-Reference-Result-source uses-only)))
+      (list (Range (Pos 2 2) (Pos 2 3))
+            (Range (Pos 3 2) (Pos 3 3)))))
+
+  (test-case
+    "doc-references shifts every live range while the accepted source stays stale"
+    (define uri "file:///tmp/doc-reference-edit-test.rkt")
+    (define d
+      (make-doc uri
+                "#lang racket\n(define x 1)\nx\nx\n"))
+    (check-true (doc-expand! d))
+    (define accepted-contribution (Doc-contribution d))
+    (define before-edit (doc-references d uri (Pos 2 0) #t))
+    (define module-binding
+      (Document-Reference-Result-module-binding before-edit))
+    (define accepted-ranges
+      (sort
+        (map Location-range
+             (hash-ref (Doc-Contribution-references accepted-contribution)
+                       module-binding))
+        <
+        #:key (lambda (range)
+                (Pos-line (Range-start range)))))
+    (check-equal?
+      accepted-ranges
+      (list (Range (Pos 2 0) (Pos 2 1))
+            (Range (Pos 3 0) (Pos 3 1))))
+
+    (doc-apply-edit! d (Range (Pos 1 0) (Pos 1 0)) ";; shift\n")
+
+    (define after-edit (doc-references d uri (Pos 3 0) #t))
+    (check-eq? (Doc-contribution d) accepted-contribution)
+    (check-equal? (Document-Reference-Result-module-binding after-edit)
+                  module-binding)
+    (define live-ranges
+      (map Location-range
+           (Reference-Source-locations
+             (Document-Reference-Result-source after-edit))))
+    (check-equal?
+      live-ranges
+      (list (Range (Pos 2 8) (Pos 2 9))
+            (Range (Pos 3 0) (Pos 3 1))
+            (Range (Pos 4 0) (Pos 4 1)))))
+
+  (test-case
     "doc-highlights for local x"
     (define-values (d _uri) (make-expanded-doc))
     ;; "x" usage at (2,0): highlights should include both declaration and usage
