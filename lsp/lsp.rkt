@@ -33,7 +33,14 @@
     (clear-old-queries/doc-close token))
   (hash-remove! open-docs uri-sym))
 
+;; Callbacks may acquire a SafeDoc lock. Snapshot the registry so callback
+;; mutations cannot invalidate hash iteration.
+(define/contract (lsp-for-each-open-doc proc)
+  (-> (-> SafeDoc? any/c) void?)
+  (for ([safe-doc (in-list (hash-values open-docs))])
+    (proc safe-doc)))
+
 (provide lsp-get-doc
          lsp-open-doc!
-         lsp-close-doc!)
-
+         lsp-close-doc!
+         lsp-for-each-open-doc)

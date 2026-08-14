@@ -15,12 +15,24 @@
          "../doclib/doc.rkt"
          "scheduler.rkt"
          "../common/settings.rkt"
-         "../common/workspace.rkt")
+         "../workspace/current.rkt"
+         "../workspace/state.rkt")
+
+(define (republish-open-doc-contributions!)
+  (lsp-for-each-open-doc
+    (lambda (safe-doc)
+      (define contribution
+        (with-read-doc safe-doc
+          (lambda (doc)
+            (Doc-contribution doc))))
+      (when contribution
+        (workspace-set-contribution! current-workspace contribution)))))
 
 (define (didRenameFiles params)
   (match-define (^RenameFilesParams #:files files) params)
   (for ([f files])
     (match-define (FileRename #:oldUri old-uri #:newUri new-uri) f)
+    (workspace-remove-path! current-workspace (uri->path old-uri))
 
     ; remove all awaiting internal queries about `old-uri`
     (define safe-doc (lsp-get-doc old-uri #f))
@@ -44,10 +56,12 @@
   (match-define (WorkspaceFoldersChangeEvent #:added added #:removed removed) event)
   (for ([f added])
     (match-define (WorkspaceFolder #:uri uri #:name _) f)
-    (add-workspace-folder! (uri->path uri)))
+    (workspace-add-folder! current-workspace (uri->path uri)))
   (for ([f removed])
     (match-define (WorkspaceFolder #:uri uri #:name _) f)
-    (remove-workspace-folder! (uri->path uri))))
+    (workspace-remove-folder! current-workspace (uri->path uri)))
+  (when (pair? added)
+    (republish-open-doc-contributions!)))
 
 (define (didChangeWatchedFiles params)
   (match-define (^DidChangeWatchedFilesParams #:changes changes) params)
@@ -70,6 +84,7 @@
         (clear-old-queries/doc-close (SafeDoc-token safe-doc))))))
 
 (define (handle-file-deleted uri)
+  (workspace-remove-path! current-workspace (uri->path uri))
   (when (regexp-match (get-module-suffix-regexp) uri)
     (lsp-close-doc! uri)))
 

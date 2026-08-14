@@ -12,7 +12,8 @@
          "responses.rkt"
          "../common/path-util.rkt"
          (prefix-in workspace/ "workspace.rkt")
-         "../common/workspace.rkt"
+         "../workspace/current.rkt"
+         "../workspace/state.rkt"
          (prefix-in text-document/ "text-document.rkt"))
 
 ;; Process a request or an notification.
@@ -250,9 +251,9 @@
      ;; null is there are no folder is open.
      (cond
        [(not (equal? root-uri (json-null)))
-        (add-workspace-folder! (uri->path root-uri))]
+        (workspace-add-folder! current-workspace (uri->path root-uri))]
        [(not (equal? root-path (json-null)))
-        (add-workspace-folder! (string->path root-path))]
+        (workspace-add-folder! current-workspace (string->path root-path))]
        [else (void)])
 
      (define server-capabilities
