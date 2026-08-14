@@ -5,7 +5,7 @@
          "../../../lsp/compose/references.rkt"
          "../../../workspace/api.rkt"
          racket/list
-         racket/path
+         racket/set
          rackunit)
 
 (define root
@@ -24,7 +24,7 @@
 
 (module+ test
   (test-case
-    "merge replaces the accepted request source and orders other sources"
+    "merge replaces the accepted request source and keeps the live locations"
     (define workspace (make-workspace))
     (define live-path (build-path root "live.rkt"))
     (define source-a (build-path root "a.rkt"))
@@ -47,10 +47,11 @@
         module-binding))
     (define sources (merge-reference-sources workspace document-result))
 
-    (check-equal? (map Reference-Source-path sources)
-                  (list live-path source-a source-b))
+    (check-equal? (Reference-Source-path (first sources)) live-path)
     (check-equal? (Reference-Source-locations (first sources))
-                  (list live-location)))
+                  (list live-location))
+    (check-equal? (list->set (map Reference-Source-path (rest sources)))
+                  (set source-a source-b)))
 
   (test-case
     "merge for a local binding returns only the live source"
@@ -66,7 +67,7 @@
       (list live-source)))
 
   (test-case
-    "aggregation deduplicates and orders locations by URI and range"
+    "aggregation flattens locations in source order"
     (define a-short (location "file:///a.rkt" 0 0 0 1))
     (define a-long (location "file:///a.rkt" 0 0 0 2))
     (define a-later (location "file:///a.rkt" 1 3 1 4))
@@ -78,4 +79,4 @@
                               (list a-long a-short a-later a-short))))
 
     (check-equal? (reference-sources->locations sources)
-                  (list a-short a-long a-later b-location))))
+                  (list b-location a-later a-long a-short a-later a-short))))

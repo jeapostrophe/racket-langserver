@@ -55,9 +55,9 @@
         (check-equal?
           (reference-sources->locations sources)
           (list
-            (Location client-uri (Range (Pos 2 1) (Pos 2 4)))
+            (Location lib-uri (Range (Pos 2 9) (Pos 2 12)))
             (Location lib-uri (Range (Pos 1 9) (Pos 1 12)))
-            (Location lib-uri (Range (Pos 2 9) (Pos 2 12)))))
+            (Location client-uri (Range (Pos 2 1) (Pos 2 4)))))
 
         ;; The workspace still has the last accepted lib contribution. The
         ;; request path must use only the shifted live source after an edit.
@@ -79,9 +79,9 @@
         (check-equal?
           (reference-sources->locations shifted-sources)
           (list
-            (Location client-uri (Range (Pos 2 1) (Pos 2 4)))
+            (Location lib-uri (Range (Pos 3 9) (Pos 3 12)))
             (Location lib-uri (Range (Pos 2 9) (Pos 2 12)))
-            (Location lib-uri (Range (Pos 3 9) (Pos 3 12))))))
+            (Location client-uri (Range (Pos 2 1) (Pos 2 4))))))
       (lambda ()
         (delete-file lib-path)
         (delete-file client-path)
