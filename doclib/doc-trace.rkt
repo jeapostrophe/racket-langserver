@@ -16,7 +16,6 @@
          "service/highlight.rkt"
          "service/tooltip-log.rkt"
          "service/typed-racket/service.rkt"
-         "service/workspace-references.rkt"
          "../common/interfaces.rkt"
          "../common/path-util.rkt"
          "internal-types.rkt")
@@ -39,7 +38,6 @@
         [src src]
         [doc-text doc-text]
         [lexer-state lexer-state]))
-    (define workspace-references (new workspace-references% [src src] [doc-text doc-text]))
     (define semantic-tokens (new highlight% [src src] [doc-text doc-text]))
     (define typed-racket
       (new typed-racket%
@@ -54,7 +52,6 @@
             diag
             typed-racket
             decls
-            workspace-references
             semantic-tokens))
 
     (define/public (reset)
@@ -154,7 +151,6 @@
     (define/public (get-requires) (send requires get))
     (define/public (get-quickfixs) (cadr (send diag get)))
     (define/public (get-semantic-tokens) (send semantic-tokens get))
-    (define/public (get-workspace-bindings uri symbol) (find-workspace-bindings uri symbol))
 
     ;; Overrides
     (define/override (syncheck:find-source-object stx)
