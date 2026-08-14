@@ -98,28 +98,33 @@
 
     ;; Derive accepted cross-file state from this trace's frozen editor.
     (define/public (get-contribution)
+      (define (abs->pos pos)
+        (match-define (list line char)
+          (send doc-text pos->line/char pos))
+        (Pos line char))
+
+      (define (range->location range)
+        (define start (CharRange-start range))
+        (define end
+          (if (= start (CharRange-end range))
+              (add1 start)
+              (CharRange-end range)))
+        (Location (path->uri src)
+                  (Range (abs->pos start) (abs->pos end))))
+
       (define references
         (for/fold ([references (hash)])
                   ([entry (in-list (send decls module-binding-uses))])
           (define range (car entry))
           (define module-binding (cdr entry))
-          (define start (CharRange-start range))
-          (define end
-            (if (= start (CharRange-end range))
-                (add1 start)
-                (CharRange-end range)))
-          (define (abs->pos pos)
-            (match-define (list line char)
-              (send doc-text pos->line/char pos))
-            (Pos line char))
-          (define location
-            (Location (path->uri src)
-                      (Range (abs->pos start) (abs->pos end))))
           (hash-update references
                        module-binding
-                       (lambda (locations) (cons location locations))
+                       (lambda (locations) (cons (range->location range) locations))
                        '())))
-      (Doc-Contribution src references))
+      (define definitions
+        (for/hash ([entry (in-list (send decls module-binding-definitions))])
+          (values (cdr entry) (range->location (car entry)))))
+      (Doc-Contribution src references definitions))
 
     ;; Chosen over putting Typed Racket type-error diagnostics on diag%:
     ;; inferred types and type errors share one online-check-syntax channel

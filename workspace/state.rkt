@@ -14,7 +14,8 @@
          workspace-contains?
          workspace-set-contribution!
          workspace-remove-path!
-         workspace-reference-sources)
+         workspace-reference-sources
+         workspace-definition-location)
 
 ;; Workspace owns folders and immutable accepted contributions.
 ;; Folder and contribution paths are path? and assumed already simple-form;
@@ -88,3 +89,12 @@
     (Workspace-lock workspace)
     (lambda ()
       (contribution-store-reference-sources (Workspace-contributions workspace) module-binding))))
+
+(define/contract (workspace-definition-location workspace module-binding)
+  (-> Workspace? Module-Binding? (or/c Location? #f))
+  (call-with-semaphore
+    (Workspace-lock workspace)
+    (lambda ()
+      (contribution-store-definition-location
+        (Workspace-contributions workspace)
+        module-binding))))

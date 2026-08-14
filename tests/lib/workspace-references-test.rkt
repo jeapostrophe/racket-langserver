@@ -48,7 +48,7 @@
                     (Doc-Contribution-references (Doc-contribution client-doc)))))
 
         (define sources
-          (merge-reference-sources workspace document-result))
+          (merge-reference-sources workspace document-result #t))
         (check-equal? (map Reference-Source-path sources)
                       (list (Doc-Contribution-path (Doc-contribution lib-doc))
                             (Doc-Contribution-path (Doc-contribution client-doc))))
@@ -59,6 +59,27 @@
             (Location lib-uri (Range (Pos 1 9) (Pos 1 12)))
             (Location client-uri (Range (Pos 2 1) (Pos 2 4)))))
 
+        ;; A request from an importing document must still include the
+        ;; declaration from the defining document.
+        (define client-result
+          (doc-references client-doc client-uri (Pos 2 1) #t))
+        (check-equal?
+          (reference-sources->locations
+            (merge-reference-sources workspace client-result #t))
+          (list
+            (Location client-uri (Range (Pos 2 1) (Pos 2 4)))
+            (Location lib-uri (Range (Pos 2 9) (Pos 2 12)))
+            (Location lib-uri (Range (Pos 1 9) (Pos 1 12)))))
+
+        (define client-uses-only-result
+          (doc-references client-doc client-uri (Pos 2 1) #f))
+        (check-equal?
+          (reference-sources->locations
+            (merge-reference-sources workspace client-uses-only-result #f))
+          (list
+            (Location client-uri (Range (Pos 2 1) (Pos 2 4)))
+            (Location lib-uri (Range (Pos 1 9) (Pos 1 12)))))
+
         ;; The workspace still has the last accepted lib contribution. The
         ;; request path must use only the shifted live source after an edit.
         (define accepted-lib-contribution (Doc-contribution lib-doc))
@@ -67,7 +88,7 @@
           (doc-references lib-doc lib-uri (Pos 3 9) #t))
         (check-eq? (Doc-contribution lib-doc) accepted-lib-contribution)
         (define shifted-sources
-          (merge-reference-sources workspace shifted-result))
+          (merge-reference-sources workspace shifted-result #t))
         (check-equal? (map Reference-Source-path shifted-sources)
                       (list (Doc-Contribution-path accepted-lib-contribution)
                             (Doc-Contribution-path (Doc-contribution client-doc))))
@@ -76,6 +97,14 @@
           (list
             (Location lib-uri (Range (Pos 3 9) (Pos 3 12)))
             (Location lib-uri (Range (Pos 2 9) (Pos 2 12)))))
+        (define shifted-uses-only-result
+          (doc-references lib-doc lib-uri (Pos 3 9) #f))
+        (check-equal?
+          (reference-sources->locations
+            (merge-reference-sources workspace shifted-uses-only-result #f))
+          (list
+            (Location lib-uri (Range (Pos 2 9) (Pos 2 12)))
+            (Location client-uri (Range (Pos 2 1) (Pos 2 4)))))
         (check-equal?
           (reference-sources->locations shifted-sources)
           (list

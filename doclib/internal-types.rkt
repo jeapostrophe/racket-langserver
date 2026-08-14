@@ -80,7 +80,8 @@
 ;; Immutable cross-file facts derived from one completed document analysis.
 (struct/contract Doc-Contribution
   ([path path?]
-   [references (hash/c Module-Binding? (listof Location?) #:immutable #t)])
+   [references (hash/c Module-Binding? (listof Location?) #:immutable #t)]
+   [definitions (hash/c Module-Binding? Location? #:immutable #t)])
   #:transparent)
 
 ;; Reference locations supplied by exactly one document.

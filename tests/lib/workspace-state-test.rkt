@@ -22,7 +22,8 @@
 (define (contribution path entries)
   (Doc-Contribution path
                     (for/hash ([entry (in-list entries)])
-                      (values (car entry) (cdr entry)))))
+                      (values (car entry) (cdr entry)))
+                    (hash)))
 
 (define (make-module-binding path submods phase+space id)
   (Module-Binding path submods phase+space id))

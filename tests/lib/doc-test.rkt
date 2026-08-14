@@ -688,6 +688,12 @@
                   (CharRange 10 11))
     (check-equal? (send declaration-service definition-at 3)
                   (CharRange 20 21))
+    (define definitions
+      (Doc-Contribution-definitions (send trace get-contribution)))
+    (check-equal? (hash-ref definitions first-binding)
+                  (Location uri (Range (Pos 0 10) (Pos 0 11))))
+    (check-equal? (hash-ref definitions second-binding)
+                  (Location uri (Range (Pos 0 20) (Pos 0 21))))
 
     (send trace expand 0 2)
     (define shifted-target (send declaration-service module-binding-at 3))

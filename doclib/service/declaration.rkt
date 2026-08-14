@@ -194,6 +194,14 @@
                   #:when module-binding)
         (cons (CharRange (car range) (cdr range)) module-binding)))
 
+    ;; Returns live definition ranges paired with their cross-document identities.
+    ;; Pure local definitions are omitted from contribution publication.
+    (define/public (module-binding-definitions)
+      (for*/list ([(module-binding def-id) (in-hash module-binding->def-id)]
+                  [range (in-value (live-range-for-id def-id))]
+                  #:when range)
+        (cons range module-binding)))
+
     ;; Attach Module-Binding to a this-file def-id and unify same-file jumps.
     (define/private (attach-module-binding! def-id module-binding)
       (define old-module-binding

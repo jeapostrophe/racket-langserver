@@ -20,7 +20,7 @@
                    (Pos end-line end-char))))
 
 (define (contribution path locations)
-  (Doc-Contribution path (hash module-binding locations)))
+  (Doc-Contribution path (hash module-binding locations) (hash)))
 
 (module+ test
   (test-case
@@ -45,7 +45,7 @@
       (Document-Reference-Result
         (Reference-Source live-path (list live-location))
         module-binding))
-    (define sources (merge-reference-sources workspace document-result))
+    (define sources (merge-reference-sources workspace document-result #f))
 
     (check-equal? (Reference-Source-path (first sources)) live-path)
     (check-equal? (Reference-Source-locations (first sources))
@@ -63,8 +63,62 @@
     (check-equal?
       (merge-reference-sources
         workspace
-        (Document-Reference-Result live-source #f))
+        (Document-Reference-Result live-source #f)
+        #f)
       (list live-source)))
+
+  (test-case
+    "merge adds an accepted definition to its workspace source"
+    (define workspace (make-workspace))
+    (define client-path (build-path root "client.rkt"))
+    (define definition-path (Module-Binding-filepath module-binding))
+    (define client-location (location "file:///client.rkt" 2 0 2 1))
+    (define definition-location (location "file:///definition.rkt" 1 8 1 9))
+    (define definition-use (location "file:///definition.rkt" 2 0 2 1))
+    (workspace-add-folder! workspace root)
+    (workspace-set-contribution!
+      workspace
+      (Doc-Contribution definition-path
+                        (hash module-binding (list definition-use))
+                        (hash module-binding definition-location)))
+
+    (define sources
+      (merge-reference-sources
+        workspace
+        (Document-Reference-Result
+          (Reference-Source client-path (list client-location))
+          module-binding)
+        #t))
+
+    (check-equal?
+      (reference-sources->locations sources)
+      (list client-location definition-location definition-use)))
+
+  (test-case
+    "merge creates a definition source when the defining document has no uses"
+    (define workspace (make-workspace))
+    (define client-path (build-path root "client.rkt"))
+    (define definition-path (Module-Binding-filepath module-binding))
+    (define client-location (location "file:///client.rkt" 2 0 2 1))
+    (define definition-location (location "file:///definition.rkt" 1 8 1 9))
+    (workspace-add-folder! workspace root)
+    (workspace-set-contribution!
+      workspace
+      (Doc-Contribution definition-path
+                        (hash)
+                        (hash module-binding definition-location)))
+
+    (define sources
+      (merge-reference-sources
+        workspace
+        (Document-Reference-Result
+          (Reference-Source client-path (list client-location))
+          module-binding)
+        #t))
+
+    (check-equal?
+      (reference-sources->locations sources)
+      (list client-location definition-location)))
 
   (test-case
     "aggregation flattens locations in source order"

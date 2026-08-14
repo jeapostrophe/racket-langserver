@@ -16,6 +16,7 @@
          workspace-set-contribution!
          workspace-remove-path!
          workspace-reference-sources
+         workspace-definition-location
          (struct-out Module-Binding)
          (struct-out Doc-Contribution)
          (struct-out Reference-Source))
