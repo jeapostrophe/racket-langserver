@@ -323,6 +323,12 @@
       (define module-binding (Module-Binding src submods phase+space id))
       (attach-module-binding! def-id module-binding))
 
+    (define/override (syncheck:unused-binder _src-obj start end)
+      ;; An unused lexical binder has no arrow, so this callback is its only
+      ;; entry into the graph. Module definitions reuse the same range.
+      (get-or-create-def start (normalize-end start end))
+      (void))
+
     (define/override (syncheck:add-arrow/name-dup _start-src-obj start-left start-right
                                                   _end-src-obj end-left end-right
                                                   _actual? phase-level

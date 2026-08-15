@@ -172,6 +172,10 @@
         (send s syncheck:add-definition-target/phase-level+space
               src-obj start end id mods phase+space)))
 
+    (define/override (syncheck:unused-binder src-obj left right)
+      (for ([s services])
+        (send s syncheck:unused-binder src-obj left right)))
+
     ;; Track requires
     (define/override (syncheck:add-require-open-menu text start finish file)
       (for ([s services])

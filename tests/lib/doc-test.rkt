@@ -1344,6 +1344,31 @@ END
                   (Range (Pos 2 0) (Pos 2 1))))
 
   (test-case
+    "doc-highlights keeps unused shadowed binders separate"
+    (define uri "file:///tmp/doc-unused-binder-highlight-test.rkt")
+    (define d
+      (make-doc uri
+                (string-append "#lang racket\n"
+                               "(define x 1)\n"
+                               "(let ([x 0])\n"
+                               "  1)\n"
+                               "(lambda (x) 1)\n")))
+    (check-true (doc-expand! d))
+
+    (define module-range (Range (Pos 1 8) (Pos 1 9)))
+    (define let-range (Range (Pos 2 7) (Pos 2 8)))
+    (define lambda-range (Range (Pos 4 9) (Pos 4 10)))
+    (check-equal? (map DocumentHighlight-range (doc-highlights d (Pos 1 8)))
+                  (list module-range))
+    (check-equal? (map DocumentHighlight-range (doc-highlights d (Pos 2 7)))
+                  (list let-range))
+    (check-equal? (map DocumentHighlight-range (doc-highlights d (Pos 4 9)))
+                  (list lambda-range))
+    (check-true (Module-Binding? (doc-module-binding-at d (Pos 1 8))))
+    (check-false (doc-module-binding-at d (Pos 2 7)))
+    (check-false (doc-module-binding-at d (Pos 4 9))))
+
+  (test-case
     "doc-highlights uses non-empty module-language arrow ranges"
     (define uri "file:///tmp/doc-module-language-highlight-test.rkt")
     (define d
