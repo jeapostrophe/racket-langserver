@@ -747,9 +747,9 @@ Exceptions are noted in individual entries.
 
 @defproc[(doc-highlights [doc Doc?]
                          [pos Pos?])
-         (or/c (listof DocumentHighlight?) #f)]{
+         (listof DocumentHighlight?)]{
   Returns document highlight entries for all occurrences of the symbol at @tt{pos},
-  or @racket[#f] if no binding is found.
+  or an empty list if no binding is found.
 }
 
 @defproc[(doc-rename [doc Doc?]

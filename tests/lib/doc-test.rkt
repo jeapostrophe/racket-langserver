@@ -1344,6 +1344,19 @@ END
                   (Range (Pos 2 0) (Pos 2 1))))
 
   (test-case
+    "doc-highlights returns empty for quoted data"
+    (define d
+      (make-doc "file:///tmp/doc-quoted-data-highlight-test.rkt"
+                (string-append "#lang racket\n"
+                               "(define x 1)\n"
+                               "x\n"
+                               "(quote x)\n"
+                               "'x\n")))
+    (check-true (doc-expand! d))
+    (check-equal? (doc-highlights d (Pos 3 7)) '())
+    (check-equal? (doc-highlights d (Pos 4 1)) '()))
+
+  (test-case
     "doc-highlights keeps unused shadowed binders separate"
     (define uri "file:///tmp/doc-unused-binder-highlight-test.rkt")
     (define d

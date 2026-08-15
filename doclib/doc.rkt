@@ -937,15 +937,15 @@
        (doc-module-binding-at doc pos))]
     [else #f]))
 
-;; Document Highlight: returns a list of DocumentHighlights or #f.
+;; Document Highlight: returns binding highlights or an empty list.
 (define/contract (doc-highlights doc pos)
-  (-> Doc? Pos? (or/c (listof DocumentHighlight?) #f))
+  (-> Doc? Pos? (listof DocumentHighlight?))
   (define occurrence-range (doc-occurrence-at doc pos))
   (cond
     [occurrence-range
      (for/list ([range (in-list (doc-binding-ranges-at doc pos))])
        (DocumentHighlight #:range range))]
-    [else #f]))
+    [else '()]))
 
 ;; Rename: returns a WorkspaceEdit or #f.
 (define/contract (doc-rename doc uri pos new-name)
