@@ -21,7 +21,7 @@
          "internal-types.rkt")
 
 (define build-trace%
-  (class (phase+space-annotations-mixin object%)
+  (class (check-syntax-annotations-mixin object%)
     (init-field src
                 doc-text
                 lexer-state)

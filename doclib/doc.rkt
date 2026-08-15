@@ -356,7 +356,7 @@
 
 (define (get-def path doc-text submods phase+space id)
   (define collector
-    (new (class (phase+space-annotations-mixin object%)
+    (new (class (check-syntax-annotations-mixin object%)
            (define defs (make-hash))
            (define/public (get submods phase+space id)
              (or (hash-ref defs (list submods phase+space id) #f)

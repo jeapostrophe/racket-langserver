@@ -5,6 +5,7 @@
            "../../doclib/doc.rkt"
            "../../doclib/hover.rkt"
            "../../doclib/doc-trace.rkt"
+           "../../doclib/check-syntax-compat.rkt"
            "../../doclib/check-syntax.rkt"
            "../../doclib/editor.rkt"
            "../../doclib/internal-types.rkt"
@@ -1371,12 +1372,17 @@ END
     (define module-range (Range (Pos 1 8) (Pos 1 9)))
     (define let-range (Range (Pos 2 7) (Pos 2 8)))
     (define lambda-range (Range (Pos 4 9) (Pos 4 10)))
+    ;; Check Syntax before Racket 8.11 does not report unused lexical binders.
+    (define expected-let-ranges
+      (if unused-binder-callbacks? (list let-range) '()))
+    (define expected-lambda-ranges
+      (if unused-binder-callbacks? (list lambda-range) '()))
     (check-equal? (map DocumentHighlight-range (doc-highlights d (Pos 1 8)))
                   (list module-range))
     (check-equal? (map DocumentHighlight-range (doc-highlights d (Pos 2 7)))
-                  (list let-range))
+                  expected-let-ranges)
     (check-equal? (map DocumentHighlight-range (doc-highlights d (Pos 4 9)))
-                  (list lambda-range))
+                  expected-lambda-ranges)
     (check-true (Module-Binding? (doc-module-binding-at d (Pos 1 8))))
     (check-false (doc-module-binding-at d (Pos 2 7)))
     (check-false (doc-module-binding-at d (Pos 4 9))))

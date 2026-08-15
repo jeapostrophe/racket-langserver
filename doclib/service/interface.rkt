@@ -18,7 +18,7 @@
     add-log-tooltip))
 
 (define base-service%
-  (class* (phase+space-annotations-mixin object%)
+  (class* (check-syntax-annotations-mixin object%)
     (service<%> syncheck-annotations<%>)
 
     (super-new)
