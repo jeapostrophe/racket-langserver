@@ -32,7 +32,10 @@
                    [src src]
                    [doc-text doc-text]
                    [lexer-state lexer-state]))
-    (define decls (new declaration% [src src]))
+    (define decls
+      (new declaration%
+        [src src]
+        [doc-text doc-text]))
     (define hovers
       (new hover%
         [src src]

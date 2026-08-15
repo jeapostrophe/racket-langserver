@@ -1344,6 +1344,177 @@ END
                   (Range (Pos 2 0) (Pos 2 1))))
 
   (test-case
+    "doc-highlights uses non-empty module-language arrow ranges"
+    (define uri "file:///tmp/doc-module-language-highlight-test.rkt")
+    (define d
+      (make-doc uri
+                (string-append "#lang racket\n"
+                               "(define i+1-th 0)\n"
+                               "(+ 1 2)\n"
+                               "(+ i+1-th 3)\n")))
+    (check-true (doc-expand! d))
+    (define result (doc-highlights d (Pos 2 1)))
+    (check-equal? (map DocumentHighlight-range result)
+                  (list (Range (Pos 2 1) (Pos 2 2))
+                        (Range (Pos 3 1) (Pos 3 2)))))
+
+  (test-case
+    "doc-highlights accepts quote ranges from module-language arrows"
+    (define uri "file:///tmp/doc-module-language-quote-test.rkt")
+    (define d
+      (make-doc uri
+                "#lang racket\n'(1 2)\n'(3 4)\n"))
+    (check-true (doc-expand! d))
+    (check-equal?
+      (map DocumentHighlight-range (doc-highlights d (Pos 1 0)))
+      (list (Range (Pos 1 0) (Pos 1 1))
+            (Range (Pos 2 0) (Pos 2 1)))))
+
+  (test-case
+    "module-language uses stay local, non-defining, and binding-aware"
+    (define uri "file:///tmp/doc-module-language-use-test.rkt")
+    (define d
+      (make-doc uri
+                (string-append "#lang racket\n"
+                               "(define i+1-th 0)\n"
+                               "(+ 1 2)\n"
+                               "(* 3 4)\n"
+                               "(let ([+ -])\n"
+                               "  (+ 5 2))\n"
+                               "(+ i+1-th 3)\n")))
+    (check-true (doc-expand! d))
+
+    (define imported-plus-ranges
+      (list (Range (Pos 2 1) (Pos 2 2))
+            (Range (Pos 6 1) (Pos 6 2))))
+    (check-equal?
+      (map DocumentHighlight-range (doc-highlights d (Pos 2 1)))
+      imported-plus-ranges)
+    (check-equal?
+      (map DocumentHighlight-range (doc-highlights d (Pos 3 1)))
+      (list (Range (Pos 3 1) (Pos 3 2))))
+    (check-equal?
+      (map DocumentHighlight-range (doc-highlights d (Pos 5 3)))
+      (list (Range (Pos 4 7) (Pos 4 8))
+            (Range (Pos 5 3) (Pos 5 4))))
+
+    (define references (doc-references d uri (Pos 2 1) #t))
+    (check-false (Document-Reference-Result-module-binding references))
+    (check-equal?
+      (map Location-range
+           (Reference-Source-locations
+             (Document-Reference-Result-source references)))
+      imported-plus-ranges)
+    (check-false (doc-definition d uri (Pos 2 1)))
+    (check-false (doc-prepare-rename d (Pos 2 1)))
+    (check-false (doc-rename d uri (Pos 2 1) "plus"))
+
+    (define contribution-ranges
+      (for*/list ([locations (in-hash-values
+                               (Doc-Contribution-references (Doc-contribution d)))]
+                  [location (in-list locations)])
+        (Location-range location)))
+    (for ([range (in-list imported-plus-ranges)])
+      (check-false (member range contribution-ranges)))
+
+    (doc-apply-edit! d (Range (Pos 2 0) (Pos 2 0)) ";; shift\n")
+    (check-equal?
+      (map DocumentHighlight-range (doc-highlights d (Pos 3 1)))
+      (list (Range (Pos 3 1) (Pos 3 2))
+            (Range (Pos 7 1) (Pos 7 2)))))
+
+  (test-case
+    "module-language use collection filters and defers endpoints"
+    (define path (string->path "/tmp/module-language-use-service-test.rkt"))
+    (define uri (path->uri path))
+    (define text "racket + * ' word")
+    (define doc-text (new lsp-editor%))
+    (send doc-text insert text 0)
+    (define trace
+      (new build-trace%
+        [src path]
+        [doc-text doc-text]
+        [lexer-state (build-lexer-state text uri)]))
+    (define declaration-service (send trace get-declaration))
+
+    (send trace syncheck:add-arrow/name-dup path 0 6 path 7 8 #t 0 'module-lang #f)
+    (send trace syncheck:add-arrow/name-dup path 0 6 path 9 10 #t 0 'module-lang #f)
+    (send trace syncheck:add-arrow/name-dup path 0 6 path 11 12 #t 0 'module-lang #f)
+    (send trace syncheck:add-arrow/name-dup path 0 6 path 13 13 #t 0 'module-lang #f)
+    (send trace syncheck:add-arrow/name-dup path 0 6 path 13 17 #t 0 #t #f)
+    (send declaration-service walk-stx #f)
+
+    (check-equal? (send declaration-service occurrence-at 7)
+                  (CharRange 7 8))
+    (check-equal? (send declaration-service occurrence-at 9)
+                  (CharRange 9 10))
+    (check-equal? (send declaration-service occurrence-at 11)
+                  (CharRange 11 12))
+    (check-false (send declaration-service occurrence-at 13))
+    (check-equal? (send declaration-service uses-at 7)
+                  (list (CharRange 7 8)))
+    (check-false (send declaration-service definition-at 7))
+    (check-false (send declaration-service module-binding-at 7)))
+
+  (test-case
+    "exact jumps win over pending module-language uses"
+    (define path (string->path "/tmp/module-language-use-jump-test.rkt"))
+    (define uri (path->uri path))
+    (define text "racket exact")
+    (define doc-text (new lsp-editor%))
+    (send doc-text insert text 0)
+    (define trace
+      (new build-trace%
+        [src path]
+        [doc-text doc-text]
+        [lexer-state (build-lexer-state text uri)]))
+    (send trace syncheck:add-arrow/name-dup path 0 6 path 7 12 #t 0 'module-lang #f)
+    (send trace
+          syncheck:add-jump-to-definition/phase-level+space
+          path 7 12 'exact path '(provider) 0)
+    (define declaration-service (send trace get-declaration))
+    (send declaration-service walk-stx #f)
+    (check-equal? (send declaration-service module-binding-at 7)
+                  (Module-Binding path '(provider) 0 'exact))
+    (check-equal? (send declaration-service uses-at 7)
+                  (list (CharRange 7 12))))
+
+  (test-case
+    "explicit import variants keep exact full-token binding ranges"
+    (define cases
+      (list
+        (list 'plain
+              "#lang racket/base\n(require racket/list)\n(add-between '(1 2) 0)\n"
+              (Pos 2 1) (Pos 2 12) (Pos 1 9))
+        (list 'only
+              (string-append "#lang racket/base\n"
+                             "(require (only-in racket/list add-between))\n"
+                             "(add-between '(1 2) 0)\n")
+              (Pos 2 1) (Pos 2 12) (Pos 1 18))
+        (list 'renamed
+              (string-append "#lang racket/base\n"
+                             "(require (rename-in racket/list "
+                             "[add-between list-add-between]))\n"
+                             "(list-add-between '(1 2) 0)\n")
+              (Pos 2 1) (Pos 2 17) (Pos 1 39))
+        (list 'prefixed
+              (string-append "#lang racket/base\n"
+                             "(require (prefix-in l: racket/list))\n"
+                             "(l:add-between '(1 2) 0)\n")
+              (Pos 2 1) (Pos 2 14) (Pos 1 20))))
+
+    (for ([entry (in-list cases)])
+      (match-define (list name text use-start use-end import-position) entry)
+      (define uri (format "file:///tmp/~a-import-regression-test.rkt" name))
+      (define d (make-doc uri text))
+      (check-true (doc-expand! d))
+      (check-equal? (doc-occurrence-at d use-start)
+                    (Range use-start use-end))
+      (check-true (Module-Binding? (doc-module-binding-at d use-start)))
+      (check-false (doc-occurrence-at d import-position))
+      (check-false (doc-definition-at d import-position))))
+
+  (test-case
     "doc-rename local x to y"
     (define-values (d uri) (make-expanded-doc))
     ;; Rename "x" at definition site (1,8) to "y"
