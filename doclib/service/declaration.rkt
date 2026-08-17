@@ -88,7 +88,6 @@
     (init-field src doc-text)
     (super-new)
 
-    (define next-id 0)
     (define def-at-position (make-interval-map))
     (define use-at-position (make-interval-map))
     ;; Snapshot CharRange for each id. Edits do not rewrite id->range;
@@ -105,10 +104,11 @@
     ;; `'module-lang` uses held until walk-stx.
     (define pending-module-lang-uses '())
 
-    (define/private (fresh-id!)
-      (define id next-id)
-      (set! next-id (add1 next-id))
-      id)
+    (define fresh-id!
+      (let ([id 0])
+        (lambda ()
+          (begin0 id
+            (set! id (add1 id))))))
 
     ;; Lexical arrows and jumps treat a zero-width Check Syntax report as a
     ;; one-character range. Module-language arrows do not call this function.
@@ -275,7 +275,6 @@
         (hash-remove! def->use-ids module-binding)))
 
     (define/override (reset)
-      (set! next-id 0)
       (set! def-at-position (make-interval-map))
       (set! use-at-position (make-interval-map))
       (set! id->range (make-hash))
