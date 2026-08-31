@@ -354,36 +354,41 @@
 
 ;; definition BEG ;;
 
-(define (get-def path doc-text submods phase+space id)
+;; Cross-file Go to Definition expands the defining file and looks up a span
+;; by submodule path and defining id. Check Syntax jump also reports
+;; phase+space, but that value is the import shift at the use, not the
+;; definition phase in the target file. Do not put it in this key.
+(define (get-def path doc-text submods id)
   (define collector
     (new (class (check-syntax-annotations-mixin object%)
            (define defs (make-hash))
-           (define/public (get submods phase+space id)
-             (or (hash-ref defs (list submods phase+space id) #f)
-                 ;; Legacy Check Syntax cannot report phase or space. Preserve
-                 ;; navigation by matching the phase-0 identity it supplied.
-                 (and (not phase+space-callbacks?)
-                      (hash-ref defs (list submods 0 id) #f))))
+           (define/public (get submods id)
+             (hash-ref defs (list submods id) #f))
            (define/override (syncheck:add-definition-target/phase-level+space
-                              _source-obj start end id submods phase+space)
-             (hash-set! defs
-                        (list submods phase+space id)
-                        (cons start end)))
+                              _source-obj start end id submods _phase+space)
+             ;; Last one wins when one submodule defines the same id at more
+             ;; than one phase or space. Jump cannot tell those spans apart:
+             ;; it does not pass identifier-binding source-phase. Chosen over
+             ;; returning #f: Go to Definition should still land somewhere.
+             ;; Same last-wins table as DrRacket's syncheck:add-definition-target,
+             ;; which keys only (id, submods).
+             (hash-set! defs (list submods id) (cons start end)))
            (super-new))))
   (define in (open-input-string (send doc-text get-text)))
 
   ;; expand-source handles traversal and adding syntax to collector
   (expand-source path in collector)
-  (send collector get submods phase+space id))
+  (send collector get submods id))
 
-(define/contract (doc-get-definition-by-id path submods phase+space id)
-  (-> path? (listof symbol?) phase+space-shift? symbol? Range?)
+(define/contract (doc-get-definition-by-id path submods id)
+  (-> path? (listof symbol?) symbol? (or/c Range? #f))
   (define doc-text (new lsp-editor%))
   (send doc-text load-file path)
-  (match-define (cons start end)
-    (get-def path doc-text submods phase+space id))
-  (Range (abs-pos->Pos doc-text start)
-         (abs-pos->Pos doc-text end)))
+  (match (get-def path doc-text submods id)
+    [(cons start end)
+     (Range (abs-pos->Pos doc-text start)
+            (abs-pos->Pos doc-text end))]
+    [_ #f]))
 
 ;; definition END ;;
 
@@ -913,9 +918,11 @@
                #:range definition-range)]
     [else
      (match (doc-module-binding-at doc pos)
-       [(Module-Binding path submods phase+space id)
-        (Location #:uri (path->uri path)
-                  #:range (doc-get-definition-by-id path submods phase+space id))]
+       [(Module-Binding path submods _phase+space id)
+        (define def-range (doc-get-definition-by-id path submods id))
+        (and def-range
+             (Location #:uri (path->uri path)
+                       #:range def-range))]
        [#f #f])]))
 
 ;; References: live locations for this document, plus an optional Module-Binding

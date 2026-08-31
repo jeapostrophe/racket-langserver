@@ -621,13 +621,13 @@
     (define text "#lang racket\n(define x 1)\nx")
     (with-output-to-file tmp-file #:exists 'replace (lambda () (display text)))
 
-    (define def-range (doc-get-definition-by-id tmp-file '() 0 'x))
+    (define def-range (doc-get-definition-by-id tmp-file '() 'x))
     (check-pred Range? def-range)
 
     (delete-file tmp-file))
 
   (test-case
-    "Get definition uses exact submodule and phase identity"
+    "Get definition distinguishes equal ids across submodules"
     (define tmp-file (make-temporary-file "binding-identity~a.rkt"))
     (define text
       (string-append
@@ -644,12 +644,74 @@
         (display text)))
 
     (define first-range
-      (doc-get-definition-by-id tmp-file '(first) 0 'same))
+      (doc-get-definition-by-id tmp-file '(first) 'same))
     (define second-range
-      (doc-get-definition-by-id tmp-file '(second) 1 'same))
+      (doc-get-definition-by-id tmp-file '(second) 'same))
     (check-equal? first-range (Range (Pos 2 10) (Pos 2 14)))
     (check-equal? second-range (Range (Pos 6 12) (Pos 6 16)))
 
+    (delete-file tmp-file))
+
+  (test-case
+    "doc-definition follows a for-syntax import by submodule and id"
+    (define temp-dir (make-temporary-file "import-shift~a" 'directory))
+    (dynamic-wind
+      void
+      (lambda ()
+        (define lib-path (build-path temp-dir "lib.rkt"))
+        (call-with-output-file lib-path
+          #:exists 'truncate
+          (lambda (out)
+            (display "#lang racket/base\n(provide foo)\n(define foo 1)\n" out)))
+        (define use-path (build-path temp-dir "use.rkt"))
+        (define use-text
+          (string-append
+            "#lang racket/base\n"
+            "(require (for-syntax racket/base \"lib.rkt\"))\n"
+            "(begin-for-syntax\n"
+            "  (define y foo))\n"))
+        (call-with-output-file use-path
+          #:exists 'truncate
+          (lambda (out)
+            (display use-text out)))
+        (define use-uri (path->uri use-path))
+        (define d (make-doc use-uri use-text))
+        (check-true (doc-expand! d))
+        (define loc (doc-definition d use-uri (Pos 3 12)))
+        (check-equal? loc
+                      (Location (path->uri lib-path)
+                                (Range (Pos 2 8) (Pos 2 11)))))
+      (lambda ()
+        (delete-directory/files temp-dir))))
+
+  (test-case
+    "Get definition returns #f when the target file has no span for the id"
+    (define tmp-file (make-temporary-file "missing-def~a.rkt"))
+    (define text "#lang racket/base\n(define foo 1)\n")
+    (with-output-to-file tmp-file
+      #:exists 'replace
+      (lambda ()
+        (display text)))
+    (check-false (doc-get-definition-by-id tmp-file '() 'missing))
+    (delete-file tmp-file))
+
+  (test-case
+    "Get definition keeps the last span when one submodule reuses the id"
+    (define tmp-file (make-temporary-file "ambiguous-def~a.rkt"))
+    (define text
+      (string-append
+        "#lang racket/base\n"
+        "(require (for-syntax racket/base))\n"
+        "(provide foo (for-syntax foo))\n"
+        "(define foo 1)\n"
+        "(begin-for-syntax\n"
+        "  (define foo 2))\n"))
+    (with-output-to-file tmp-file
+      #:exists 'replace
+      (lambda ()
+        (display text)))
+    (check-equal? (doc-get-definition-by-id tmp-file '() 'foo)
+                  (Range (Pos 5 10) (Pos 5 13)))
     (delete-file tmp-file))
 
   (test-case
