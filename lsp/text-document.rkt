@@ -225,11 +225,37 @@
      (error-response id ErrorCode-InvalidParams "textDocument/documentSymbol failed")]))
 
 ;; Inlay Hint
+;;
+;; Types only exist after expansion, so answering during the first
+;; check-syntax run would send an empty list the client never asks about
+;; again. Wait for the run, as semantic tokens do.
 (define (inlay-hint id params)
   (match params
     [(hash-table ['textDocument (DocIdentifier-js #:uri uri)]
-                 ['range (^Range _ _)])
-     (success/enc id '())]
+                 ['range (as-Range range)])
+     (define safe-doc (lsp-get-doc uri))
+
+     (define (get-hints doc)
+       (doc-inlay-hints doc range))
+
+     (define (current-hints sd)
+       (define doc (SafeDoc-doc sd))
+       (if (or (doc-trace-latest? doc)
+               (not (safedoc-check-syntax-running? sd)))
+           (get-hints doc)
+           #f))
+
+     (define (respond-to-signal signal)
+       (cond
+         [(signal-doc-close? signal) (success/enc id '())]
+         [else (success/enc id (with-read-doc safe-doc get-hints))]))
+
+     (define hints
+       (with-read-safedoc safe-doc current-hints))
+
+     (if hints
+         (success/enc id hints)
+         (async-query-wait (SafeDoc-token safe-doc) respond-to-signal))]
     [_ (error-response id ErrorCode-InvalidParams "textDocument/inlayHint failed")]))
 
 ;; Full document formatting request
@@ -351,7 +377,7 @@
     [document-highlight (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]
     [references (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]
     [document-symbol (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]
-    [inlay-hint (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]
+    [inlay-hint (exact-nonnegative-integer? jsexpr? . -> . (or/c jsexpr? (-> jsexpr?)))]
     [rename _rename rename (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]
     [prepareRename (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]
     [formatting! (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]
