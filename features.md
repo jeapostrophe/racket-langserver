@@ -120,9 +120,31 @@ source characters per line. Other hover data works where expansion succeeds
 and check-syntax produces hover and documentation data with reliable source
 ranges.
 
-## Inlay Hints
+## Inlay Hints *(requires expansion)*
 
-A handler is registered, but it is just a stub, not yet implemented.
+Typed Racket only. Shows the types Typed Racket inferred for bindings you did
+not annotate, rendered as ` : Type` right after the bound name, so a hinted
+line reads like the annotation you could have written:
+
+```racket
+(define x : Positive-Byte 42)              ; (define x 42)
+(define (f n) : (-> Number Number) ...)    ; (define (f n) ...)
+(let ([a : One 1]) ...)                    ; (let ([a 1]) ...)
+(define-values (p : One q : String) ...)   ; (define-values (p q) ...)
+```
+
+Hinted forms are `define`, `define-values`, and the `let` family. A binding
+that already carries an annotation gets none, whether from a separate
+`(: name Type)`, an inline `(define x : Type v)`, a declared return type, or
+an annotated clause like `[x : Type v]`. Long types are shown on one line and
+cut short, with the full type in the hint's tooltip. The function shorthand
+shows the whole function type rather than just the return type, because that
+is the only type Typed Racket publishes for it.
+
+Language behavior: only `typed/racket` and its variants; no other family
+publishes inferred types. While a re-expansion runs, hints from the last
+successful expansion stay visible and shift with your edits, so they can be
+out of date until it finishes.
 
 ## References *(requires expansion)*
 

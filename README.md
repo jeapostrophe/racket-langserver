@@ -72,7 +72,7 @@ The matrix rates expected usefulness for each language family. Expansion-based f
 | Formatting | ✅ | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ |
 | Range Formatting | ✅ | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ |
 | On-Type Formatting | ✅ | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ |
-| Inlay Hints | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| Inlay Hints | ❌ | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
 
 ### Features
 
