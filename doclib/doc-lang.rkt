@@ -2,6 +2,12 @@
 
 (require "../common/interfaces.rkt"
          "../common/path-util.rkt"
+         "inlay-hint-source.rkt"
+         (only-in "inlay-hint.rkt" typed-racket-inlay-hints)
+         (only-in "struct-hint.rkt"
+                  struct-field-inlay-hints
+                  racket-struct-dialect
+                  typed-racket-struct-dialect)
          "lexer/scan.rkt"
          "lexer/snapshot.rkt"
          "lexer/token-tree.rkt"
@@ -116,7 +122,7 @@
    [format? boolean?]
    [require-header? boolean?]
    [expand? boolean?]
-   [inlay-hint? boolean?])
+   [inlay-hints (listof inlay-hint-source/c)])
   #:transparent)
 
 ;; A known language family. Matched against the header via `name-rx`,
@@ -132,7 +138,7 @@
 ;;   format?         - whether formatting is supported
 ;;   require-header? - whether a recognized header is required
 ;;   expand?         - whether do macro expansion
-;;   inlay-hint?     - whether the language publishes inlay hints
+;;   inlay-hints     - the `inlay-hint-source/c`s the language publishes
 (struct/contract Language-Spec
   ([name symbol?]
    [name-rx (or/c regexp? #f)]
@@ -141,7 +147,7 @@
    [format? boolean?]
    [require-header? boolean?]
    [expand? boolean?]
-   [inlay-hint? boolean?])
+   [inlay-hints (listof inlay-hint-source/c)])
   #:transparent)
 
 (define (Language-Spec~kw #:name name
@@ -151,9 +157,9 @@
                           #:format? format?
                           #:require-header? [require-header? #t]
                           #:expand? [expand? #t]
-                          #:inlay-hint? [inlay-hint? #f])
+                          #:inlay-hints [inlay-hints '()])
   (Language-Spec name name-rx suffixes body-mode format? require-header? expand?
-                 inlay-hint?))
+                 inlay-hints))
 
 (define language-specs
   (list
@@ -161,13 +167,17 @@
                       #:name-rx #px"^racket(?:/.*)?$"
                       #:suffixes '()
                       #:body-mode 'sexp
-                      #:format? #t)
+                      #:format? #t
+                      #:inlay-hints
+                      (list (struct-field-inlay-hints racket-struct-dialect)))
     (Language-Spec~kw #:name 'typed/racket
                       #:name-rx #px"^typed/racket(?:/.*)?$"
                       #:suffixes '()
                       #:body-mode 'sexp
                       #:format? #t
-                      #:inlay-hint? #t)
+                      #:inlay-hints
+                      (list typed-racket-inlay-hints
+                            (struct-field-inlay-hints typed-racket-struct-dialect)))
     (Language-Spec~kw #:name 'scheme
                       #:name-rx #px"^scheme(?:/.*)?$"
                       #:suffixes '()
@@ -511,9 +521,10 @@
       (Language-Spec-require-header? language-match)
       #t))
 
-(define (language-match-inlay-hint? language-match)
-  (and (Language-Spec? language-match)
-       (Language-Spec-inlay-hint? language-match)))
+(define (language-match-inlay-hints language-match)
+  (if (Language-Spec? language-match)
+      (Language-Spec-inlay-hints language-match)
+      '()))
 
 (define (language-match-expand? language-match)
   (if (Language-Spec? language-match)
@@ -562,7 +573,7 @@
     (language-match-format? language-match)
     (language-match-require-header? language-match)
     (language-match-expand? language-match)
-    (language-match-inlay-hint? language-match)))
+    (language-match-inlay-hints language-match)))
 
 ;; Same as `source->language-policy` but reuses already-lexed spans.
 (define/contract (lexer-language-policy text spans [uri #f])

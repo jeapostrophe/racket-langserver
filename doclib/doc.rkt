@@ -27,7 +27,7 @@
                   non-skippable-node?
                   token-leaf-type?)
          "doc-lang.rkt"
-         "inlay-hint.rkt"
+         "inlay-hint-source.rkt"
          racket/match
          racket/contract
          racket/class
@@ -775,27 +775,24 @@
      document-end]
     [else (doc-pos->abs-pos doc pos)]))
 
+;; A language publishes the hint sources it has, and only those are asked.
 (define/contract (doc-inlay-hints doc range)
   (-> Doc? Range? (listof InlayHint?))
+  (define sources
+    (Language-Policy-inlay-hints (doc-language-policy doc)))
   (cond
-    [(not (Language-Policy-inlay-hint? (doc-language-policy doc))) '()]
+    [(empty? sources) '()]
     [else
-     (define typed-racket-service
-       (send (Doc-trace doc) get-typed-racket))
+     (define context
+       (Inlay-Hint-Context (LexerSnapshot-text (doc-lexer-snapshot doc))
+                           (doc-body-forest doc)
+                           (Doc-trace doc)
+                           (lambda (pos) (doc-abs-pos->pos doc pos))))
      (define req-start (clamped-abs-pos doc (Range-start range)))
      (define req-end (clamped-abs-pos doc (Range-end range)))
-     (define anchors
-       (typed-racket-inlay-anchors
-         (LexerSnapshot-text (doc-lexer-snapshot doc))
-         (doc-body-forest doc)
-         (lambda (pos)
-           (send typed-racket-service inferred-type-at pos))))
-     (for/list ([anchor (in-list anchors)]
-                #:when (<= req-start (Inlay-Anchor-pos anchor) req-end))
-       (InlayHint #:position (doc-abs-pos->pos doc (Inlay-Anchor-pos anchor))
-                  #:label (Inlay-Anchor-label anchor)
-                  #:kind InlayHintKind-Type
-                  #:tooltip (Inlay-Anchor-type-text anchor)))]))
+     (append*
+       (for/list ([source (in-list sources)])
+         (source context req-start req-end)))]))
 
 (define/contract (doc-code-action doc range)
   (-> Doc? Range? (listof CodeAction?))
