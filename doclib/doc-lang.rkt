@@ -115,7 +115,8 @@
    [body-mode (or/c 'sexp 'non-sexp 'unknown)]
    [format? boolean?]
    [require-header? boolean?]
-   [expand? boolean?])
+   [expand? boolean?]
+   [inlay-hint? boolean?])
   #:transparent)
 
 ;; A known language family. Matched against the header via `name-rx`,
@@ -131,6 +132,7 @@
 ;;   format?         - whether formatting is supported
 ;;   require-header? - whether a recognized header is required
 ;;   expand?         - whether do macro expansion
+;;   inlay-hint?     - whether the language publishes inlay hints
 (struct/contract Language-Spec
   ([name symbol?]
    [name-rx (or/c regexp? #f)]
@@ -138,7 +140,8 @@
    [body-mode (or/c 'sexp 'non-sexp 'unknown)]
    [format? boolean?]
    [require-header? boolean?]
-   [expand? boolean?])
+   [expand? boolean?]
+   [inlay-hint? boolean?])
   #:transparent)
 
 (define (Language-Spec~kw #:name name
@@ -147,8 +150,10 @@
                           #:body-mode body-mode
                           #:format? format?
                           #:require-header? [require-header? #t]
-                          #:expand? [expand? #t])
-  (Language-Spec name name-rx suffixes body-mode format? require-header? expand?))
+                          #:expand? [expand? #t]
+                          #:inlay-hint? [inlay-hint? #f])
+  (Language-Spec name name-rx suffixes body-mode format? require-header? expand?
+                 inlay-hint?))
 
 (define language-specs
   (list
@@ -161,7 +166,8 @@
                       #:name-rx #px"^typed/racket(?:/.*)?$"
                       #:suffixes '()
                       #:body-mode 'sexp
-                      #:format? #t)
+                      #:format? #t
+                      #:inlay-hint? #t)
     (Language-Spec~kw #:name 'scheme
                       #:name-rx #px"^scheme(?:/.*)?$"
                       #:suffixes '()
@@ -505,6 +511,10 @@
       (Language-Spec-require-header? language-match)
       #t))
 
+(define (language-match-inlay-hint? language-match)
+  (and (Language-Spec? language-match)
+       (Language-Spec-inlay-hint? language-match)))
+
 (define (language-match-expand? language-match)
   (if (Language-Spec? language-match)
       (Language-Spec-expand? language-match)
@@ -551,7 +561,8 @@
     (language-match->body-mode language-match)
     (language-match-format? language-match)
     (language-match-require-header? language-match)
-    (language-match-expand? language-match)))
+    (language-match-expand? language-match)
+    (language-match-inlay-hint? language-match)))
 
 ;; Same as `source->language-policy` but reuses already-lexed spans.
 (define/contract (lexer-language-policy text spans [uri #f])

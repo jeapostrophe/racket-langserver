@@ -39,6 +39,7 @@
          (json-type-out ContentChangeEvent)
          (json-type-out DocIdentifier)
          (json-type-out DocItem)
+         (json-type-out InlayHintKind)
          (json-type-out InlayHint)
          (json-type-out ConfigurationItem)
          (json-type-out ConfigurationParams)
@@ -210,9 +211,15 @@
   [version exact-nonnegative-integer?]
   [text string?])
 
+(define-json-enum InlayHintKind
+  [Type 1]
+  [Parameter 2])
+
 (define-json-struct InlayHint
   [position Pos]
-  [label string?])
+  [label string?]
+  [kind InlayHintKind]
+  [tooltip string?])
 
 (define-json-struct ConfigurationItem
   [scopeUri string?]

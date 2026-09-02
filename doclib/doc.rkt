@@ -27,6 +27,7 @@
                   non-skippable-node?
                   token-leaf-type?)
          "doc-lang.rkt"
+         "inlay-hint.rkt"
          racket/match
          racket/contract
          racket/class
@@ -761,6 +762,41 @@
             #:range (abs-range->range doc
                                       (or type-start start use-start)
                                       (or type-end end use-end)))]))
+
+;; Some clients spell a viewport end as a line past the last one. The range is
+;; only a filter bound here, so clamp instead of failing the request.
+(define (clamped-abs-pos doc pos)
+  (define document-end (doc-end-abs-pos doc))
+  (define end-pos (doc-abs-pos->pos doc document-end))
+  (cond
+    [(or (> (Pos-line pos) (Pos-line end-pos))
+         (and (= (Pos-line pos) (Pos-line end-pos))
+              (> (Pos-char pos) (Pos-char end-pos))))
+     document-end]
+    [else (doc-pos->abs-pos doc pos)]))
+
+(define/contract (doc-inlay-hints doc range)
+  (-> Doc? Range? (listof InlayHint?))
+  (cond
+    [(not (Language-Policy-inlay-hint? (doc-language-policy doc))) '()]
+    [else
+     (define typed-racket-service
+       (send (Doc-trace doc) get-typed-racket))
+     (define req-start (clamped-abs-pos doc (Range-start range)))
+     (define req-end (clamped-abs-pos doc (Range-end range)))
+     (define anchors
+       (typed-racket-inlay-anchors
+         (LexerSnapshot-text (doc-lexer-snapshot doc))
+         (doc-body-forest doc)
+         (lambda (pos)
+           (send typed-racket-service inferred-type-at pos))))
+     (for/list ([anchor (in-list anchors)]
+                #:when (<= req-start (Inlay-Anchor-pos anchor) req-end))
+       (InlayHint #:position (doc-abs-pos->pos doc (Inlay-Anchor-pos anchor))
+                  #:label (Inlay-Anchor-label anchor)
+                  #:kind InlayHintKind-Type
+                  #:tooltip (Inlay-Anchor-type-text anchor)))]))
+
 (define/contract (doc-code-action doc range)
   (-> Doc? Range? (listof CodeAction?))
   (define doc-trace (Doc-trace doc))
@@ -1216,6 +1252,7 @@
          resyntax-result->diag
          resyntax-result->code-action
          doc-hover
+         doc-inlay-hints
          doc-code-action
          doc-signature-help
          doc-occurrence-at
