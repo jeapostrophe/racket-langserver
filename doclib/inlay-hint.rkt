@@ -13,10 +13,13 @@
 ;; applies the `#lang` gate.
 
 (require racket/contract
+         racket/class
          racket/list
          racket/match
          racket/set
          racket/string
+         "../common/interfaces.rkt"
+         "inlay-hint-source.rkt"
          (only-in "lexer/token-tree.rkt"
                   Token-Leaf?
                   Token-List?
@@ -209,5 +212,25 @@
 
   (collect (meaningful (Token-Forest-nodes forest))))
 
+;; The hint source a language with a type checker publishes.
+(define/contract (typed-racket-inlay-hints context req-start req-end)
+  inlay-hint-source/c
+  (define typed-racket-service
+    (send (Inlay-Hint-Context-trace context) get-typed-racket))
+  (define abs-pos->pos (Inlay-Hint-Context-abs-pos->pos context))
+  (define anchors
+    (typed-racket-inlay-anchors
+      (Inlay-Hint-Context-text context)
+      (Inlay-Hint-Context-forest context)
+      (lambda (pos)
+        (send typed-racket-service inferred-type-at pos))))
+  (for/list ([anchor (in-list anchors)]
+             #:when (<= req-start (Inlay-Anchor-pos anchor) req-end))
+    (InlayHint #:position (abs-pos->pos (Inlay-Anchor-pos anchor))
+               #:label (Inlay-Anchor-label anchor)
+               #:kind InlayHintKind-Type
+               #:tooltip (Inlay-Anchor-type-text anchor))))
+
 (provide (struct-out Inlay-Anchor)
-         typed-racket-inlay-anchors)
+         typed-racket-inlay-anchors
+         typed-racket-inlay-hints)

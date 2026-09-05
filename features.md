@@ -122,9 +122,14 @@ ranges.
 
 ## Inlay Hints *(requires expansion)*
 
-Typed Racket only. Shows the types Typed Racket inferred for bindings you did
-not annotate, rendered as ` : Type` right after the bound name, so a hinted
-line reads like the annotation you could have written:
+Two kinds of hint, and a language shows the ones it can: inferred types, which
+need a type checker, and struct field names, which need `struct` forms.
+`typed/racket` shows both, `racket` shows field names, and no other family
+shows either.
+
+Inferred types are the first kind: the types Typed Racket inferred for bindings
+you did not annotate, rendered as ` : Type` right after the bound name, so a
+hinted line reads like the annotation you could have written:
 
 ```racket
 (define x : Positive-Byte 42)              ; (define x 42)
@@ -141,10 +146,49 @@ cut short, with the full type in the hint's tooltip. The function shorthand
 shows the whole function type rather than just the return type, because that
 is the only type Typed Racket publishes for it.
 
-Language behavior: only `typed/racket` and its variants; no other family
-publishes inferred types. While a re-expansion runs, hints from the last
-successful expansion stay visible and shift with your edits, so they can be
-out of date until it finishes.
+Struct field names are the other kind. At a call to a struct constructor
+every argument is labeled with the field it fills, so `(point 1 2)` reads as
+`(point x 1 y 2)`. A `match` pattern that uses the same constructor is
+labeled the same way.
+
+A constructor is recognized through the binding, never by name: the head of the
+form must resolve to the name of a `struct` form in the same document, and the
+field names are read back from that form. An accessor such as `point-x`
+resolves to a field name instead of the struct name, so it is never mistaken
+for a constructor.
+
+Nothing is shown unless the whole field list is known and matches the call, so
+a hint never names the wrong field:
+
+- A subtype lists its supertype's fields first. If the supertype is defined in
+  another document, the call gets no hints.
+- Fields declared `#:auto` are filled by the struct itself, so they are not
+  counted as arguments.
+- A call whose argument count differs from the field count, or that passes a
+  keyword, gets nothing.
+- An argument already written with its own field's name is left alone, since
+  the hint would only repeat it.
+- `define-struct` is not covered. Check Syntax reports no definition for the
+  `make-` constructor it binds, so there is nothing to resolve.
+
+The struct must be defined in the document being edited. A struct imported from
+another file gets no hints, for the same reason its fields cannot be read.
+
+How a field list is read is the language's own:
+
+- In `racket` a field is `name` or `[name option ...]`, and `struct/contract`
+  counts as a `struct` form too: its contract sits where a field option would,
+  so `([x real?] [y real?])` reads as the fields `x` and `y`, and a subtype
+  lists its supertype's fields first just as `struct` does.
+- In `typed/racket` every field is `[x : Integer]`, which reads as the field
+  `x`. That language has no per-field options, no `#:auto`, and no
+  `struct/contract`, so anything else written in a field list is not a field
+  list it can read, and calls to that struct get nothing.
+
+Language behavior: inferred types are `typed/racket` and its variants only;
+field names are `racket` and `typed/racket`. While a re-expansion runs, hints
+from the last successful expansion stay visible and shift with your edits, so
+they can be out of date until it finishes.
 
 ## References *(requires expansion)*
 
