@@ -775,24 +775,22 @@
      document-end]
     [else (doc-pos->abs-pos doc pos)]))
 
-;; A language publishes the hint sources it has, and only those are asked.
+;; The hints the trace read for this document, in protocol form. What a
+;; language publishes hints for was decided when they were read.
 (define/contract (doc-inlay-hints doc range)
   (-> Doc? Range? (listof InlayHint?))
-  (define sources
-    (Language-Policy-inlay-hints (doc-language-policy doc)))
-  (cond
-    [(empty? sources) '()]
-    [else
-     (define context
-       (Inlay-Hint-Context (LexerSnapshot-text (doc-lexer-snapshot doc))
-                           (doc-body-forest doc)
-                           (Doc-trace doc)
-                           (lambda (pos) (doc-abs-pos->pos doc pos))))
-     (define req-start (clamped-abs-pos doc (Range-start range)))
-     (define req-end (clamped-abs-pos doc (Range-end range)))
-     (append*
-       (for/list ([source (in-list sources)])
-         (source context req-start req-end)))]))
+  (define req-start (clamped-abs-pos doc (Range-start range)))
+  (define req-end (clamped-abs-pos doc (Range-end range)))
+  (define anchors
+    (send (send (Doc-trace doc) get-inlay-hints)
+          hints-in-range
+          req-start
+          req-end))
+  (for/list ([anchor (in-list anchors)])
+    (InlayHint #:position (doc-abs-pos->pos doc (Inlay-Hint-Anchor-pos anchor))
+               #:label (Inlay-Hint-Anchor-label anchor)
+               #:kind (Inlay-Hint-Anchor-kind anchor)
+               #:tooltip (Inlay-Hint-Anchor-tooltip anchor))))
 
 (define/contract (doc-code-action doc range)
   (-> Doc? Range? (listof CodeAction?))
