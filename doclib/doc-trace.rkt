@@ -14,6 +14,7 @@
          "service/diagnostic.rkt"
          "service/declaration.rkt"
          "service/highlight.rkt"
+         "service/inlay-hint.rkt"
          "service/tooltip-log.rkt"
          "service/typed-racket/service.rkt"
          "../common/interfaces.rkt"
@@ -46,6 +47,11 @@
       (new typed-racket%
         [src src]
         [doc-text doc-text]))
+    (define inlay-hints
+      (new inlay-hint%
+        [lexer-state lexer-state]
+        [declaration decls]
+        [typed-racket typed-racket]))
 
     (define services
       (list hovers
@@ -55,11 +61,16 @@
             diag
             typed-racket
             decls
-            semantic-tokens))
+            semantic-tokens
+            inlay-hints))
 
     (define/public (reset)
       (for ([s services])
         (send s reset)))
+
+    (define/public (text-replaced start end)
+      (for ([s services])
+        (send s text-replaced start end)))
 
     (define/public (expand start end)
       (for ([s services])
@@ -92,12 +103,17 @@
                    (Tooltip-source tooltip)
                    (Tooltip-start tooltip)
                    (Tooltip-end tooltip)
-                   (Tooltip-text tooltip)))])))
+                   (Tooltip-text tooltip)))]))
+      ;; Last: inlay hints are read from the pre-expand syntax and from what
+      ;; the services above have just been filled with, this document's
+      ;; inferred types included.
+      (send inlay-hints build!))
 
     ;; Named reads for services. Do not add getters that expose interval-maps.
     (define/public (get-hover) hovers)
     (define/public (get-declaration) decls)
     (define/public (get-typed-racket) typed-racket)
+    (define/public (get-inlay-hints) inlay-hints)
 
     ;; Derive accepted cross-file state from this trace's frozen editor.
     (define/public (get-contribution)

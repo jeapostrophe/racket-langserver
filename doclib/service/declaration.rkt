@@ -25,6 +25,7 @@
 ;; document.
 
 (require "interface.rkt"
+         "char-range-edit.rkt"
          "interval-map-edit.rkt"
          "position-journal.rkt"
          "../../common/interfaces.rkt"
@@ -53,35 +54,6 @@
 (struct Pending-Module-Lang-Use
   (key use-start use-end)
   #:transparent)
-
-;; Invariant: journal replay must move a snapshot CharRange the same way
-;; expand and contract move the interval maps. An insert extends a stored
-;; CharRange only when the insert starts strictly inside that CharRange,
-;; matching #:interior 'extend.
-(define (expand-char-range range start end)
-  (define increase (- end start))
-  (define range-start (CharRange-start range))
-  (define range-end (CharRange-end range))
-  (CharRange (if (>= range-start start)
-                 (+ range-start increase)
-                 range-start)
-             (if (> range-end start)
-                 (+ range-end increase)
-                 range-end)))
-
-;; Positions inside deleted text collapse to the deletion start. A CharRange
-;; that collapses to empty returns #f; later journal steps cannot restore it.
-(define (contract-char-range range start end)
-  (define decrease (- end start))
-  (define (contract-position position)
-    (cond
-      [(<= position start) position]
-      [(>= position end) (- position decrease)]
-      [else start]))
-  (define range-start (contract-position (CharRange-start range)))
-  (define range-end (contract-position (CharRange-end range)))
-  (and (< range-start range-end)
-       (CharRange range-start range-end)))
 
 (define declaration%
   (class base-service%
@@ -155,7 +127,10 @@
       (hash-update! def->use-ids def (lambda (use-ids) (cons use-id use-ids)) '()))
 
     ;; Replay the snapshot CharRange in id->range through range-journal.
-    ;; Returns #f if an edit removed the range.
+    ;; Returns #f if an edit removed the range: a CharRange a deletion
+    ;; collapses to empty is dropped, and later journal steps cannot restore
+    ;; it. Replay must move a snapshot CharRange the same way expand and
+    ;; contract move the interval maps.
     (define/private (live-range-for-id id)
       (position-journal-replay range-journal
                                (hash-ref id->range id)

@@ -186,9 +186,15 @@ How a field list is read is the language's own:
   list it can read, and calls to that struct get nothing.
 
 Language behavior: inferred types are `typed/racket` and its variants only;
-field names are `racket` and `typed/racket`. While a re-expansion runs, hints
-from the last successful expansion stay visible and shift with your edits, so
-they can be out of date until it finishes.
+field names are `racket` and `typed/racket`. Hints show what the file said
+the last time it expanded, so code you have just written has none until it
+expands again. While you type, the hints already on screen stay next to the
+text they name and do not drift onto other code, even when the file stops
+expanding entirely. The form you are editing loses its hints instead of
+showing ones that no longer fit it, as do the constructor calls of a struct
+declaration you edit; they come back with the next expansion. A type hint on
+a function header survives edits to the body, and can be out of date until
+then.
 
 ## References *(requires expansion)*
 

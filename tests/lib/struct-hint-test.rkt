@@ -1,17 +1,7 @@
 #lang racket/base
 
 (module+ test
-  (require racket/list
-           rackunit
-           (only-in "../../doclib/lexer.rkt"
-                    build-lexer-snapshot
-                    LexerSnapshot-text
-                    LexerSnapshot-tokens)
-           (only-in "../../doclib/lexer/state.rkt"
-                    build-snapshot-token-forest)
-           (only-in "../../doclib/lexer/token-tree.rkt"
-                    Token-Forest-nodes
-                    non-skippable-node?))
+  (require rackunit)
 
   (require/expose "../../doclib/struct-hint.rkt"
                   (Field-Spec
@@ -22,18 +12,11 @@
                     parse-field-list
                     constructor-field-names))
 
-  ;; A field list is a parenthesized form like any other, so a document holding
-  ;; one alone is enough to parse one.
+  ;; A field list is a parenthesized form like any other, so reading one on its
+  ;; own is enough to parse one.
   (define ((parse read-field-spec) field-list-text)
-    (define text (string-append "#lang racket\n" field-list-text "\n"))
-    (define snapshot (build-lexer-snapshot text))
-    (define forest
-      (build-snapshot-token-forest (LexerSnapshot-text snapshot)
-                                   #f
-                                   (LexerSnapshot-tokens snapshot)))
-    (define field-list
-      (first (filter non-skippable-node? (Token-Forest-nodes forest))))
-    (parse-field-list read-field-spec text field-list))
+    (parse-field-list read-field-spec
+                      (read-syntax 'test (open-input-string field-list-text))))
 
   (define ((specs read-field-spec) field-list-text)
     (define parsed ((parse read-field-spec) field-list-text))
