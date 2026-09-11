@@ -10,6 +10,7 @@
 (define service<%>
   (interface (syncheck-annotations<%>)
     get
+    text-replaced
     expand
     contract
     reset
@@ -26,6 +27,11 @@
     ;; return data
     (define/public (get)
       #f)
+
+    ;; text between start and end (exclusive) was replaced. Sent before
+    ;; `expand`/`contract`, in the positions the document had before the edit.
+    (define/public (text-replaced start end)
+      (void))
 
     ;; insert text between from start to end (exclusive)
     (define/public (expand start end)

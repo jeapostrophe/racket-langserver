@@ -58,7 +58,7 @@
          (client-send lsp response)]
         [_ (error "Not a request from server")])
       (handle-request))
-    (thread handle-request)
+    (define request-thread (thread handle-request))
 
     (define init-req
       (make-request lsp "initialize"
@@ -76,8 +76,18 @@
     (client-send lsp shutdown-req)
     (client-wait-response shutdown-req)
 
+    ;; The server exits the process on this notification, and the tests share
+    ;; one process, so take the code it exits with instead of the exit.
+    (define exit-code #f)
     (define exit-notf (make-notification "exit" #f))
-    (client-send lsp exit-notf)
+    (parameterize ([exit-handler (λ (code) (set! exit-code code))])
+      (client-send lsp exit-notf))
+    (unless (eqv? exit-code 0)
+      (error 'with-racket-lsp
+             "server exited with ~v after a shutdown request"
+             exit-code))
+
+    (kill-thread request-thread)
 
     (void)))
 

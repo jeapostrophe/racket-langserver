@@ -17,7 +17,8 @@
                     Inlay-Hint-Group-anchors))
 
   (require/expose "../../doclib/service/inlay-hint.rkt"
-                  (expand-groups
+                  (drop-disturbed-groups
+                    expand-groups
                     contract-groups))
 
   ;; One hint drawn at 12, read from the form spanning [10, 20).
@@ -49,12 +50,6 @@
                   '((((10 20)) (12)))))
 
   (test-case
-    "an insert inside the form drops its hints"
-    ;; the arguments no longer stand where the hints say they do
-    (check-equal? (expand-groups one 15 16) '())
-    (check-equal? (expand-groups one 11 12) '()))
-
-  (test-case
     "a delete elsewhere moves the hints it did not touch"
     (check-equal? (summarize (contract-groups one 0 5))
                   '((((5 15)) (7))))
@@ -64,17 +59,47 @@
                   '((((10 20)) (12)))))
 
   (test-case
-    "a delete that takes any of the form away drops its hints"
-    (check-equal? (contract-groups one 15 16) '())
-    (check-equal? (contract-groups one 5 15) '())
+    "a delete that takes the whole form away leaves nothing to describe"
     (check-equal? (contract-groups one 0 100) '()))
+
+  ;; `drop-disturbed-groups` is given the text the edit replaced, an insert
+  ;; being the empty interval.
+
+  (test-case
+    "an edit that reaches into the form drops its hints"
+    (check-equal? (drop-disturbed-groups one 15 15) '())
+    (check-equal? (drop-disturbed-groups one 11 11) '())
+    (check-equal? (drop-disturbed-groups one 15 16) '())
+    (check-equal? (drop-disturbed-groups one 5 15) '())
+    (check-equal? (drop-disturbed-groups one 10 20) '()))
+
+  (test-case
+    "an edit that stops at either end of the form leaves its hints alone"
+    ;; an insert there goes next to the form rather than inside it, and a
+    ;; replace there rewrites the text beside the form, not the form
+    (check-equal? (summarize (drop-disturbed-groups one 10 10))
+                  '((((10 20)) (12))))
+    (check-equal? (summarize (drop-disturbed-groups one 20 20))
+                  '((((10 20)) (12))))
+    (check-equal? (summarize (drop-disturbed-groups one 0 10))
+                  '((((10 20)) (12))))
+    (check-equal? (summarize (drop-disturbed-groups one 20 30))
+                  '((((10 20)) (12)))))
+
+  (test-case
+    "a rewrite is judged by the text it replaced, not by the length it changed"
+    ;; rewriting [10, 20) with fifteen characters is the expand below, which
+    ;; is also what typing five characters after the form would be
+    (check-equal? (summarize (expand-groups one 20 25))
+                  '((((10 20)) (12))))
+    (check-equal? (drop-disturbed-groups one 10 20) '()))
 
   (test-case
     "a hint read from more than one form goes when any of them changes"
     ;; a constructor call names its arguments after a struct declared
     ;; elsewhere: editing that declaration changes what they mean
     (define with-declaration (list (group-at #:also (list (CharRange 100 130)))))
-    (check-equal? (expand-groups with-declaration 110 111) '())
-    (check-equal? (contract-groups with-declaration 100 130) '())
+    (check-equal? (drop-disturbed-groups with-declaration 110 111) '())
+    (check-equal? (drop-disturbed-groups with-declaration 100 130) '())
     (check-equal? (summarize (expand-groups with-declaration 0 5))
                   '((((15 25) (105 135)) (17))))))

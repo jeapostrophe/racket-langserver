@@ -23,39 +23,47 @@
 
 (provide inlay-hint%)
 
-;; Whether an edit changed the text inside `range`. An insert at either end of
-;; a form adds text next to it, not inside it, so only a strictly interior one
-;; counts; a delete counts as soon as it takes any of the form away.
-(define (insert-disturbs? range start _end)
-  (and (< (CharRange-start range) start)
-       (< start (CharRange-end range))))
+;; Whether replacing the text in [start, end) changed the text inside `range`.
+;; A replace reaches inside a form as soon as the two overlap. An insert is the
+;; empty interval, and it adds text next to a form rather than inside it, so
+;; only a strictly interior one counts.
+(define (replace-disturbs? range start end)
+  (if (= start end)
+      (and (< (CharRange-start range) start)
+           (< start (CharRange-end range)))
+      (and (< start (CharRange-end range))
+           (< (CharRange-start range) end))))
 
-(define (delete-disturbs? range start end)
-  (and (< start (CharRange-end range))
-       (< (CharRange-start range) end)))
+(define (drop-disturbed-groups groups start end)
+  (for/list ([group (in-list groups)]
+             #:unless (for/or ([range (in-list (Inlay-Hint-Group-sources group))])
+                        (replace-disturbs? range start end)))
+    group))
 
-(define (edit-group group disturbs? move-position move-range start end)
-  (define sources (Inlay-Hint-Group-sources group))
-  (and (not (for/or ([range (in-list sources)])
-              (disturbs? range start end)))
+;; The group with every position it holds moved, or #f when a source collapsed
+;; to nothing and it has no text left to describe.
+(define (move-group group move-position move-range start end)
+  (define sources
+    (for/list ([range (in-list (Inlay-Hint-Group-sources group))])
+      (move-range range start end)))
+  (and (andmap values sources)
        (Inlay-Hint-Group
-         (for/list ([range (in-list sources)])
-           (move-range range start end))
+         sources
          (for/list ([anchor (in-list (Inlay-Hint-Group-anchors group))])
            (struct-copy Inlay-Hint-Anchor anchor
              [pos (move-position (Inlay-Hint-Anchor-pos anchor) start end)])))))
 
-(define (edit-groups groups disturbs? move-position move-range start end)
+(define (move-groups groups move-position move-range start end)
   (for*/list ([group (in-list groups)]
-              [edited (in-value (edit-group group disturbs? move-position move-range start end))]
-              #:when edited)
-    edited))
+              [moved (in-value (move-group group move-position move-range start end))]
+              #:when moved)
+    moved))
 
 (define (expand-groups groups start end)
-  (edit-groups groups insert-disturbs? expand-position expand-char-range start end))
+  (move-groups groups expand-position expand-char-range start end))
 
 (define (contract-groups groups start end)
-  (edit-groups groups delete-disturbs? contract-position contract-char-range start end))
+  (move-groups groups contract-position contract-char-range start end))
 
 (define inlay-hint%
   (class base-service%
@@ -65,12 +73,12 @@
     (define pre-syntax #f)
     (define groups '())
 
-    ;; The hints drawn in [req-start, req-end], in the order they were read.
+    ;; The hints drawn in [req-start, req-end), in the order they were read.
     (define/public (hints-in-range req-start req-end)
       (for*/list ([group (in-list groups)]
                   [anchor (in-list (Inlay-Hint-Group-anchors group))]
-                  #:when (and (<= req-start (Inlay-Hint-Anchor-pos anchor) req-end)
-                              (< req-end (Inlay-Hint-Anchor-pos anchor))))
+                  #:when (and (<= req-start (Inlay-Hint-Anchor-pos anchor))
+                              (< (Inlay-Hint-Anchor-pos anchor) req-end)))
         anchor))
 
     (define/override (reset)
@@ -100,6 +108,13 @@
                    (source context pre-syntax)))]))
       ;; Read once; holding a syntax tree per open document is not worth it.
       (set! pre-syntax #f))
+
+    ;; `expand` and `contract` cannot say whether a hint's own text changed: a
+    ;; replace of the same length changes no length at all, and a longer one
+    ;; gains its characters at the end of the text it replaced, where typing
+    ;; after that text would gain them too.
+    (define/override (text-replaced start end)
+      (set! groups (drop-disturbed-groups groups start end)))
 
     (define/override (expand start end)
       (set! groups (expand-groups groups start end)))

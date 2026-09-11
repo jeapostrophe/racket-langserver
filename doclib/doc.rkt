@@ -185,6 +185,7 @@
 
   ;; try reuse old information as the check-syntax can fail
   ;; for updated code.
+  (send doc-trace text-replaced start end)
   (cond [(> new-len old-len) (send doc-trace expand end (+ start new-len))]
         [(< new-len old-len) (send doc-trace contract (+ start new-len) end)])
   (send doc-text replace text start end))

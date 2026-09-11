@@ -68,6 +68,10 @@
       (for ([s services])
         (send s reset)))
 
+    (define/public (text-replaced start end)
+      (for ([s services])
+        (send s text-replaced start end)))
+
     (define/public (expand start end)
       (for ([s services])
         (send s expand start end)))
