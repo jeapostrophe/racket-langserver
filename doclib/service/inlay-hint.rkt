@@ -69,7 +69,8 @@
     (define/public (hints-in-range req-start req-end)
       (for*/list ([group (in-list groups)]
                   [anchor (in-list (Inlay-Hint-Group-anchors group))]
-                  #:when (<= req-start (Inlay-Hint-Anchor-pos anchor) req-end))
+                  #:when (and (<= req-start (Inlay-Hint-Anchor-pos anchor) req-end)
+                              (< req-end (Inlay-Hint-Anchor-pos anchor))))
         anchor))
 
     (define/override (reset)
