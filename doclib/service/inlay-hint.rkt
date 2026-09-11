@@ -47,12 +47,7 @@
 
 (define (edit-groups groups disturbs? move-position move-range start end)
   (for*/list ([group (in-list groups)]
-              [edited (in-value (edit-group group
-                                            disturbs?
-                                            move-position
-                                            move-range
-                                            start
-                                            end))]
+              [edited (in-value (edit-group group disturbs? move-position move-range start end))]
               #:when edited)
     edited))
 
