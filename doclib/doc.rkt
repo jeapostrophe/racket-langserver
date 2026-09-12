@@ -444,7 +444,7 @@
 
 ;; Shared path for all formatting requests
 (define/contract (doc-format-edits doc fmt-range
-                                   #:formatting-options _opts
+                                   #:formatting-options opts
                                    #:on-type? [on-type? #f])
   (->* (Doc? Range? #:formatting-options FormattingOptions?)
        (#:on-type? boolean?)
@@ -459,6 +459,7 @@
      (formatting text
                  start-line
                  end-line
+                 #:formatting-options opts
                  #:src-dir (doc-src-dir doc)
                  #:interactive? on-type?)]
     [else '()]))

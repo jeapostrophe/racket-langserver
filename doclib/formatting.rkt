@@ -1,24 +1,33 @@
 #lang racket/base
 
-(require "external/fixw.rkt"
-         "../common/interfaces.rkt"
-         racket/port)
+(require racket/contract
+         "formatter/fixw.rkt"
+         "../common/interfaces.rkt")
 
 (provide formatting)
 
-(define (formatting text start-ln end-ln
-                    #:src-dir [src-dir #f]
-                    #:interactive? [interactive? #f])
-  (define original-lines (port->lines (open-input-string text)))
-  (define formatted-lines
-    (get-formatted-lines text src-dir #:interactive? interactive?))
-  (for/list ([original-line (in-list original-lines)]
-             [formatted-line (in-list formatted-lines)]
-             [ln (in-naturals)]
-             #:break (> ln end-ln)
-             #:when (and (<= start-ln ln end-ln)
-                         (not (string=? original-line formatted-line))))
-    (TextEdit #:range (Range (Pos ln 0)
-                             (Pos ln (string-length original-line)))
-              #:newText formatted-line)))
-
+(define/contract (formatting text start-ln end-ln
+                             #:formatting-options options
+                             #:backend [backend 'fixw]
+                             #:src-dir [src-dir #f]
+                             #:interactive? [interactive? #f])
+  (->* (string?
+        exact-nonnegative-integer?
+        exact-nonnegative-integer?
+        #:formatting-options FormattingOptions?)
+       (#:backend symbol?
+        #:src-dir (or/c path? #f)
+        #:interactive? boolean?)
+       (listof TextEdit?))
+  (case backend
+    [(fixw)
+     (fixw-format-edits text
+                        start-ln
+                        end-ln
+                        #:formatting-options options
+                        #:src-dir src-dir
+                        #:interactive? interactive?)]
+    [else
+     (raise-arguments-error 'formatting
+                            "formatter backend is not available"
+                            "backend" backend)]))
