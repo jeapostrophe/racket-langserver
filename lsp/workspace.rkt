@@ -5,7 +5,6 @@
          didChangeConfiguration
          update-configuration)
 (require compiler/module-suffix
-         json
          racket/match)
 (require "../common/json-util.rkt"
          "../common/path-util.rkt"
@@ -88,12 +87,35 @@
   (when (regexp-match (get-module-suffix-regexp) uri)
     (lsp-close-doc! uri)))
 
+(define (apply-langserver-settings settings)
+  (match-define (Langserver-Settings #:resyntax resyntax #:formatting formatting)
+    settings)
+  (match resyntax
+    [(Resyntax-Settings #:enable (and enable (not (? Nothing?))))
+     (set-resyntax-enabled! enable)]
+    [_ (void)])
+  (match formatting
+    [(Formatting-Configuration
+       #:document-formatter document-formatter
+       #:indentation-formatter indentation-formatter)
+     (set-formatting-settings!
+       (Formatting-Settings
+         (if (Nothing? document-formatter)
+             (Formatting-Settings-document-formatter default-formatting-settings)
+             (Document-Formatter-v document-formatter))
+         (if (Nothing? indentation-formatter)
+             (Formatting-Settings-indentation-formatter default-formatting-settings)
+             (Indentation-Formatter-v indentation-formatter))))]
+    [_ (void)]))
+
+;; `workspace/configuration` returns a list; `workspace/didChangeConfiguration`
+;; may send the settings object directly. Apply both process-wide, like resyntax.
 (define (update-configuration settings)
-  (for ([setting settings]
-        #:unless (equal? setting (json-null)))
-    (define key '(resyntax enable))
-    (when (jsexpr-has-key? setting key)
-      (set-resyntax-enabled! (jsexpr-ref setting key)))))
+  (match settings
+    [(as-Langserver-Settings-Update value)
+     (for ([item (in-list (if (list? value) value (list value)))])
+       (apply-langserver-settings item))]
+    [_ (void)]))
 
 (define (didChangeConfiguration params)
   (match-define (hash-table ['settings settings]) params)

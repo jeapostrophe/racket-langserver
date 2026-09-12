@@ -28,6 +28,48 @@ racket -l racket-langserver
 
 You may need to restart your LSP runtime or your editor for `racket-langserver` to start.
 
+## Configuration
+
+Set options in your editor's language-server settings under `racket-langserver`.
+The server reads that section through ordinary LSP configuration; there is no
+project configuration file.
+
+```json
+{
+  "racket-langserver": {
+    "resyntax": {
+      "enable": true
+    },
+    "formatting": {
+      "documentFormatter": "fmt",
+      "indentationFormatter": "drracket"
+    }
+  }
+}
+```
+
+Settings apply to the whole language-server process. Omitting a key keeps the
+current value, except that an omitted formatter key inside a `formatting`
+object uses that key's shipped default. Unknown values are ignored.
+
+### Resyntax
+
+`resyntax.enable` turns Resyntax diagnostics and code actions on or off. It
+defaults to `true`. Resyntax is an optional package; if it is not installed,
+the server runs normally and produces no Resyntax suggestions.
+
+### Formatting
+
+- `formatting.documentFormatter` is used for Format Document. Allowed values
+  are `fixw`, `drracket`, and `fmt`.
+- `formatting.indentationFormatter` is used for Format Selection and format on
+  type. Allowed values are `fixw` and `drracket`.
+- Both default to `fixw`, which is the previous-release behavior.
+
+The two formatter settings are independent, so a document can use `fmt` while
+range and on-type requests still indent with `drracket` or `fixw`. `fmt` is an
+optional package; install it with `raco pkg install fmt` before selecting it.
+
 ## Language Support
 
 The server recognizes language families and provides different levels of
@@ -69,8 +111,8 @@ The matrix rates expected usefulness for each language family. Expansion-based f
 | Semantic Tokens, Delta | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
 | Semantic Tokens, Full | ✅ | ✅ | ✅ | ⚠️ | ⚠️ | ⚠️ | ⚠️ |
 | Semantic Tokens, Range | ✅ | ✅ | ✅ | ⚠️ | ⚠️ | ⚠️ | ⚠️ |
-| Formatting | ✅ | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ |
-| Range Formatting | ✅ | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ |
+| Formatting | ✅ | ✅ | ✅ | ⚠️ | ❌ | ❌ | ❌ |
+| Range Formatting | ✅ | ✅ | ✅ | ⚠️ | ❌ | ❌ | ❌ |
 | On-Type Formatting | ✅ | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ |
 | Inlay Hints | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
 

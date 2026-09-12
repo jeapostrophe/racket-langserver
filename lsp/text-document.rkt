@@ -21,12 +21,15 @@
 
 (define client-capability-workspace/configuration? (make-parameter #f))
 (define client-capability-hierarchical-document-symbol? (make-parameter #f))
+;; The client query may include `scopeUri`; the callback still applies process-wide.
 (define (fetch-configuration request-client uri)
   (when (client-capability-workspace/configuration?)
     (request-client "workspace/configuration"
                     (->jsexpr
                       (ConfigurationParams
-                        #:items (list (ConfigurationItem #:scopeUri uri #:section "racket-langserver"))))
+                        #:items (list (ConfigurationItem
+                                        #:scopeUri uri
+                                        #:section "racket-langserver"))))
                     update-configuration)))
 
 ;;

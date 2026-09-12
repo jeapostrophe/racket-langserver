@@ -43,6 +43,12 @@
          (json-type-out InlayHint)
          (json-type-out ConfigurationItem)
          (json-type-out ConfigurationParams)
+         (json-type-out Resyntax-Settings)
+         (json-type-out Document-Formatter)
+         (json-type-out Indentation-Formatter)
+         (json-type-out Formatting-Configuration)
+         (json-type-out Langserver-Settings)
+         (json-type-out Langserver-Settings-Update)
          (json-type-out FileRename)
          (json-type-out RenameFilesParams)
          (json-type-out WorkspaceFolder)
@@ -227,6 +233,30 @@
 
 (define-json-struct ConfigurationParams
   [items (listof ConfigurationItem)])
+
+(define-json-struct Resyntax-Settings
+  [enable (optional boolean?)])
+
+(define-json-enum Document-Formatter
+  [fixw "fixw"]
+  [drracket "drracket"]
+  [fmt "fmt"])
+
+(define-json-enum Indentation-Formatter
+  [fixw "fixw"]
+  [drracket "drracket"])
+
+(define-json-struct Formatting-Configuration
+  [document-formatter (optional Document-Formatter) #:json documentFormatter]
+  [indentation-formatter (optional Indentation-Formatter) #:json indentationFormatter])
+
+(define-json-struct Langserver-Settings
+  [resyntax (optional Resyntax-Settings)]
+  [formatting (optional Formatting-Configuration)])
+
+(define-json-union Langserver-Settings-Update
+  Langserver-Settings
+  (listof Langserver-Settings))
 
 (define-json-struct FileRename
   [oldUri string?]

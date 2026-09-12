@@ -12,18 +12,32 @@ Several features also use the lexer from `syntax-color`. The lexer dispatches to
 
 ### Resyntax
 
-[Resyntax](https://github.com/jackfirth/resyntax) provides automated refactoring suggestions. If you have Resyntax installed, it is used automatically with no configuration. Suggestions appear as diagnostics and code actions in your editor. If Resyntax is not installed, the server works normally without it.
+[Resyntax](https://github.com/jackfirth/resyntax) provides automated refactoring
+suggestions. When the package is installed, it is enabled by default
+(`resyntax.enable`). Suggestions appear as diagnostics and code actions. Set
+`resyntax.enable` to `false` to turn them off. If Resyntax is not installed, the
+server works normally without it. See
+[Configuration](README.md#configuration).
 
-### racket-fixw
+### Formatters
 
-The Formatting feature uses [racket-fixw](https://github.com/6cdh/racket-fixw) for recognized sexp language indentation. This is a required dependency and is included when you install the server. Other external formatters can be supported, open an issue if you'd like one added.
+Formatting defaults to [racket-fixw](https://github.com/6cdh/racket-fixw), a
+required dependency included with the server. `formatting.documentFormatter`
+selects the Format Document backend (`fixw`, `drracket`, or `fmt`).
+`formatting.indentationFormatter` selects the Format Selection and format-on-type
+backend (`fixw` or `drracket`). Both default to `fixw`. The optional
+[fmt](https://pkgs.racket-lang.org/package/fmt) package can be selected for
+whole-document reflow after `raco pkg install fmt`. See
+[Configuration](README.md#configuration).
 
 ## Code Action *(requires expansion)*
 
 The Quick Fix menu offers two kinds of actions:
 
 - **Unused variable** suggests adding a `_` prefix to silence the warning.
-- **Refactoring** suggestions powered by Resyntax, shown when Resyntax is installed. Resyntax works automatically with no configuration needed. If it is not installed, these suggestions are simply not shown.
+- **Refactoring** suggestions powered by Resyntax, shown when Resyntax is
+  installed and `resyntax.enable` is true (the default). If it is not installed
+  or is disabled, these suggestions are not shown.
 
 Uses DrRacket's `check-syntax` for unused variable detection.
 
@@ -71,7 +85,12 @@ Language behavior: not filtered by language family. The server does not actively
 
 ## Formatting *(no expansion)*
 
-Indents Racket code by calling an external formatter. Currently uses [racket-fixw](https://github.com/6cdh/racket-fixw). Works for recognized sexp language families. Does not change anything for other languages.
+Formats recognized sexp language families. Format Document uses
+`formatting.documentFormatter` (`fixw`, `drracket`, or `fmt`; default `fixw`).
+Format Selection and format on type use `formatting.indentationFormatter`
+(`fixw` or `drracket`; default `fixw`). The two settings are independent, so
+`fmt` can reflow a whole file while local requests still indent. See
+[Configuration](README.md#configuration).
 
 Three trigger modes are supported:
 
@@ -79,7 +98,8 @@ Three trigger modes are supported:
 - Format selection - indents only the selected lines.
 - Format on type - indents when you press `)`, `]`, or Enter. Pressing `)` or `]` re-indents the enclosing form; pressing Enter re-indents the current line.
 
-Language behavior: only recognized sexp language families are supported. Other languages return no edits.
+Language behavior: recognized sexp language families support all three modes.
+Other languages return no edits.
 
 ## Hover *(requires expansion)*
 
