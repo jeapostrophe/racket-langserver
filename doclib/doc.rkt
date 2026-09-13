@@ -445,34 +445,53 @@
 ;; Shared path for all formatting requests
 (define/contract (doc-format-edits doc fmt-range
                                    #:formatting-options opts
+                                   #:backend [backend 'fixw]
                                    #:on-type? [on-type? #f])
   (->* (Doc? Range? #:formatting-options FormattingOptions?)
-       (#:on-type? boolean?)
+       (#:backend symbol?
+        #:on-type? boolean?)
        (or/c (listof TextEdit?) #f))
   (define doc-text (Doc-text doc))
   (define-values (start-line end-line)
     (formatting-range->lines doc-text fmt-range))
   (define text (send doc-text get-text))
-  (define policy (doc-language-policy doc))
+  (define lexer-state (doc-lexer-state doc))
+  (define policy (LexerState-language-policy lexer-state))
+  (define racket-fallback?
+    (eq? 'sexp (Language-Policy-body-mode policy)))
+  (define eligible?
+    (case backend
+      [(fixw) (Language-Policy-format? policy)]
+      ;; The DrRacket backend probes the reader hook itself. S-expression
+      ;; languages may additionally use syntax-color's standard fallback.
+      [(drracket) #t]
+      [else #t]))
   (cond
-    [(Language-Policy-format? policy)
+    [eligible?
      (formatting text
                  start-line
                  end-line
                  #:formatting-options opts
+                 #:backend backend
+                 #:racket-fallback? racket-fallback?
+                 #:lexer-snapshot (and (eq? backend 'drracket)
+                                       racket-fallback?
+                                       (LexerState-snapshot lexer-state))
                  #:src-dir (doc-src-dir doc)
                  #:interactive? on-type?)]
     [else '()]))
 
 (define/contract (doc-on-type-format-edits doc pos ch
-                                           #:formatting-options opts)
+                                           #:formatting-options opts
+                                           #:backend [backend 'fixw])
   (->* (Doc? Pos? string? #:formatting-options FormattingOptions?)
-       ()
+       (#:backend symbol?)
        (or/c (listof TextEdit?) #f))
   (cond
     [(doc-sexp-language? doc)
      (doc-format-edits doc
                        (doc-on-type-formatting-range doc pos ch)
+                       #:backend backend
                        #:on-type? #t
                        #:formatting-options opts)]
     [else '()]))
