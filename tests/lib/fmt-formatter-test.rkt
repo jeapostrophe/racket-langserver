@@ -18,7 +18,7 @@
     (parameterize ([current-fmt-program-format-loader
                     (lambda () (lambda (text) text))])
       (check-false
-       (fmt-format-document "(define x 1)" options))))
+        (fmt-format-document "(define x 1)" options))))
 
   (test-case
     "fmt replacement may change the document line count"
@@ -26,5 +26,5 @@
     (parameterize ([current-fmt-program-format-loader
                     (lambda () (lambda (_text) replacement))])
       (check-equal?
-       (fmt-format-document "(define x 1)" options)
-       replacement))))
+        (fmt-format-document "(define x 1)" options)
+        replacement))))

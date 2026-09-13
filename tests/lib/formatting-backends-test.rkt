@@ -50,21 +50,21 @@
     (define calls '())
     (define (loader)
       (make-keyword-procedure
-       (lambda (keywords keyword-values . arguments)
-         (set! calls (list keywords keyword-values arguments))
-         "#lang racket/base\n(define\n   x\n   1)\n")))
+        (lambda (keywords keyword-values . arguments)
+          (set! calls (list keywords keyword-values arguments))
+          "#lang racket/base\n(define\n   x\n   1)\n")))
     (define options
       (jsexpr->FormattingOptions
-       (hasheq 'tabSize 8
-               'insertSpaces #f
-               'trimTrailingWhitespace #t
-               'insertFinalNewline #t
-               'trimFinalNewlines #t
-               'width 91
-               'indent 3
-               'limit 40
-               'maxBlankLines 2
-               'unsupported "ignored")))
+        (hasheq 'tabSize 8
+                'insertSpaces #f
+                'trimTrailingWhitespace #t
+                'insertFinalNewline #t
+                'trimFinalNewlines #t
+                'width 91
+                'indent 3
+                'limit 40
+                'maxBlankLines 2
+                'unsupported "ignored")))
     (check-true (FormattingOptions? options))
     (define text "#lang racket/base\n(define x 1)")
     (parameterize ([current-fmt-program-format-loader loader])
@@ -76,8 +76,8 @@
                     #:editor (editor-with text)
                     #:formatting-options options)
         (list
-         (TextEdit (Range (Pos 0 0) (Pos 1 12))
-                   "#lang racket/base\n(define\n   x\n   1)\n"))))
+          (TextEdit (Range (Pos 0 0) (Pos 1 12))
+                    "#lang racket/base\n(define\n   x\n   1)\n"))))
     (check-equal? calls
                   (list '(#:indent #:limit #:max-blank-lines #:width)
                         '(3 40 2 91)
@@ -88,14 +88,14 @@
     (define calls '())
     (define (loader)
       (make-keyword-procedure
-       (lambda (keywords keyword-values . arguments)
-         (set! calls (list keywords keyword-values arguments))
-         (car arguments))))
+        (lambda (keywords keyword-values . arguments)
+          (set! calls (list keywords keyword-values arguments))
+          (car arguments))))
     (define zero-indent
       (jsexpr->FormattingOptions
-       (hasheq 'tabSize 2
-               'insertSpaces #t
-               'indent 0)))
+        (hasheq 'tabSize 2
+                'insertSpaces #t
+                'indent 0)))
     (check-true (FormattingOptions? zero-indent))
     (parameterize ([current-fmt-program-format-loader loader])
       (check-equal?
@@ -112,20 +112,20 @@
                         '("(define x 1)")))
     (define mistyped
       (jsexpr->FormattingOptions
-       (hasheq 'tabSize 2
-               'insertSpaces #t
-               'width "91")))
+        (hasheq 'tabSize 2
+                'insertSpaces #t
+                'width "91")))
     (check-true (FormattingOptions? mistyped))
     (check-exn
-     #rx"Fmt-Extra-Options"
-     (lambda ()
-       (parameterize ([current-fmt-program-format-loader loader])
-         (formatting "(define x 1)"
-                     0
-                     0
-                     #:backend 'fmt
-                     #:editor (editor-with "(define x 1)")
-                     #:formatting-options mistyped)))))
+      #rx"Fmt-Extra-Options"
+      (lambda ()
+        (parameterize ([current-fmt-program-format-loader loader])
+          (formatting "(define x 1)"
+                      0
+                      0
+                      #:backend 'fmt
+                      #:editor (editor-with "(define x 1)")
+                      #:formatting-options mistyped)))))
 
   (test-case
     "missing fmt reports the installation action"
@@ -150,10 +150,10 @@
     (parameterize ([current-fmt-program-format-loader
                     (lambda () (lambda (_text) replacement))])
       (check-equal?
-       (formatting original
-                   0
-                   0
-                   #:backend 'fmt
-                   #:editor (editor-with original)
-                   #:formatting-options (formatting-options 2 #t (hasheq)))
-       (list (TextEdit (Range (Pos 0 0) (Pos 2 0)) replacement))))))
+        (formatting original
+                    0
+                    0
+                    #:backend 'fmt
+                    #:editor (editor-with original)
+                    #:formatting-options (formatting-options 2 #t (hasheq)))
+        (list (TextEdit (Range (Pos 0 0) (Pos 2 0)) replacement))))))

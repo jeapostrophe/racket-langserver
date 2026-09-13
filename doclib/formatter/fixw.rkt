@@ -12,9 +12,9 @@
                                     #:src-dir [src-dir #f]
                                     #:interactive? [interactive? #f])
   (->* (string?
-        exact-nonnegative-integer?
-        exact-nonnegative-integer?
-        #:formatting-options FormattingOptions?)
+         exact-nonnegative-integer?
+         exact-nonnegative-integer?
+         #:formatting-options FormattingOptions?)
        (#:src-dir (or/c path? #f)
         #:interactive? boolean?)
        (listof TextEdit?))
