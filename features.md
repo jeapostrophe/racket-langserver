@@ -85,21 +85,32 @@ Language behavior: not filtered by language family. The server does not actively
 
 ## Formatting *(no expansion)*
 
-Formats recognized sexp language families. Format Document uses
+Formats documents without expansion. Format Document uses
 `formatting.documentFormatter` (`fixw`, `drracket`, or `fmt`; default `fixw`).
 Format Selection and format on type use `formatting.indentationFormatter`
 (`fixw` or `drracket`; default `fixw`). The two settings are independent, so
 `fmt` can reflow a whole file while local requests still indent. See
 [Configuration](README.md#configuration).
 
+`fixw` and `fmt` apply to recognized s-expression languages. `drracket` also
+supports Scribble and otherwise-unrecognized languages whose readers provide
+DrRacket indentation hooks. For other non-s-expression languages, a missing or
+failing hook returns no edits rather than falling back to a different
+formatter. Format on type remains restricted to recognized s-expression
+languages because it needs a safe syntax-derived local range. Only `fmt`
+consumes formatting options: the extra properties `width`, `indent`, `limit`,
+and `maxBlankLines`, each a nonnegative integer. Standard and unknown options
+are ignored.
+
 Three trigger modes are supported:
 
-- Format document - indents the whole file.
+- Format document - formats the whole file; `fmt` may also reflow it.
 - Format selection - indents only the selected lines.
 - Format on type - indents when you press `)`, `]`, or Enter. Pressing `)` or `]` re-indents the enclosing form; pressing Enter re-indents the current line.
 
 Language behavior: recognized sexp language families support all three modes.
-Other languages return no edits.
+With `drracket`, Scribble and custom reader languages with indentation hooks
+support document and range formatting. Other languages return no edits.
 
 ## Hover *(requires expansion)*
 
