@@ -8,7 +8,9 @@
          "../common/json-util.rkt"
          "responses.rkt"
          "safedoc.rkt"
+         "../common/settings.rkt"
          "../doclib/doc.rkt"
+         (only-in "../doclib/formatting.rkt" exn:fail:fmt-unavailable?)
          "../workspace/current.rkt"
          "compose/references.rkt"
          "semantic-token-lsp.rkt"
@@ -267,16 +269,24 @@
     [(hash-table ['textDocument (DocIdentifier-js #:uri uri)]
                  ['options (as-FormattingOptions opts)])
 
-     (define safe-doc (lsp-get-doc uri))
-     (with-read-doc safe-doc
-       (λ (doc)
-         (define start (doc-abs-pos->pos doc 0))
-         (define end (doc-abs-pos->pos doc (doc-end-abs-pos doc)))
-         (success/enc
-           id
-           (doc-format-edits doc
-                             (Range start end)
-                             #:formatting-options opts))))]
+     (with-handlers ([exn:fail:fmt-unavailable?
+                      (lambda (exn)
+                        (error-response id
+                                        -32803 ; LSP RequestFailed
+                                        (exn-message exn)))])
+       (define safe-doc (lsp-get-doc uri))
+       (define backend
+         (Formatting-Settings-document-formatter current-formatting-settings))
+       (with-read-doc safe-doc
+         (λ (doc)
+           (define start (doc-abs-pos->pos doc 0))
+           (define end (doc-abs-pos->pos doc (doc-end-abs-pos doc)))
+           (success/enc
+             id
+             (doc-format-edits doc
+                               (Range start end)
+                               #:backend backend
+                               #:formatting-options opts)))))]
     [_
      (error-response id ErrorCode-InvalidParams "textDocument/formatting failed")]))
 
@@ -287,11 +297,16 @@
                  ['range (as-Range range)]
                  ['options (as-FormattingOptions opts)])
      (define safe-doc (lsp-get-doc uri))
+     (define backend
+       (Formatting-Settings-indentation-formatter current-formatting-settings))
      (with-read-doc safe-doc
        (λ (doc)
          (success/enc
            id
-           (doc-format-edits doc range #:formatting-options opts))))]
+           (doc-format-edits doc
+                             range
+                             #:backend backend
+                             #:formatting-options opts))))]
     [_
      (error-response id ErrorCode-InvalidParams "textDocument/rangeFormatting failed")]))
 
@@ -306,12 +321,15 @@
                  ['ch ch]
                  ['options (as-FormattingOptions opts)])
      (define safe-doc (lsp-get-doc uri))
+     (define backend
+       (Formatting-Settings-indentation-formatter current-formatting-settings))
 
      (with-read-doc safe-doc
        (λ (doc)
          (success/enc
            id
            (doc-on-type-format-edits doc pos ch
+                                     #:backend backend
                                      #:formatting-options opts))))]
     [_
      (error-response id ErrorCode-InvalidParams "textDocument/onTypeFormatting failed")]))
@@ -391,4 +409,3 @@
 
   client-capability-workspace/configuration?
   client-capability-hierarchical-document-symbol?)
-
