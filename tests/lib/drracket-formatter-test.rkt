@@ -24,7 +24,7 @@
                      #:trim-trailing-whitespace #f
                      #:insert-final-newline #f
                      #:trim-final-newlines #f
-                     #:key #f))
+                     #:extras (hasheq)))
 
 (define default-options (options 2 #t))
 

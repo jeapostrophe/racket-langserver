@@ -80,7 +80,8 @@
 ;;
 ;;   (define-json-struct Name
 ;;     [field type-spec]
-;;     [field type-spec #:json json-key] ...)
+;;     [field type-spec #:json json-key] ...
+;;     #:rest rest-field)
 ;;
 ;;   (define-json-enum Name
 ;;     [variant jsexpr] ...)
@@ -154,6 +155,8 @@
 ;;
 ;; Constructors accept positional or keyword arguments; mixing both is an error.
 ;; Duplicate or unknown keywords are rejected at compile time.
+;; A `#:rest` field holds a hash of otherwise-unclaimed JSON properties. It is
+;; flattened back into the surrounding object when the struct is encoded.
 ;;
 ;; Enum:
 ;;   (Name 'variant)          constructor
@@ -374,21 +377,28 @@
       (set-add! seen key)))
 
   ;; Generates the internal struct definition with JSON serialization method and contracts.
-  (define (gen-contracted-struct stx iname fields contracts json-keys accessors)
+  (define (gen-contracted-struct stx iname fields contracts json-keys accessors rest-accessor)
+    (define serializer
+      (with-syntax ([(jk ...) json-keys]
+                    [(acc ...) accessors]
+                    [init (if rest-accessor
+                              #`(->jsexpr (#,rest-accessor self))
+                              #'(hasheq))])
+        #'(for/fold ([result init])
+                    ([key (in-list '(jk ...))]
+                     [value (in-list (list (acc self) ...))]
+                     #:unless (Nothing? value))
+            (hash-set result key (->jsexpr value)))))
     (with-syntax ([iname iname]
                   [(fld ...) fields]
                   [(ctc ...) contracts]
-                  [(jk ...) json-keys]
-                  [(acc ...) accessors])
+                  [serializer serializer])
       #'(struct iname (fld ...)
           #:transparent
           #:guard (struct-guard/c ctc ...)
           #:methods gen:jsexpr-struct
           [(define (struct->jsexpr self)
-             (for/hasheq ([k (list 'jk ...)]
-                          [v (list (acc self) ...)]
-                          #:unless (Nothing? v))
-               (values k (->jsexpr v))))])))
+             serializer)])))
 
   ;; Public aliases for the accessors.
   (define (gen-public-accessors public-accessors accessors)
@@ -416,9 +426,17 @@
                ...))))
 
   ;; Generates jsexpr->Name decoder.
-  (define (gen-json-decoder stx decoder-name name keyword-constructor-id json-keys keywords fields decoders labels)
+  (define (gen-json-decoder stx decoder-name name keyword-constructor-id json-keys keywords
+                            fields decoders labels rest-keyword)
     (define input-id (datum->syntax stx 'js))
     (define decoder-symbol-expr (quote-datum decoder-name))
+    (define rest-value
+      (and rest-keyword
+           (with-syntax ([input input-id]
+                         [(jk ...) json-keys])
+             #'(for/hasheq ([(key value) (in-hash input)]
+                            #:unless (memq key '(jk ...)))
+                 (values key value)))))
     (define field-values
       (for/list ([jk json-keys]
                  [fld fields]
@@ -443,11 +461,15 @@
                   [input input-id]
                   [keyword-constructor keyword-constructor-id]
                   [(kw ...) keywords]
-                  [(fv ...) field-values])
+                  [(fv ...) field-values]
+                  [(rest-arg ...)
+                   (if rest-keyword
+                       (list rest-keyword rest-value)
+                       '())])
       #'(define (decoder-name input)
           (unless (hash? input)
             (error decoder-symbol "expected hash, got ~v" input))
-          (keyword-constructor (~@ kw fv) ...))))
+          (keyword-constructor (~@ kw fv) ... rest-arg ...))))
 
   ;; Generates as-Name / ^Name match expanders and helper decoder wrapper.
   (define (gen-as-match-expanders stx as-name decode-name try-decoder decoder-name name)
@@ -610,7 +632,8 @@
 ;; define-json-struct
 (define-syntax (define-json-struct stx)
   (syntax-parse stx
-    [(_ name:id clause:json-struct-clause ...+)
+    [(_ name:id clause:json-struct-clause ...+
+        (~optional (~seq #:rest rest-field:id) #:defaults ([rest-field #f])))
      ;; Extract normalized per-field metadata from `json-struct-clause`.
      (define fields (syntax->list #'(clause.field ...)))
      (define contracts (syntax->list #'(clause.type-pred ...)))
@@ -620,16 +643,35 @@
      (define optional-flags (attribute clause.optional?))
      (define json-keys (syntax->list #'(clause.json-key ...)))
      (define keywords (syntax->list #'(clause.keyword ...)))
+     (define rest-field-stx (attribute rest-field))
+     (when (and rest-field-stx
+                (for/or ([field (in-list fields)])
+                  (free-identifier=? rest-field-stx field)))
+       (raise-syntax-error 'define-json-struct
+                           "rest field duplicates a declared field"
+                           rest-field-stx))
+     (define all-fields
+       (if rest-field-stx (append fields (list rest-field-stx)) fields))
+     (define all-contracts
+       (if rest-field-stx
+           (append contracts (list #'hash?))
+           contracts))
+     (define rest-keyword
+       (and rest-field-stx (symbol->keyword (syntax-e rest-field-stx))))
+     (define all-keywords
+       (if rest-field-stx (append keywords (list rest-keyword)) keywords))
 
      ;; Generate identifiers once and reuse to avoid drift between definitions.
      (define iname (json-struct-internal-id #'name))
      (define keyword-constructor-id (json-struct-keyword-constructor-id #'name))
      (define accessors
-       (for/list ([f fields])
+       (for/list ([f all-fields])
          (json-struct-accessor-id #'name f)))
      (define public-accessors
-       (for/list ([f fields])
+       (for/list ([f all-fields])
          (json-public-accessor-id #'name f)))
+     (define regular-accessors (take accessors (length fields)))
+     (define rest-accessor (and rest-field-stx (last accessors)))
      (define struct-pred-internal (json-struct-predicate-internal-id #'name))
      (define pred (name->pred-id #'name))
      (define name-js-pred (name->js-pred-id #'name))
@@ -644,15 +686,22 @@
      (datum->syntax
        stx
        `(begin
-          ,(gen-contracted-struct stx iname fields contracts json-keys accessors)
-          ,(gen-kw-constructor keyword-constructor-id iname fields keywords contracts struct-pred-internal)
+          ,(gen-contracted-struct stx iname all-fields all-contracts json-keys
+                                  regular-accessors rest-accessor)
+          ,(gen-kw-constructor keyword-constructor-id iname all-fields all-keywords
+                               all-contracts struct-pred-internal)
           ,@(gen-public-accessors public-accessors accessors)
           (define ,pred ,struct-pred-internal)
 
-          ,(gen-struct-match-expander stx #'name iname keyword-constructor-id keywords fields json-keys)
+          ,(gen-struct-match-expander stx #'name iname keyword-constructor-id all-keywords
+                                      all-fields
+                                      (if rest-field-stx
+                                          (append json-keys (list rest-field-stx))
+                                          json-keys))
           ,(gen-json-match-expander stx name-js keywords fields json-keys)
           ,(gen-json-predicate stx name-js-pred json-keys json-preds optional-flags)
-          ,(gen-json-decoder stx decoder-name #'name keyword-constructor-id json-keys keywords fields decoders labels)
+          ,(gen-json-decoder stx decoder-name #'name keyword-constructor-id json-keys keywords
+                             fields decoders labels rest-keyword)
           ,(gen-as-match-expanders stx as-name decode-name try-decoder decoder-name #'name)
 
           ,(gen-exports name-exports #'name pred public-accessors name-js name-js-pred decoder-name as-name decode-name))

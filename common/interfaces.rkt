@@ -299,7 +299,7 @@
   [trim-trailing-whitespace (optional boolean?) #:json trimTrailingWhitespace]
   [insert-final-newline (optional boolean?) #:json insertFinalNewline]
   [trim-final-newlines (optional boolean?) #:json trimFinalNewlines]
-  [key (contract (or/c false/c (optional/c hash?)))])
+  #:rest extras)
 
 ;; Character-offset range. Distinct from the protocol-level `Range`
 ;; (which uses line/char positions); this one uses zero-based absolute

@@ -306,7 +306,7 @@
                          #:trim-trailing-whitespace #t
                          #:insert-final-newline #f
                          #:trim-final-newlines #f
-                         #:key #f)) ;; tab-size 2
+                         #:extras (hasheq))) ;; tab-size 2
     (define edits (doc-format-edits d (Range (Pos 0 0) (Pos 2 0)) #:formatting-options opts))
     (check-equal? (length edits) 1)
     (check-true (andmap TextEdit? edits))
@@ -319,7 +319,7 @@
                          #:trim-trailing-whitespace #t
                          #:insert-final-newline #f
                          #:trim-final-newlines #f
-                         #:key #f))
+                         #:extras (hasheq)))
     (define edits4 (doc-format-edits d (Range (Pos 0 0) (Pos 2 0)) #:formatting-options opts4))
     (check-equal? (length edits4) 1)
     (check-true (andmap TextEdit? edits4))
@@ -333,7 +333,7 @@
                          #:trim-trailing-whitespace #t
                          #:insert-final-newline #f
                          #:trim-final-newlines #f
-                         #:key #f))
+                         #:extras (hasheq)))
 
     (define normal-doc
       (make-doc "file:///test.rkt"
@@ -362,7 +362,7 @@
                          #:trim-trailing-whitespace #t
                          #:insert-final-newline #f
                          #:trim-final-newlines #f
-                         #:key #f))
+                         #:extras (hasheq)))
 
     (define raw-doc
       (make-doc "file:///test.rkt" "(define x\n1)"))
@@ -389,7 +389,7 @@
                          #:trim-trailing-whitespace #t
                          #:insert-final-newline #f
                          #:trim-final-newlines #f
-                         #:key #f))
+                         #:extras (hasheq)))
 
     (define sexp-doc
       (make-doc "file:///test.rkt"
@@ -589,7 +589,7 @@
                          #:trim-trailing-whitespace #t
                          #:insert-final-newline #f
                          #:trim-final-newlines #f
-                         #:key #f))
+                         #:extras (hasheq)))
     (define edits (doc-format-edits d (Range (Pos 0 0) (Pos 2 0)) #:formatting-options opts))
     (check-equal?
       edits

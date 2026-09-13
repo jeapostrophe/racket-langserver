@@ -44,6 +44,11 @@
     [value string?]
     [children (listof TreeNode)])
 
+  (define-json-struct Extensible
+    [name string?]
+    [enabled (optional boolean?)]
+    #:rest extras)
+
   (define p-hash (hasheq 'line 10 'character 5))
   (define p-hash-2 (hasheq 'line 3 'character 30))
   (define p-hash-invalid (hasheq 'line "not-an-int" 'character 5))
@@ -149,6 +154,31 @@
     (check-equal? (->jsexpr r)
                   (hasheq 'start (hasheq 'line 1 'character 10)
                           'end (hasheq 'line 2 'character 20))))
+
+  (test-case "rest fields decode and encode as direct object properties"
+    (define json
+      (hasheq 'name "tool"
+              'enabled #t
+              'count 3
+              'metadata (hasheq 'stable #t)))
+    (define decoded (jsexpr->Extensible json))
+    (check-equal? (Extensible-extras decoded)
+                  (hasheq 'count 3 'metadata (hasheq 'stable #t)))
+    (check-equal? (->jsexpr decoded) json)
+    (check-equal?
+      (->jsexpr
+        (Extensible #:name "declared"
+                    #:enabled (Nothing)
+                    #:extras (hasheq 'name "extra" 'count 1)))
+      (hasheq 'name "declared" 'count 1)))
+
+  (test-case "rest fields participate in decoded struct matching"
+    (check-equal?
+      (match (hasheq 'name "tool" 'count 3)
+        [(^Extensible #:name name #:extras extras)
+         (list name extras)]
+        [_ #f])
+      (list "tool" (hasheq 'count 3))))
 
   (test-case "decoding: recursive jsexpr->Range"
     (define decoded (jsexpr->Range r-hash))
@@ -339,4 +369,3 @@
         [(^Exported x) x]
         [_ #f])
       42)))
-

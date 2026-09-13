@@ -461,7 +461,7 @@
     (eq? 'sexp (Language-Policy-body-mode policy)))
   (define eligible?
     (case backend
-      [(fixw) (Language-Policy-format? policy)]
+      [(fixw fmt) (Language-Policy-format? policy)]
       ;; The DrRacket backend probes the reader hook itself. S-expression
       ;; languages may additionally use syntax-color's standard fallback.
       [(drracket) #t]
@@ -473,6 +473,7 @@
                  end-line
                  #:formatting-options opts
                  #:backend backend
+                 #:editor doc-text
                  #:racket-fallback? racket-fallback?
                  #:lexer-snapshot (and (eq? backend 'drracket)
                                        racket-fallback?
