@@ -49,7 +49,7 @@
       expected))
 
   (test-case
-    "fmt forwards supported extension options and ignores all others"
+    "fmt forwards fmtSettings and ignores Format Document extras"
     (define calls '())
     (define (runner arguments text)
       (set! calls (list arguments text))
@@ -61,11 +61,15 @@
                 'trimTrailingWhitespace #t
                 'insertFinalNewline #t
                 'trimFinalNewlines #t
-                'width 91
-                'indent 3
+                'width 40
+                'indent 8
                 'limit 40
-                'maxBlankLines 2
+                'maxBlankLines 9
                 'unsupported "ignored")))
+    (define fmt-settings
+      (jsexpr->Fmt-Settings (hasheq 'width 91
+                                    'indent 3
+                                    'maxBlankLines 2)))
     (check-true (FormattingOptions? options))
     (parameterize ([current-fmt-runner runner])
       (check-equal?
@@ -73,6 +77,7 @@
                     0
                     1
                     #:backend 'fmt
+                    #:fmt-settings fmt-settings
                     #:formatting-options options)
         (list
           (TextEdit (Range (Pos 0 0) (Pos 1 12))
@@ -82,43 +87,25 @@
                         racket-text)))
 
   (test-case
-    "fmt forwards a zero extra option and rejects a mistyped extra"
+    "fmt forwards a zero fmtSettings value"
     (define calls '())
     (define (runner arguments text)
       (set! calls (list arguments text))
       (values 0 text ""))
     (define zero-indent
-      (jsexpr->FormattingOptions
-        (hasheq 'tabSize 2
-                'insertSpaces #t
-                'indent 0)))
-    (check-true (FormattingOptions? zero-indent))
+      (jsexpr->Fmt-Settings (hasheq 'indent 0)))
     (parameterize ([current-fmt-runner runner])
       (check-equal?
         (formatting (editor-with racket-text)
                     0
                     0
                     #:backend 'fmt
-                    #:formatting-options zero-indent)
+                    #:fmt-settings zero-indent
+                    #:formatting-options (formatting-options 2 #t (hasheq)))
         '()))
     (check-equal? calls
                   (list '("--indent" "0")
-                        racket-text))
-    (define mistyped
-      (jsexpr->FormattingOptions
-        (hasheq 'tabSize 2
-                'insertSpaces #t
-                'width "91")))
-    (check-true (FormattingOptions? mistyped))
-    (check-exn
-      #rx"Fmt-Extra-Options"
-      (lambda ()
-        (parameterize ([current-fmt-runner runner])
-          (formatting (editor-with racket-text)
-                      0
-                      0
-                      #:backend 'fmt
-                      #:formatting-options mistyped)))))
+                        racket-text)))
 
   (test-case
     "missing fmt reports the installation action"

@@ -28,6 +28,7 @@
 (define/contract (formatting doc-text start-ln end-ln
                              #:formatting-options options
                              #:backend [backend 'fixw]
+                             #:fmt-settings [fmt-settings empty-fmt-settings]
                              #:lexer-state [lexer-state #f]
                              #:src-dir [src-dir #f]
                              #:interactive? [interactive? #f])
@@ -36,6 +37,7 @@
         exact-nonnegative-integer?
         #:formatting-options FormattingOptions?)
        (#:backend symbol?
+        #:fmt-settings Fmt-Settings?
         #:lexer-state (or/c LexerState? #f)
         #:src-dir (or/c path? #f)
         #:interactive? boolean?)
@@ -66,7 +68,7 @@
                             #:src-dir src-dir
                             #:interactive? interactive?)]
     [(fmt)
-     (define formatted (fmt-format-document text options))
+     (define formatted (fmt-format-document text fmt-settings))
      (if formatted
          (list (TextEdit #:range (Range (Pos 0 0)
                                         (abs-pos->Pos doc-text (send doc-text end-pos)))

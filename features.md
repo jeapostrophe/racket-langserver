@@ -108,11 +108,11 @@ Backends:
   Scribble, and any language whose reader provides a `drracket:indentation` or
   `drracket:range-indentation` hook.
 - `fmt` - whole-document formatter using the stable `raco fmt` command-line
-  interface. Consumes the extra properties `width`, `indent`, and
-  `maxBlankLines` (each a nonnegative integer). Standard LSP options and
-  unknown properties are ignored. If `fmt` is uninstalled or `raco fmt` fails,
-  the Format Document request fails instead of falling back. Install with
-  `raco pkg install fmt`.
+  interface. Optional `formatting.fmtSettings` (`width`, `indent`,
+  `maxBlankLines`) are nonnegative integers passed to `raco fmt`. Omit a key
+  to keep `fmt`'s defaults. If `fmt` is uninstalled or `raco fmt` fails, the
+  Format Document request fails instead of falling back. Install with
+  `raco pkg install fmt`. See [Configuration](README.md#configuration).
 
 Language behavior: recognized s-expression language families support all three
 trigger modes. For other languages, document and range formatting automatically

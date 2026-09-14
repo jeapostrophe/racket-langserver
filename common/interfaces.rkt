@@ -46,6 +46,7 @@
          (json-type-out Resyntax-Settings)
          (json-type-out Document-Formatter)
          (json-type-out Indentation-Formatter)
+         (json-type-out Fmt-Settings)
          (json-type-out Formatting-Configuration)
          (json-type-out Langserver-Settings)
          (json-type-out Langserver-Settings-Update)
@@ -244,9 +245,15 @@
   [fixw "fixw"]
   [drracket "drracket"])
 
+(define-json-struct Fmt-Settings
+  [indent (optional exact-nonnegative-integer?)]
+  [max-blank-lines (optional exact-nonnegative-integer?) #:json maxBlankLines]
+  [width (optional exact-nonnegative-integer?)])
+
 (define-json-struct Formatting-Configuration
   [document-formatter (optional Document-Formatter) #:json documentFormatter]
-  [indentation-formatter (optional Indentation-Formatter) #:json indentationFormatter])
+  [indentation-formatter (optional Indentation-Formatter) #:json indentationFormatter]
+  [fmt-settings (optional Fmt-Settings) #:json fmtSettings])
 
 (define-json-struct Langserver-Settings
   [resyntax (optional Resyntax-Settings)]

@@ -3,6 +3,8 @@
           (for-label racket
                      (file "../doclib/doc.rkt")
                      (file "../common/interfaces.rkt")
+                     (only-in (file "../doclib/formatter/fmt.rkt")
+                              empty-fmt-settings)
                      (only-in (file "../workspace/api.rkt")
                               Workspace?
                               make-workspace
@@ -317,11 +319,9 @@ from @tt{racket-langserver/json-util}. Nested struct values are encoded recursiv
   The @tt{extras} hash contains otherwise-unclaimed JSON properties and is
   flattened into the object when encoded.
 
-  The @racket['fmt] backend invokes the stable @exec{raco fmt} command-line
-  interface and consumes the extra properties @tt{width}, @tt{indent}, and
-  @tt{maxBlankLines} when their values are exact nonnegative integers. Other
-  extra properties and all standard LSP formatting options are currently ignored
-  by the formatter backends.
+  All formatter backends currently ignore standard LSP formatting options and
+  extra properties. The @racket['fmt] backend reads @tt{width}, @tt{indent},
+  and @tt{maxBlankLines} from workspace @tt{fmtSettings} instead.
 
   The corresponding JSON field names use camelCase:
   @tt{tabSize}, @tt{insertSpaces}, @tt{trimTrailingWhitespace}, @tt{insertFinalNewline},
@@ -816,6 +816,7 @@ Exceptions are noted in individual entries.
                       [fmt-range Range?]
                       [#:formatting-options opts FormattingOptions?]
                       [#:backend backend symbol? 'fixw]
+                      [#:fmt-settings fmt-settings Fmt-Settings? empty-fmt-settings]
                       [#:on-type? on-type? boolean? #f])
          (listof TextEdit?)]{
   Computes formatting edits for the lines covered by @tt{fmt-range}. The
@@ -831,6 +832,8 @@ Exceptions are noted in individual entries.
   @racket['fmt] formats the complete document and may return one replacement
   whose line count differs from the original. LSP range and on-type requests
   never select it; they use the separately configured indentation backend.
+  @racket['fmt] also consumes @tt{fmt-settings} (@tt{width}, @tt{indent}, and
+  @tt{maxBlankLines}) from workspace configuration.
 
   When @tt{on-type?} is @racket[#t], blank lines are indented too. For LSP
   on-type formatting requests, prefer @racket[doc-on-type-format-edits].

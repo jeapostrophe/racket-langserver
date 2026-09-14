@@ -1,6 +1,7 @@
 #lang racket/base
 
-(require racket/contract)
+(require racket/contract
+         "interfaces.rkt")
 
 (provide get-resyntax-enabled
          set-resyntax-enabled!
@@ -22,11 +23,12 @@
 ;; selections distinct instead of silently substituting one for the other.
 (struct/contract Formatting-Settings
   ([document-formatter (or/c 'fixw 'drracket 'fmt)]
-   [indentation-formatter (or/c 'fixw 'drracket)])
+   [indentation-formatter (or/c 'fixw 'drracket)]
+   [fmt-settings Fmt-Settings?])
   #:transparent)
 
 (define default-formatting-settings
-  (Formatting-Settings 'fixw 'fixw))
+  (Formatting-Settings 'fixw 'fixw (jsexpr->Fmt-Settings (hasheq))))
 
 ;; Process-wide, like `resyntax-enabled?`.
 (define current-formatting-settings default-formatting-settings)

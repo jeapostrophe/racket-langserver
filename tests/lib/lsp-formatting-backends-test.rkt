@@ -44,7 +44,7 @@
     (with-open-document
       racket-uri
       racket-text
-      (Formatting-Settings 'fmt 'drracket)
+      (Formatting-Settings 'fmt 'drracket empty-fmt-settings)
       (lambda ()
         (parameterize ([current-fmt-runner
                         (lambda (_arguments _text)
@@ -57,11 +57,32 @@
             "#lang racket/base\n(define\n  x\n  1)\n")))))
 
   (test-case
+    "document formatting forwards fmtSettings to fmt"
+    (define calls '())
+    (define fmt-settings
+      (jsexpr->Fmt-Settings (hasheq 'width 91
+                                    'indent 3
+                                    'maxBlankLines 2)))
+    (with-open-document
+      racket-uri
+      racket-text
+      (Formatting-Settings 'fmt 'drracket fmt-settings)
+      (lambda ()
+        (parameterize ([current-fmt-runner
+                        (lambda (arguments text)
+                          (set! calls (list arguments text))
+                          (values 0 racket-text ""))])
+          (void (formatting! 7 document-params))
+          (check-equal? calls
+                        (list '("--indent" "3" "--max-blank-lines" "2" "--width" "91")
+                              racket-text))))))
+
+  (test-case
     "scribble document formatting uses DrRacket when fmt is selected"
     (with-open-document
       scribble-uri
       scribble-text
-      (Formatting-Settings 'fmt 'fixw)
+      (Formatting-Settings 'fmt 'fixw empty-fmt-settings)
       (lambda ()
         (parameterize ([current-fmt-runner
                         (lambda (_arguments _text)
@@ -84,7 +105,7 @@
     (with-open-document
       scribble-uri
       scribble-text
-      (Formatting-Settings 'fmt 'drracket)
+      (Formatting-Settings 'fmt 'drracket empty-fmt-settings)
       (lambda ()
         ;; Scribble is not an s-expression language, so either formatter
         ;; selection reaches DrRacket. The focused edits still include the
@@ -105,7 +126,7 @@
     (with-open-document
       racket-uri
       racket-text
-      (Formatting-Settings 'fmt 'drracket)
+      (Formatting-Settings 'fmt 'drracket empty-fmt-settings)
       (lambda ()
         (parameterize ([current-fmt-runner
                         (lambda (_arguments _text)
@@ -120,7 +141,7 @@
     (with-open-document
       racket-uri
       racket-text
-      (Formatting-Settings 'fmt 'fixw)
+      (Formatting-Settings 'fmt 'fixw empty-fmt-settings)
       (lambda ()
         (parameterize ([current-fmt-runner
                         (lambda (_arguments _text)
@@ -138,7 +159,7 @@
     (with-open-document
       racket-uri
       racket-text
-      (Formatting-Settings 'fmt 'fixw)
+      (Formatting-Settings 'fmt 'fixw empty-fmt-settings)
       (lambda ()
         (parameterize ([current-fmt-runner
                         (lambda (_arguments _text)

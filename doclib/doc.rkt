@@ -12,6 +12,7 @@
          "doc-trace.rkt"
          "check-syntax-compat.rkt"
          "formatting.rkt"
+         (only-in "formatter/fmt.rkt" empty-fmt-settings)
          "internal-types.rkt"
          "lexer.rkt"
          (only-in "lexer/state.rkt"
@@ -444,9 +445,11 @@
 (define/contract (doc-format-edits doc fmt-range
                                    #:formatting-options opts
                                    #:backend [backend 'fixw]
+                                   #:fmt-settings [fmt-settings empty-fmt-settings]
                                    #:on-type? [on-type? #f])
   (->* (Doc? Range? #:formatting-options FormattingOptions?)
        (#:backend symbol?
+        #:fmt-settings Fmt-Settings?
         #:on-type? boolean?)
        (listof TextEdit?))
   (define doc-text (Doc-text doc))
@@ -457,6 +460,7 @@
               end-line
               #:formatting-options opts
               #:backend backend
+              #:fmt-settings fmt-settings
               #:lexer-state (doc-lexer-state doc)
               #:src-dir (doc-src-dir doc)
               #:interactive? on-type?))

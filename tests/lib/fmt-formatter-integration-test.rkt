@@ -22,7 +22,7 @@
 
 (define (fmt-available?)
   (with-handlers ([exn:fail:fmt-unavailable? (lambda (_exn) #f)])
-    (fmt-format-document source options)
+    (fmt-format-document source empty-fmt-settings)
     #t))
 
 (module+ test

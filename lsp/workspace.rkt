@@ -97,7 +97,8 @@
   (match formatting
     [(Formatting-Configuration
        #:document-formatter document-formatter
-       #:indentation-formatter indentation-formatter)
+       #:indentation-formatter indentation-formatter
+       #:fmt-settings fmt-settings)
      (set-formatting-settings!
        (Formatting-Settings
          (if (Nothing? document-formatter)
@@ -105,7 +106,10 @@
              (Document-Formatter-v document-formatter))
          (if (Nothing? indentation-formatter)
              (Formatting-Settings-indentation-formatter default-formatting-settings)
-             (Indentation-Formatter-v indentation-formatter))))]
+             (Indentation-Formatter-v indentation-formatter))
+         (if (Nothing? fmt-settings)
+             (Formatting-Settings-fmt-settings default-formatting-settings)
+             fmt-settings)))]
     [_ (void)]))
 
 ;; `workspace/configuration` returns a list; `workspace/didChangeConfiguration`

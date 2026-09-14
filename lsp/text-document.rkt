@@ -286,6 +286,8 @@
              (doc-format-edits doc
                                (Range start end)
                                #:backend backend
+                               #:fmt-settings 
+                               (Formatting-Settings-fmt-settings current-formatting-settings)
                                #:formatting-options opts)))))]
     [_
      (error-response id ErrorCode-InvalidParams "textDocument/formatting failed")]))

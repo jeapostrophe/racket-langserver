@@ -4,14 +4,6 @@
          "../../common/interfaces.rkt"
          "../../doclib/formatter/fmt.rkt")
 
-(define options
-  (FormattingOptions #:tab-size 2
-                     #:insert-spaces #t
-                     #:trim-trailing-whitespace #f
-                     #:insert-final-newline #f
-                     #:trim-final-newlines #f
-                     #:extras (hasheq)))
-
 (define racket-text "#lang racket/base\n(define x 1)")
 
 (module+ test
@@ -20,7 +12,7 @@
     (parameterize ([current-fmt-runner
                     (lambda (_arguments text) (values 0 text ""))])
       (check-false
-        (fmt-format-document racket-text options))))
+        (fmt-format-document racket-text empty-fmt-settings))))
 
   (test-case
     "fmt replacement may change the document line count"
@@ -28,5 +20,5 @@
     (parameterize ([current-fmt-runner
                     (lambda (_arguments _text) (values 0 replacement ""))])
       (check-equal?
-        (fmt-format-document racket-text options)
+        (fmt-format-document racket-text empty-fmt-settings)
         replacement))))
