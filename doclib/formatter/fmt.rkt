@@ -1,62 +1,84 @@
 #lang racket/base
 
 (require racket/contract
+         racket/port
+         racket/system
          "../../common/interfaces.rkt"
          "../../common/json-util.rkt")
 
-;; `fmt` is an optional package. Keep its only reference behind dynamic-require
-;; so the language server can load when the formatter is not installed.
+;; `fmt` is an optional package. Invoke only its stable `raco fmt`
+;; command-line interface so the language server does not depend on
+;; `fmt`'s internal library API.
 
 (provide fmt-format-document
-         current-fmt-program-format-loader
+         current-fmt-runner
+         (struct-out exn:fail:fmt)
          (struct-out exn:fail:fmt-unavailable))
 
-(struct exn:fail:fmt-unavailable exn:fail ())
+(struct exn:fail:fmt exn:fail ())
+(struct exn:fail:fmt-unavailable exn:fail:fmt ())
 
-(define current-fmt-program-format-loader
-  (make-parameter
-    (lambda ()
-      (dynamic-require 'fmt 'program-format))))
-
-(define (raise-fmt-unavailable cause)
+(define (raise-fmt-unavailable detail)
   (raise
     (exn:fail:fmt-unavailable
       (string-append
         "The fmt formatter is unavailable; install the optional Racket package "
         "with `raco pkg install fmt` and retry: "
-        (exn-message cause))
+        detail)
       (current-continuation-marks))))
 
-(define (load-fmt-program-format)
-  (with-handlers ([exn:fail? raise-fmt-unavailable])
-    ((current-fmt-program-format-loader))))
+(define (run-fmt arguments text)
+  (define raco (find-executable-path "raco"))
+  (unless raco
+    (raise-fmt-unavailable "could not find the raco executable"))
+  (define stdout (open-output-string))
+  (define stderr (open-output-string))
+  (define status
+    (parameterize ([current-input-port (open-input-string text)]
+                   [current-output-port stdout]
+                   [current-error-port stderr])
+      (apply system*/exit-code raco "fmt" arguments)))
+  (values status (get-output-string stdout) (get-output-string stderr)))
+
+(define current-fmt-runner (make-parameter run-fmt))
 
 ;; LSP extra properties stay raw jsexprs on FormattingOptions. This backend
 ;; parses only the keys it consumes; unknown extras are ignored by the decoder.
 (define-json-struct Fmt-Extra-Options
   [indent (optional exact-nonnegative-integer?)]
-  [limit (optional exact-nonnegative-integer?)]
   [max-blank-lines (optional exact-nonnegative-integer?) #:json maxBlankLines]
   [width (optional exact-nonnegative-integer?)])
 
-(define (fmt-keyword-options options)
-  ;; keyword-apply requires sorted keywords. Missing fields preserve fmt's own
-  ;; defaults; standard LSP options and unknown extension fields are ignored.
+(define (fmt-flag flag value)
+  (if (Nothing? value)
+      '()
+      (list flag (number->string value))))
+
+(define (fmt-command-options options)
+  ;; Missing fields preserve fmt's defaults. Standard LSP options and unknown
+  ;; extension fields are ignored.
   (define parsed
     (jsexpr->Fmt-Extra-Options (FormattingOptions-extras options)))
-  (define supported-options
-    (list (cons '#:indent (Fmt-Extra-Options-indent parsed))
-          (cons '#:limit (Fmt-Extra-Options-limit parsed))
-          (cons '#:max-blank-lines (Fmt-Extra-Options-max-blank-lines parsed))
-          (cons '#:width (Fmt-Extra-Options-width parsed))))
-  (for/lists (keywords keyword-values)
-             ([option (in-list supported-options)]
-              #:unless (Nothing? (cdr option)))
-    (values (car option) (cdr option))))
+  (append (fmt-flag "--indent" (Fmt-Extra-Options-indent parsed))
+          (fmt-flag "--max-blank-lines" (Fmt-Extra-Options-max-blank-lines parsed))
+          (fmt-flag "--width" (Fmt-Extra-Options-width parsed))))
+
+(define (fmt-command-unavailable? output)
+  (regexp-match? #rx"(?i:unrecognized command:[^\n]*fmt)" output))
+
+(define (raise-fmt-failed status stdout stderr)
+  (define output (string-append stderr stdout))
+  (if (fmt-command-unavailable? output)
+      (raise-fmt-unavailable output)
+      (raise
+        (exn:fail:fmt
+          (format "raco fmt command failed (exit status ~a): ~a" status output)
+          (current-continuation-marks)))))
 
 (define/contract (fmt-format-document text options)
   (-> string? FormattingOptions? (or/c string? #f))
-  (define-values (keywords keyword-values) (fmt-keyword-options options))
-  (define formatted
-    (keyword-apply (load-fmt-program-format) keywords keyword-values (list text)))
+  (define-values (status formatted stderr)
+    ((current-fmt-runner) (fmt-command-options options) text))
+  (unless (zero? status)
+    (raise-fmt-failed status formatted stderr))
   (and (not (string=? text formatted)) formatted))

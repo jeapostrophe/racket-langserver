@@ -12,19 +12,21 @@
                      #:trim-final-newlines #f
                      #:extras (hasheq)))
 
+(define racket-text "#lang racket/base\n(define x 1)")
+
 (module+ test
   (test-case
     "unchanged fmt output produces no replacement"
-    (parameterize ([current-fmt-program-format-loader
-                    (lambda () (lambda (text) text))])
+    (parameterize ([current-fmt-runner
+                    (lambda (_arguments text) (values 0 text ""))])
       (check-false
-        (fmt-format-document "(define x 1)" options))))
+        (fmt-format-document racket-text options))))
 
   (test-case
     "fmt replacement may change the document line count"
-    (define replacement "(define\n  x\n  1)\n")
-    (parameterize ([current-fmt-program-format-loader
-                    (lambda () (lambda (_text) replacement))])
+    (define replacement "#lang racket/base\n(define\n  x\n  1)\n")
+    (parameterize ([current-fmt-runner
+                    (lambda (_arguments _text) (values 0 replacement ""))])
       (check-equal?
-        (fmt-format-document "(define x 1)" options)
+        (fmt-format-document racket-text options)
         replacement))))

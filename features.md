@@ -92,25 +92,34 @@ Format Selection and format on type use `formatting.indentationFormatter`
 `fmt` can reflow a whole file while local requests still indent. See
 [Configuration](README.md#configuration).
 
-`fixw` and `fmt` apply to recognized s-expression languages. `drracket` also
-supports Scribble and otherwise-unrecognized languages whose readers provide
-DrRacket indentation hooks. For other non-s-expression languages, a missing or
-failing hook returns no edits rather than falling back to a different
-formatter. Format on type remains restricted to recognized s-expression
-languages because it needs a safe syntax-derived local range. Only `fmt`
-consumes formatting options: the extra properties `width`, `indent`, `limit`,
-and `maxBlankLines`, each a nonnegative integer. Standard and unknown options
-are ignored.
-
 Three trigger modes are supported:
 
 - Format document - formats the whole file; `fmt` may also reflow it.
 - Format selection - indents only the selected lines.
-- Format on type - indents when you press `)`, `]`, or Enter. Pressing `)` or `]` re-indents the enclosing form; pressing Enter re-indents the current line.
+- Format on type - indents when you press `)`, `]`, or Enter. Pressing
+  `)` or `]` re-indents the enclosing form; pressing Enter re-indents the
+  current line.
 
-Language behavior: recognized sexp language families support all three modes.
-With `drracket`, Scribble and custom reader languages with indentation hooks
-support document and range formatting. Other languages return no edits.
+Backends:
+
+- `fixw` (default) - fast line-by-line indenter for recognized s-expression
+  languages.
+- `drracket` - headless DrRacket-compatible indenter. Indents s-expression code,
+  Scribble, and any language whose reader provides a `drracket:indentation` or
+  `drracket:range-indentation` hook.
+- `fmt` - whole-document formatter using the stable `raco fmt` command-line
+  interface. Consumes the extra properties `width`, `indent`, and
+  `maxBlankLines` (each a nonnegative integer). Standard LSP options and
+  unknown properties are ignored. If `fmt` is uninstalled or `raco fmt` fails,
+  the Format Document request fails instead of falling back. Install with
+  `raco pkg install fmt`.
+
+Language behavior: recognized s-expression language families support all three
+trigger modes. For other languages, document and range formatting automatically
+use `drracket` even when `fixw` or `fmt` is selected; `drracket` indents
+Scribble and custom reader languages with indentation hooks, returning no edits
+if a hook is missing or fails. Format on type is restricted to recognized
+s-expression languages because it requires a safe syntax-derived local range.
 
 ## Hover *(requires expansion)*
 

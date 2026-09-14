@@ -77,7 +77,7 @@
     (define attributes (send textoid classify-position* 0))
     (check-true (immutable? attributes))
     (check-equal? (hash-ref attributes 'type) 'parenthesis)
-    (check-equal? (send textoid paragraph-start-position 99 #t) 10)
+    (check-equal? (send textoid paragraph-start-position 99 #t) 12)
     (check-equal? (send textoid paragraph-end-position 99 #t) 12)
     (check-equal? (send (make-textoid " x")
                         skip-whitespace 1 'backward #f)
@@ -133,7 +133,12 @@
       (LexerSnapshot text (vector (LexerTokenSpan 1 99 'symbol))))
     (check-equal?
       (textoid-observations (make-textoid-from-lexer-snapshot malformed))
-      (textoid-observations (make-textoid text))))
+      (textoid-observations (make-textoid text)))
+    (define gapped
+      (LexerSnapshot "ab" (vector (LexerTokenSpan 0 1 'symbol))))
+    (check-equal?
+      (textoid-observations (make-textoid-from-lexer-snapshot gapped))
+      (textoid-observations (make-textoid "ab"))))
 
   (test-case
     "leading-whitespace updates agree with a fresh full lex"
@@ -159,6 +164,48 @@
                     (textoid-observations (make-textoid expected-text))))
     (check-false
       (textoid-replace-leading-whitespace (make-textoid " x") 0 1 "\n")))
+
+  (test-case
+    "line-prefix updates preserve delimiter settings across rebuilds"
+    (define parens '((|(| |]|)))
+    (for ([textoid (in-list
+                     (list (make-textoid "(x]" #:paren-matches parens)
+                           (make-textoid-from-lexer-snapshot
+                             (build-lexer-snapshot "(x]") #:paren-matches parens)))])
+      ;; No preceding whitespace token exists, so the first insertion rebuilds.
+      (define rebuilt (textoid-replace-line-prefix! textoid 0 0 " "))
+      (check-not-false rebuilt)
+      (check-false (eq? textoid rebuilt))
+      (check-equal? (textoid-content textoid) "(x]")
+      (check-equal? (send rebuilt forward-match 1 5) 4)
+      (define updated (textoid-replace-line-prefix! rebuilt 0 1 "  "))
+      (check-eq? updated rebuilt)
+      (check-equal? (textoid-observations updated)
+                    (textoid-observations (make-textoid "  (x]" #:paren-matches parens)))))
+
+  (test-case
+    "line-prefix rebuilds retain the reader directory and preserve state on failure"
+    (define header "#lang reader \"formatter-hook-reader.rkt\"")
+    (define text (newlines header "value"))
+    (for ([textoid (in-list
+                     (list (make-textoid text #:source-directory fixtures-directory)
+                           (make-textoid-from-lexer-snapshot
+                             (build-lexer-snapshot text (fixture-uri "custom-hook-source.rkt"))
+                             #:source-directory fixtures-directory)))])
+      (define rebuilt (textoid-replace-line-prefix! textoid 1 0 ";"))
+      (check-not-false rebuilt)
+      (check-equal? (textoid-content textoid) text)
+      (check-equal?
+        (textoid-observations rebuilt)
+        (textoid-observations
+          (make-textoid (newlines header ";value") #:source-directory fixtures-directory)))
+      (define before (textoid-observations rebuilt))
+      (check-false
+        (textoid-replace-line-prefix!
+          rebuilt 0 (string-length header)
+          "#lang reader \"formatter-failing-lexer-reader.rkt\""))
+      (check-equal? (textoid-content rebuilt) (newlines header ";value"))
+      (check-equal? (textoid-observations rebuilt) before)))
 
   (test-case
     "many whitespace updates agree with one fresh lex"
@@ -302,6 +349,30 @@
                   scribble-indent-before?))
 
   (test-case
+    "at-exp uses the GUI-free Scribble indenter"
+    (define text
+      (newlines "#lang at-exp racket/base"
+                "@itemlist["
+                "@item{one}"
+                "]"))
+    (define gui-before? (module-declared? 'racket/gui/base))
+    (define framework-before? (module-declared? 'framework))
+    (define scribble-indent-before?
+      (module-declared? 'scribble/private/indentation))
+    (define edits
+      (drracket-format-edits text
+                             0
+                             3
+                             #:formatting-options default-options))
+    (check-equal? edits
+                  (list (TextEdit (Range (Pos 2 0) (Pos 2 0)) " ")
+                        (TextEdit (Range (Pos 3 0) (Pos 3 0)) " ")))
+    (check-equal? (module-declared? 'racket/gui/base) gui-before?)
+    (check-equal? (module-declared? 'framework) framework-before?)
+    (check-equal? (module-declared? 'scribble/private/indentation)
+                  scribble-indent-before?))
+
+  (test-case
     "Scribble embedded Racket uses standard indentation when the hook declines"
     (when standard-racket-indentation?
       (define text
@@ -322,12 +393,19 @@
                 "value"))
     (define doc
       (make-doc (fixture-uri "custom-hook-source.rkt") text))
+    (define expected
+      (list (TextEdit (Range (Pos 1 0) (Pos 1 0)) ">>>")))
     (check-equal?
       (doc-format-edits doc
                         (Range (Pos 1 0) (Pos 1 5))
                         #:backend 'drracket
                         #:formatting-options default-options)
-      (list (TextEdit (Range (Pos 1 0) (Pos 1 0)) ">>>"))))
+      expected)
+    (check-equal?
+      (doc-format-edits doc
+                        (Range (Pos 1 0) (Pos 1 5))
+                        #:formatting-options default-options)
+      expected))
 
   (test-case
     "language indentation replaces all leading whitespace"

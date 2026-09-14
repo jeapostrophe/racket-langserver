@@ -98,7 +98,6 @@
   [Hint 4])
 
 (define-json-enum ErrorCode
-  ;; Defined by JSON RPC
   [ParseError -32700]
   [InvalidRequest -32600]
   [MethodNotFound -32601]
@@ -108,9 +107,8 @@
   [ServerErrorEnd -32000]
   [ServerNotInitialized -32002]
   [UnknownErrorCode -32001]
-
-  ;; Defined by LSP protocol
-  [RequestCancelled -32800])
+  [RequestCancelled -32800]
+  [RequestFailed -32803])
 
 (define-json-struct Diagnostic
   [range Range]

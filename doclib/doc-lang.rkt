@@ -514,6 +514,14 @@
   (and (Language-Spec? language-match)
        (Language-Spec-format? language-match)))
 
+;; `formatting` may run fixw/fmt only when this is true. Non-s-expression
+;; languages instead use `drracket`, which applies its own reader hook and
+;; Scribble eligibility rules. A supplied policy is trusted; otherwise the
+;; policy is derived from `text`.
+(define/contract (sexp-format-language? text [policy #f])
+  (->* (string?) ((or/c Language-Policy? #f)) boolean?)
+  (Language-Policy-format? (or policy (source->language-policy text))))
+
 ;; Defaults to `#t` when no spec matched. This means languages not in
 ;; the predefined list still require a header by default.
 (define (language-match-require-header? language-match)
@@ -604,5 +612,6 @@
          (struct-out Language-Policy)
          parse-language-header
          source->language-policy
+         sexp-format-language?
          lexer-language-policy
          get-indenter)

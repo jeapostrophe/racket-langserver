@@ -60,30 +60,34 @@ the server runs normally and produces no Resyntax suggestions.
 
 ### Formatting
 
-- `formatting.documentFormatter` is used for Format Document. Allowed values
-  are `fixw`, `drracket`, and `fmt`.
-- `formatting.indentationFormatter` is used for Format Selection and format on
-  type. Allowed values are `fixw` and `drracket`.
-- Both default to `fixw`, which is the previous-release behavior.
+- `formatting.documentFormatter` sets the backend for whole-document formatting
+  (`Format Document`). Allowed values are `fixw`, `drracket`, and `fmt`.
+- `formatting.indentationFormatter` sets the backend for range and on-type
+  indentation (`Format Selection` and format on type). Allowed values are `fixw`
+  and `drracket`.
+- Both default to `fixw`, preserving earlier release behavior.
 
-The two formatter settings are independent, so a document can use `fmt` while
-range and on-type requests still indent with `drracket` or `fixw`. `fmt` is an
-optional package; install it with `raco pkg install fmt` before selecting it.
-If it is selected but unavailable for an eligible document, the formatting
-request fails with that installation command instead of falling back to another
-backend.
+The two formatter settings are independent, so a document can use `fmt` to
+reflow whole files while range and on-type requests still indent with `drracket`
+or `fixw`.
 
-`fixw` and `fmt` format only recognized s-expression languages. `drracket`
-also formats Scribble and languages outside the built-in language table when
-their reader publishes a usable `drracket:indentation` or
-`drracket:range-indentation` hook. For other non-s-expression languages, a
-missing or failing hook produces no edits. Format on type remains limited to
-recognized s-expression languages, where the server can derive a safe local
-range.
+`fmt` is an optional package; install it with `raco pkg install fmt` before
+selecting it. If `fmt` is selected but unavailable for an eligible document, or
+if the `raco fmt` command fails, the request fails with an error instead of
+falling back to another backend.
 
-The standard LSP formatting options are currently ignored. The `fmt` backend
-accepts four extra nonnegative-integer properties: `width`, `indent`, `limit`,
-and `maxBlankLines`. Unsupported properties are ignored.
+`fixw` and `fmt` format only recognized s-expression languages. For other
+languages, document and range formatting automatically use `drracket` even when
+`fixw` or `fmt` is selected. `drracket` formats Scribble and languages outside
+the built-in language table when their reader publishes a usable
+`drracket:indentation` or `drracket:range-indentation` hook. A missing or
+failing hook produces no edits. Format on type remains limited to recognized
+s-expression languages, where the server can derive a safe local range.
+
+Standard LSP formatting options (`tabSize`, `insertSpaces`, etc.) are currently
+ignored. The `fmt` backend passes the document through the stable `raco fmt`
+command-line interface and accepts three extra nonnegative-integer properties:
+`width`, `indent`, and `maxBlankLines`. Unsupported properties are ignored.
 
 ## Language Support
 
@@ -131,9 +135,8 @@ The matrix rates expected usefulness for each language family. Expansion-based f
 | On-Type Formatting | ✅ | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ |
 | Inlay Hints | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
 
-\* Formatting for an otherwise unknown language requires the `drracket`
-backend and a usable reader indentation hook; without both, it produces no
-edits.
+\* Formatting for an otherwise unknown language uses `drracket` and requires a
+usable reader indentation hook; without a hook, it produces no edits.
 
 ### Features
 

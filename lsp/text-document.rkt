@@ -10,7 +10,7 @@
          "safedoc.rkt"
          "../common/settings.rkt"
          "../doclib/doc.rkt"
-         (only-in "../doclib/formatting.rkt" exn:fail:fmt-unavailable?)
+         (only-in "../doclib/formatting.rkt" exn:fail:fmt?)
          "../workspace/current.rkt"
          "compose/references.rkt"
          "semantic-token-lsp.rkt"
@@ -269,10 +269,10 @@
     [(hash-table ['textDocument (DocIdentifier-js #:uri uri)]
                  ['options (as-FormattingOptions opts)])
 
-     (with-handlers ([exn:fail:fmt-unavailable?
+     (with-handlers ([exn:fail:fmt?
                       (lambda (exn)
                         (error-response id
-                                        -32803 ; LSP RequestFailed
+                                        ErrorCode-RequestFailed
                                         (exn-message exn)))])
        (define safe-doc (lsp-get-doc uri))
        (define backend

@@ -9,13 +9,22 @@
 
 (require racket/class
          racket/contract
-         racket/list
+         racket/match
          "../../common/interfaces.rkt"
          "../lexer/snapshot.rkt"
          "scribble.rkt"
          "textoid.rkt")
 
 (provide drracket-format-edits)
+
+(struct Line-edit (line delete-amount insert-text) #:transparent)
+
+(define (line-edit->text-edit edit)
+  (match-define (struct* Line-edit ([line line]
+                                    [delete-amount delete-amount]
+                                    [insert-text insert-text]))
+    edit)
+  (TextEdit (Range (Pos line 0) (Pos line delete-amount)) insert-text))
 
 (define hook-failed (gensym 'hook-failed))
 
@@ -24,14 +33,11 @@
     (dynamic-require 'syntax-color/racket-indentation
                      'racket-amount-to-indent)))
 
-(define (source-directory->path source-directory)
-  (and source-directory
-       (path->complete-path source-directory)))
-
 (define (safe-reader-info content source-directory)
   (with-handlers ([exn:fail? (lambda (_exn) #f)])
     (parameterize ([current-directory
-                    (or (source-directory->path source-directory)
+                    (if source-directory
+                        (path->complete-path source-directory)
                         (current-directory))])
       (define info
         (read-language (open-input-string content) (lambda () #f)))
@@ -52,64 +58,39 @@
   (with-handlers ([exn:fail? (lambda (_exn) hook-failed)])
     (apply hook arguments)))
 
-(define (line-count textoid)
-  (send textoid paragraph-count))
-
 (define (line-leading-whitespace-length textoid line)
   (define start (send textoid paragraph-start-position line))
   (define end (send textoid paragraph-end-position line))
-  (let loop ([position start])
-    (if (and (< position end)
-             (char-whitespace? (send textoid get-character position)))
-        (loop (add1 position))
-        (- position start))))
+  (for/fold ([count 0])
+            ([position (in-range start end)]
+             #:break (not (char-whitespace?
+                            (send textoid get-character position))))
+    (add1 count)))
 
 (define (valid-substitution? value)
-  (and (list? value)
-       (>= (length value) 2)
-       (exact-nonnegative-integer? (first value))
-       (string? (second value))))
+  (match value
+    [(list (? exact-nonnegative-integer?) (? string?) _ ...) #t]
+    [_ #f]))
 
-(define (range-substitutions value)
-  (and (list? value)
-       (andmap valid-substitution? value)
-       value))
-
-(define (make-edit textoid line delete-amount insert-text)
+(define (make-line-edit textoid line delete-amount insert-text)
   (define start (send textoid paragraph-start-position line))
   (define end (send textoid paragraph-end-position line))
+  ;; Clamp to the line so LSP ranges stay in-line. DrRacket can delete past
+  ;; the newline; simultaneous LSP apply cannot.
   (define bounded-delete (min delete-amount (- end start)))
   (define old-text (send textoid get-text start (+ start bounded-delete)))
-  (and (not (and (string=? old-text insert-text)
-                 (= bounded-delete (string-length old-text))))
-       (TextEdit #:range (Range (Pos line 0)
-                                (Pos line bounded-delete))
-                 #:newText insert-text)))
+  (and (not (string=? old-text insert-text))
+       (Line-edit line bounded-delete insert-text)))
 
 (define (edits-for-substitutions textoid first-line last-line substitutions)
-  ;; `in-value` sits after `#:break` so it nests per line. Beside `in-list`
-  ;; it would be a length-1 parallel sequence and stop after the first line.
-  (for/list ([substitution (in-list substitutions)]
-             [line (in-naturals first-line)]
-             #:break (or (> line last-line)
-                         (>= line (line-count textoid)))
-             [edit (in-value
-                     (make-edit textoid
-                                line
-                                (first substitution)
-                                (second substitution)))]
-             #:when edit)
-    edit))
-
-(define (apply-line-edit text textoid edit)
-  (define line
-    (Pos-line (Range-start (TextEdit-range edit))))
-  (define start (send textoid paragraph-start-position line))
-  (define deleted
-    (Pos-char (Range-end (TextEdit-range edit))))
-  (string-append (substring text 0 start)
-                 (TextEdit-newText edit)
-                 (substring text (+ start deleted))))
+  (reverse
+    (for/fold ([edits '()])
+              ([substitution (in-list substitutions)]
+               [line (in-range first-line (add1 last-line))])
+      (match-define (list delete-amount insert-text _ ...) substitution)
+      (define edit
+        (make-line-edit textoid line delete-amount insert-text))
+      (if edit (cons edit edits) edits))))
 
 (define (line-indentation textoid line indentation racket-fallback?)
   (define position (send textoid paragraph-start-position line))
@@ -125,8 +106,7 @@
       ;; including Scribble's embedded-Racket `(` case, therefore still
       ;; indents when the GUI-free standard indenter is installed.
       [racket-amount-to-indent
-       (with-handlers ([exn:fail? (lambda (_exn) hook-failed)])
-         (racket-amount-to-indent textoid position))]
+       (call-hook racket-amount-to-indent textoid position)]
       [racket-fallback?
        (raise-arguments-error
          'drracket-format-edits
@@ -137,20 +117,19 @@
   (cond
     [(eq? target hook-failed) hook-failed]
     [(exact-nonnegative-integer? target)
-     (make-edit textoid
-                line
-                (line-leading-whitespace-length textoid line)
-                (make-string target #\space))]
+     (make-line-edit textoid
+                     line
+                     (line-leading-whitespace-length textoid line)
+                     (make-string target #\space))]
     [else #f]))
 
-(define (fallback-line-edits text textoid first-line last-line indentation
-                             source-directory parens racket-fallback?)
-  ;; DrRacket tabifies one paragraph at a time.  Refreshing the textoid after
+(define (fallback-line-edits textoid first-line last-line indentation racket-fallback?)
+  ;; DrRacket tabifies one paragraph at a time. Refreshing the textoid after
   ;; each replacement is important: the visual offset used for a later line
-  ;; can depend on indentation corrected on an earlier line.  The edit ranges
-  ;; remain line-relative, so they are valid simultaneously against `text`.
-  (let loop ([current-text text]
-             [current-textoid textoid]
+  ;; can depend on indentation corrected on an earlier line. The edit ranges
+  ;; remain line-relative, so they are valid simultaneously against the
+  ;; original document.
+  (let loop ([current-textoid textoid]
              [line first-line]
              [edits '()])
     (cond
@@ -166,40 +145,34 @@
           ;; simultaneously, so a partial list would leave later lines
           ;; indented against a layout that never landed.
           '()]
+         [(not edit)
+          (loop current-textoid (add1 line) edits)]
          [else
-          (define updated-textoid
-            (and edit
-                 (textoid-replace-leading-whitespace
-                   current-textoid
-                   line
-                   (Pos-char (Range-end (TextEdit-range edit)))
-                   (TextEdit-newText edit))))
-          ;; On the whitespace fast path the textoid is authoritative.
-          ;; Rebuilding the full document string here would make sequential
-          ;; indentation quadratic in document size.
-          (define next-text
-            (cond
-              [updated-textoid #f]
-              [edit
-               (apply-line-edit (or current-text
-                                    (textoid-content current-textoid))
-                                current-textoid
-                                edit)]
-              [else current-text]))
+          (match-define (struct* Line-edit ([delete-amount deleted] [insert-text inserted])) edit)
           (define next-textoid
-            (cond
-              [updated-textoid updated-textoid]
-              [edit
-               (make-textoid next-text
-                             #:source-directory source-directory
-                             #:paren-matches parens)]
-              [else current-textoid]))
+            (textoid-replace-line-prefix! current-textoid line deleted inserted))
           (if next-textoid
-              (loop next-text
-                    next-textoid
-                    (add1 line)
-                    (if edit (cons edit edits) edits))
+              (loop next-textoid (add1 line) (cons edit edits))
               '())])])))
+
+;; `#f` means the range hook is absent or declined, so line indentation
+;; should run. A list, including '(), is the complete result: a failed or
+;; invalid range hook must not fall through to per-line edits.
+(define (range-hook-edits textoid range-indentation first-line last-line interactive?)
+  (cond
+    [(or interactive? (not (procedure? range-indentation))) #f]
+    [else
+     (define result
+       (call-hook range-indentation
+                  textoid
+                  (send textoid paragraph-start-position first-line)
+                  (send textoid paragraph-end-position last-line)))
+     (cond
+       [(eq? result hook-failed) '()]
+       [(not result) #f]
+       [(and (list? result) (andmap valid-substitution? result))
+        (edits-for-substitutions textoid first-line last-line result)]
+       [else '()])]))
 
 ;; Format the inclusive line interval [start-line, end-line].  A language's
 ;; `drracket:range-indentation` hook is attempted first.  Its substitutions
@@ -225,70 +198,31 @@
         #:src-dir (or/c path? #f)
         #:interactive? boolean?)
        (listof TextEdit?))
-  (cond
-    [(> start-line end-line)
-     '()]
-    [else
-     (define info (safe-reader-info text src-dir))
-     (define indentation (language-indentation-hook info))
-     (define range-indentation
-       (safe-info-ref info 'drracket:range-indentation))
-     (define hook-available?
-       (or (procedure? indentation)
-           (procedure? range-indentation)))
-     (cond
-       [(not (or hook-available? racket-fallback?)) '()]
-       [else
-        (define parens
-          (safe-info-ref info 'drracket:paren-matches))
-        (define reusable-snapshot?
-          (and lexer-snapshot
-               racket-fallback?
-               (not hook-available?)
-               (not parens)
-               (string=? text (LexerSnapshot-text lexer-snapshot))))
-        (define textoid
-          (cond
-            [reusable-snapshot?
-             (make-textoid-from-lexer-snapshot lexer-snapshot)]
-            [parens
-             (make-textoid text
-                           #:source-directory src-dir
-                           #:paren-matches parens)]
-            [else (make-textoid text #:source-directory src-dir)]))
-        (define total-lines (and textoid (line-count textoid)))
-        (if (or (not total-lines)
-                (>= start-line total-lines))
-            '()
-            (let* ([last-line (min end-line (sub1 total-lines))]
-                   [start-position
-                    (send textoid paragraph-start-position start-line)]
-                   [end-position
-                    (send textoid paragraph-end-position last-line)]
-                   [range-result
-                    (and (not interactive?)
-                         (procedure? range-indentation)
-                         (call-hook range-indentation
-                                    textoid
-                                    start-position
-                                    end-position))])
-              (cond
-                [(eq? range-result hook-failed) '()]
-                [(not range-result)
-                 (fallback-line-edits text
-                                      textoid
-                                      start-line
-                                      last-line
-                                      indentation
-                                      src-dir
-                                      parens
-                                      racket-fallback?)]
-                [else
-                 (define substitutions
-                   (range-substitutions range-result))
-                 (if substitutions
-                     (edits-for-substitutions textoid
-                                              start-line
-                                              last-line
-                                              substitutions)
-                     '())])))])]))
+  (let/ec finish
+    (when (> start-line end-line)
+      (finish '()))
+    (define info (safe-reader-info text src-dir))
+    (define indentation (language-indentation-hook info))
+    (define range-indentation (safe-info-ref info 'drracket:range-indentation))
+    (define hook-available?
+      (or (procedure? indentation) (procedure? range-indentation)))
+    (unless (or hook-available? racket-fallback?)
+      (finish '()))
+    (define parens (safe-info-ref info 'drracket:paren-matches))
+    (define reusable-snapshot?
+      (and lexer-snapshot
+           racket-fallback?
+           (not hook-available?)
+           (string=? text (LexerSnapshot-text lexer-snapshot))))
+    (define textoid
+      (if reusable-snapshot?
+          (make-textoid-from-lexer-snapshot lexer-snapshot
+                                            #:source-directory src-dir
+                                            #:paren-matches parens)
+          (make-textoid text #:source-directory src-dir #:paren-matches parens)))
+    (unless (and textoid (< start-line (send textoid paragraph-count)))
+      (finish '()))
+    (define last-line (min end-line (sub1 (send textoid paragraph-count))))
+    (map line-edit->text-edit
+         (or (range-hook-edits textoid range-indentation start-line last-line interactive?)
+             (fallback-line-edits textoid start-line last-line indentation racket-fallback?)))))

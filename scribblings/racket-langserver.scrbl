@@ -317,10 +317,11 @@ from @tt{racket-langserver/json-util}. Nested struct values are encoded recursiv
   The @tt{extras} hash contains otherwise-unclaimed JSON properties and is
   flattened into the object when encoded.
 
-  The @racket['fmt] backend consumes the extra properties @tt{width},
-  @tt{indent}, @tt{limit}, and @tt{maxBlankLines} when their values are exact
-  nonnegative integers. Other extra properties and all standard LSP formatting
-  options are currently ignored by the formatter backends.
+  The @racket['fmt] backend invokes the stable @exec{raco fmt} command-line
+  interface and consumes the extra properties @tt{width}, @tt{indent}, and
+  @tt{maxBlankLines} when their values are exact nonnegative integers. Other
+  extra properties and all standard LSP formatting options are currently ignored
+  by the formatter backends.
 
   The corresponding JSON field names use camelCase:
   @tt{tabSize}, @tt{insertSpaces}, @tt{trimTrailingWhitespace}, @tt{insertFinalNewline},
@@ -816,12 +817,13 @@ Exceptions are noted in individual entries.
                       [#:formatting-options opts FormattingOptions?]
                       [#:backend backend symbol? 'fixw]
                       [#:on-type? on-type? boolean? #f])
-         (or/c (listof TextEdit?) #f)]{
+         (listof TextEdit?)]{
   Computes formatting edits for the lines covered by @tt{fmt-range}. The
   supported @tt{backend} values are @racket['fixw], @racket['drracket], and
   @racket['fmt].
   Returns a list of @racket[TextEdit] values to apply. @racket['fixw] and
-  @racket['fmt] accept recognized s-expression languages. @racket['drracket]
+  @racket['fmt] accept recognized s-expression languages. For other languages,
+  those backends are replaced by @racket['drracket]. @racket['drracket]
   additionally accepts Scribble and languages whose readers provide a usable
   @tt{drracket:indentation} or @tt{drracket:range-indentation} hook. For other
   non-s-expression languages, a missing or failing hook produces no edits.
@@ -843,7 +845,7 @@ Exceptions are noted in individual entries.
                                    [ch string?]
                                    [#:backend backend symbol? 'fixw]
                                    [#:formatting-options opts FormattingOptions?])
-         (or/c (listof TextEdit?) #f)]{
+         (listof TextEdit?)]{
   Computes formatting edits for an on-type formatting trigger. The @tt{pos}
   argument is the cursor position after @tt{ch} has been inserted. The
   supported @tt{backend} values are @racket['fixw] and @racket['drracket].

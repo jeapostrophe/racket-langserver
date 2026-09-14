@@ -74,7 +74,7 @@ jobs:
       - name: Installing fmt
         run: raco pkg install --no-docs --auto fmt
       - name: Running fmt integration test
-        run: raco test integration-tests/fmt-formatter-test.rkt
+        run: raco test tests/lib/fmt-formatter-integration-test.rkt
 
   tooltip-languages:
     name: "Nanopass and Pie integration"

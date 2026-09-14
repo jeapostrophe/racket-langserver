@@ -437,9 +437,7 @@
            (doc-abs-pos->pos doc current-line-end-pos)))
 
   (match ch
-    ["\n" (current-line-range)]
-    [")" (containing-form-range)]
-    ["]" (containing-form-range)]
+    [(or ")" "]") (containing-form-range)]
     [_ (current-line-range)]))
 
 ;; Shared path for all formatting requests
@@ -450,44 +448,25 @@
   (->* (Doc? Range? #:formatting-options FormattingOptions?)
        (#:backend symbol?
         #:on-type? boolean?)
-       (or/c (listof TextEdit?) #f))
+       (listof TextEdit?))
   (define doc-text (Doc-text doc))
   (define-values (start-line end-line)
     (formatting-range->lines doc-text fmt-range))
-  (define text (send doc-text get-text))
-  (define lexer-state (doc-lexer-state doc))
-  (define policy (LexerState-language-policy lexer-state))
-  (define racket-fallback?
-    (eq? 'sexp (Language-Policy-body-mode policy)))
-  (define eligible?
-    (case backend
-      [(fixw fmt) (Language-Policy-format? policy)]
-      ;; The DrRacket backend probes the reader hook itself. S-expression
-      ;; languages may additionally use syntax-color's standard fallback.
-      [(drracket) #t]
-      [else #t]))
-  (cond
-    [eligible?
-     (formatting text
-                 start-line
-                 end-line
-                 #:formatting-options opts
-                 #:backend backend
-                 #:editor doc-text
-                 #:racket-fallback? racket-fallback?
-                 #:lexer-snapshot (and (eq? backend 'drracket)
-                                       racket-fallback?
-                                       (LexerState-snapshot lexer-state))
-                 #:src-dir (doc-src-dir doc)
-                 #:interactive? on-type?)]
-    [else '()]))
+  (formatting doc-text
+              start-line
+              end-line
+              #:formatting-options opts
+              #:backend backend
+              #:lexer-state (doc-lexer-state doc)
+              #:src-dir (doc-src-dir doc)
+              #:interactive? on-type?))
 
 (define/contract (doc-on-type-format-edits doc pos ch
                                            #:formatting-options opts
                                            #:backend [backend 'fixw])
   (->* (Doc? Pos? string? #:formatting-options FormattingOptions?)
        (#:backend symbol?)
-       (or/c (listof TextEdit?) #f))
+       (listof TextEdit?))
   (cond
     [(doc-sexp-language? doc)
      (doc-format-edits doc

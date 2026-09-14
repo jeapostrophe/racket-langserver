@@ -10,21 +10,27 @@
 ;; this adapter. A rope wrapper would still need the same full-document lexer,
 ;; and `rope-ref` is O(log n) on the indent hot path.
 ;;
-;; Content is a contiguous string so `get-character` and token ranges stay O(1).
+;; Content is a contiguous string so `get-character` stays O(1).
 ;; Sequential leading-whitespace edits recopy that string and shift later
 ;; token and paragraph offsets, rather than splitting into line-relative
 ;; columns. Line storage was tried and made indent slower.
 
 (require racket/class
-         "../lexer/snapshot.rkt"
-         syntax-color/module-lexer)
+         racket/match
+         (only-in srfi/2 and-let*)
+         syntax-color/module-lexer
+         "../lexer/snapshot.rkt")
 
 (provide make-textoid
          make-textoid-from-lexer-snapshot
          textoid-replace-leading-whitespace
+         textoid-replace-line-prefix!
          textoid-content)
 
-(struct token (attributes paren start end) #:mutable #:transparent)
+;;; Tokens and the color-textoid interface
+
+(struct token (attributes paren [start #:mutable] [end #:mutable])
+  #:transparent)
 
 (define (token-type the-token)
   (hash-ref (token-attributes the-token) 'type 'unknown))
@@ -51,7 +57,7 @@
   (with-handlers ([exn:fail? (lambda (_exn) #f)])
     (dynamic-require 'syntax-color/module-lexer 'module-lexer*)))
 
-;; These headless interfaces were extracted from framework into syntax-color-lib
+;; This headless interface was extracted from framework into syntax-color-lib
 ;; 1.4. Keep older supported Racket releases loadable, while using the canonical
 ;; interface whenever it is installed so contracted language hooks recognize the
 ;; textoid object.
@@ -59,32 +65,30 @@
   (with-handlers ([exn:fail? (lambda (_exn) fallback-color-textoid<%>)])
     (dynamic-require 'syntax-color/color-textoid 'color-textoid<%>)))
 
+;;; Lexing and construction
+
 (define default-paren-matches
-  (list (list (string->symbol "(") (string->symbol ")"))
-        (list (string->symbol "[") (string->symbol "]"))
-        (list (string->symbol "{") (string->symbol "}"))))
+  '((|(| |)|) (|[| |]|) (|{| |}|)))
 
 (define (source-directory->path source-directory)
-  (cond
-    [(not source-directory) #f]
-    [(path? source-directory) (path->complete-path source-directory)]
-    [(string? source-directory) (path->complete-path source-directory)]
-    [else #f]))
+  (and (or (path? source-directory) (string? source-directory))
+       (path->complete-path source-directory)))
 
 (define (lex-content content source-directory)
-  (define input (open-input-string content))
-  (port-count-lines! input)
-  (define (lex)
+  (with-handlers ([exn:fail? (lambda (_exn) #f)])
+    (define input (open-input-string content))
+    (port-count-lines! input)
+    (define lexer (or module-lexer*/maybe module-lexer))
     (parameterize ([current-directory
                     (or (source-directory->path source-directory)
                         (current-directory))])
       (let loop ([mode #f] [tokens '()])
-        (define-values (lexeme attributes paren start end backup next-mode)
-          ((or module-lexer*/maybe module-lexer) input 0 mode))
-        (define type
+        (define-values (_lexeme attributes paren start end _backup next-mode)
+          (lexer input 0 mode))
+        (define-values (type stored)
           (if (symbol? attributes)
-              attributes
-              (hash-ref attributes 'type 'unknown)))
+              (values attributes (hasheq 'type attributes))
+              (values (hash-ref attributes 'type 'unknown) attributes)))
         (cond
           [(eq? type 'eof)
            (list->vector (reverse tokens))]
@@ -93,38 +97,31 @@
                 (<= start end))
            ;; Lexer positions are one-based; textoid positions are zero-based.
            (loop next-mode
-                 (cons (token (if (symbol? attributes)
-                                  (hasheq 'type attributes)
-                                  attributes)
-                              paren
-                              (sub1 start)
-                              (sub1 end))
-                       tokens))]
+                 (cons (token stored paren (sub1 start) (sub1 end)) tokens))]
           [else
            ;; A malformed/custom lexer token is not useful to indentation.
-           #f]))))
-  (with-handlers ([exn:fail? (lambda (_e) #f)])
-    (lex)))
+           #f])))))
 
 (define (line-starts content)
   (list->vector
-    (for/list ([position (in-range (add1 (string-length content)))]
-               #:when (or (zero? position)
-                          (and (> position 0)
-                               (char=? (string-ref content (sub1 position)) #\newline))))
-      position)))
+    (cons 0
+          (for/list ([character (in-string content)]
+                     [index (in-naturals)]
+                     #:when (char=? character #\newline))
+            (add1 index)))))
+
+(define (textoid-from-tokens content tokens paren-matches source-directory)
+  (new textoid%
+    [initial-content content]
+    [initial-tokens tokens]
+    [source-directory source-directory]
+    [paren-matches (if (list? paren-matches) paren-matches default-paren-matches)]))
 
 (define (make-textoid content #:source-directory [source-directory #f]
                       #:paren-matches [paren-matches default-paren-matches])
   (define tokens (lex-content content source-directory))
   (and tokens
-       (new textoid%
-         [content content]
-         [tokens tokens]
-         [starts (line-starts content)]
-         [paren-matches (if (list? paren-matches)
-                            paren-matches
-                            default-paren-matches)])))
+       (textoid-from-tokens content tokens paren-matches source-directory)))
 
 (define (snapshot-token-type type)
   (case type
@@ -135,10 +132,7 @@
      'other]
     [else type]))
 
-(define (snapshot-token-paren content span)
-  (define type (LexerTokenSpan-type span))
-  (define start (LexerTokenSpan-start span))
-  (define end (LexerTokenSpan-end span))
+(define (snapshot-token-paren content type start end)
   (define (last-symbol)
     (and (< start end)
          (string->symbol (string (string-ref content (sub1 end))))))
@@ -153,12 +147,12 @@
   (define content-length (string-length content))
   (let loop ([index 0] [previous-end 0])
     (cond
-      [(= index (vector-length spans)) #t]
+      [(= index (vector-length spans))
+       (= previous-end content-length)]
       [else
-       (define span (vector-ref spans index))
-       (define start (LexerTokenSpan-start span))
-       (define end (LexerTokenSpan-end span))
-       (and (<= previous-end start)
+       (match-define (struct* LexerTokenSpan ([start start] [end end]))
+         (vector-ref spans index))
+       (and (= previous-end start)
             (< start end)
             (<= end content-length)
             (loop (add1 index) end))])))
@@ -167,7 +161,9 @@
 ;; source spans. This constructor is used only for the standard s-expression
 ;; fallback, where the normalized names above can be mapped back exactly to the
 ;; classifications consumed by syntax-color's Racket indentation procedures.
-(define (make-textoid-from-lexer-snapshot snapshot)
+(define (make-textoid-from-lexer-snapshot snapshot
+                                          #:source-directory [source-directory #f]
+                                          #:paren-matches [paren-matches default-paren-matches])
   (define content (LexerSnapshot-text snapshot))
   (define spans (LexerSnapshot-tokens snapshot))
   (cond
@@ -175,107 +171,122 @@
      (define tokens
        (for/vector #:length (vector-length spans)
          ([span (in-vector spans)])
-         (token (hasheq 'type
-                        (snapshot-token-type (LexerTokenSpan-type span)))
-                (snapshot-token-paren content span)
-                (LexerTokenSpan-start span)
-                (LexerTokenSpan-end span))))
-     (new textoid%
-       [content content]
-       [tokens tokens]
-       [starts (line-starts content)]
-       [paren-matches default-paren-matches])]
-    [else (make-textoid content)]))
+         (match-define (struct* LexerTokenSpan ([type type] [start start] [end end]))
+           span)
+         (token (hasheq 'type (snapshot-token-type type))
+                (snapshot-token-paren content type start end)
+                start end)))
+     (textoid-from-tokens content tokens paren-matches source-directory)]
+    [else
+     (make-textoid content
+                   #:source-directory source-directory
+                   #:paren-matches paren-matches)]))
+
+;;; Navigation indexes
+;;
+;; Official color:text% / expeditor skip only white-space and comment.
+;; Forward skip also includes sexp-comment; do not unify these lists.
+
+(define skip-types/backward '(white-space comment))
+(define skip-types/forward '(white-space comment sexp-comment))
+
+(define (paren-tables paren-matches)
+  (for/fold ([opening->closing (hash)] [closing-symbols (hash)])
+            ([pair (in-list paren-matches)])
+    (match pair
+      [(list* open close _)
+       (values (hash-set opening->closing open close)
+               (hash-set closing-symbols close #t))]
+      [_ (values opening->closing closing-symbols)])))
+
+(define (token-kind-vector tokens opening->closing closing-symbols)
+  (for/vector #:length (vector-length tokens)
+    ([the-token (in-vector tokens)])
+    (cond
+      [(hash-has-key? opening->closing (token-paren the-token)) 'open]
+      [(hash-has-key? closing-symbols (token-paren the-token)) 'close]
+      [else #f])))
+
+;; `open-stack-after` is a persistent stack of unmatched opener indexes at
+;; each token boundary. A mismatched closer clears the active stack,
+;; matching DrRacket's error-tree navigation instead of creating crossed
+;; delimiter pairs.
+(define (delimiter-indexes tokens token-kinds opening->closing)
+  (define token-count (vector-length tokens))
+  (define matching-open (make-vector token-count #f))
+  (define matching-close (make-vector token-count #f))
+  (define open-stack-after (make-vector token-count '()))
+  (define (stack-after-close index stack)
+    (and-let* ([(pair? stack)]
+               [open-index (car stack)]
+               [(eq? (hash-ref opening->closing
+                               (token-paren (vector-ref tokens open-index))
+                               #f)
+                     (token-paren (vector-ref tokens index)))])
+      (vector-set! matching-open index open-index)
+      (vector-set! matching-close open-index index)
+      (cdr stack)))
+  (for/fold ([stack '()])
+            ([index (in-range token-count)])
+    (define next-stack
+      (case (vector-ref token-kinds index)
+        [(open) (cons index stack)]
+        [(close) (or (stack-after-close index stack) '())]
+        [else stack]))
+    (vector-set! open-stack-after index next-stack)
+    next-stack)
+  (values matching-open matching-close open-stack-after))
+
+(define (previous-non-skip-tokens tokens)
+  (define result (make-vector (vector-length tokens) #f))
+  (for/fold ([previous #f])
+            ([the-token (in-vector tokens)]
+             [index (in-naturals)])
+    (vector-set! result index previous)
+    (if (memq (token-type the-token) skip-types/backward) previous index))
+  result)
+
+(define (next-non-skip-tokens tokens)
+  (define token-count (vector-length tokens))
+  (define result (make-vector token-count #f))
+  (for/fold ([next #f])
+            ([index (in-range (sub1 token-count) -1 -1)])
+    (vector-set! result index next)
+    (define type (token-type (vector-ref tokens index)))
+    (if (memq type skip-types/forward) next index))
+  result)
+
+;;; color-textoid<%>
 
 (define textoid%
   (class* object% (color-textoid<%>)
-    (init-field content tokens starts paren-matches)
+    (init initial-content initial-tokens paren-matches [source-directory #f])
 
     (super-new)
 
+    ;; Text, token offsets, and line starts change together. Keep these private
+    ;; so callers cannot invalidate the navigation indexes through field writes.
+    (define content initial-content)
+    (define tokens initial-tokens)
+    (define starts (line-starts content))
+    (define source-dir source-directory)
+    (define parens paren-matches)
     (define token-count (vector-length tokens))
 
-    (define opening-symbols
-      (for/hash ([pair (in-list paren-matches)]
-                 #:when (and (pair? pair) (pair? (cdr pair))))
-        (values (car pair) #t)))
-
-    (define opening->closing
-      (for/hash ([pair (in-list paren-matches)]
-                 #:when (and (pair? pair) (pair? (cdr pair))))
-        (values (car pair) (cadr pair))))
-
-    (define closing-symbols
-      (for/hash ([pair (in-list paren-matches)]
-                 #:when (and (pair? pair) (pair? (cdr pair))))
-        (values (cadr pair) #t)))
-
-    (define token-kinds
-      (for/vector #:length token-count
-        ([the-token (in-vector tokens)])
-        (cond
-          [(hash-ref opening-symbols (token-paren the-token) #f) 'open]
-          [(hash-ref closing-symbols (token-paren the-token) #f) 'close]
-          [else #f])))
-
-    ;; `open-stack-after` is a persistent stack of unmatched opener indexes at
-    ;; each token boundary, which makes containing-form lookup constant-time
-    ;; after locating the token at the cursor. A mismatched closer invalidates
-    ;; the active stack, matching DrRacket's error-tree navigation instead of
-    ;; creating crossed delimiter pairs.
-    (define-values (matching-open matching-close open-stack-after)
-      (let ([matching-open (make-vector token-count #f)]
-            [matching-close (make-vector token-count #f)]
-            [open-stack-after (make-vector token-count '())])
-        (let loop ([index 0] [stack '()])
-          (cond
-            [(= index token-count)
-             (values matching-open matching-close open-stack-after)]
-            [else
-             (define kind (vector-ref token-kinds index))
-             (define next-stack
-               (case kind
-                 [(open) (cons index stack)]
-                 [(close)
-                  (cond
-                    [(and (pair? stack)
-                          (eq? (hash-ref opening->closing
-                                         (token-paren (vector-ref tokens (car stack)))
-                                         #f)
-                               (token-paren (vector-ref tokens index))))
-                     (define open-index (car stack))
-                     (vector-set! matching-open index open-index)
-                     (vector-set! matching-close open-index index)
-                     (cdr stack)]
-                    [else '()])]
-                 [else stack]))
-             (vector-set! open-stack-after index next-stack)
-             (loop (add1 index) next-stack)]))))
-
-    (define previous-backward-token
-      (let ([result (make-vector token-count #f)])
-        (let loop ([index 0] [previous #f])
-          (cond
-            [(= index token-count) result]
-            [else
-             (vector-set! result index previous)
-             (define type (token-type (vector-ref tokens index)))
-             (loop (add1 index)
-                   (if (memq type '(white-space comment)) previous index))]))))
-
-    (define next-forward-token
-      (let ([result (make-vector token-count #f)])
-        (let loop ([index (sub1 token-count)] [next #f])
-          (cond
-            [(negative? index) result]
-            [else
-             (vector-set! result index next)
-             (define type (token-type (vector-ref tokens index)))
-             (loop (sub1 index)
-                   (if (memq type '(white-space comment sexp-comment)) next index))]))))
-
-    (define (token-ref index)
-      (and index (vector-ref tokens index)))
+    (define-values (token-kinds matching-open matching-close open-stack-after
+                                previous-backward-token next-forward-token)
+      (let ()
+        (define-values (opening->closing closing-symbols)
+          (paren-tables paren-matches))
+        (define kinds (token-kind-vector tokens opening->closing closing-symbols))
+        (define-values (matching-open matching-close open-stack-after)
+          (delimiter-indexes tokens kinds opening->closing))
+        (values kinds
+                matching-open
+                matching-close
+                open-stack-after
+                (previous-non-skip-tokens tokens)
+                (next-non-skip-tokens tokens))))
 
     (define (token-index-at position [previous? #f])
       (define lookup-position
@@ -284,17 +295,17 @@
                  (positive? position))
             (sub1 position)
             position))
-      (and (exact-nonnegative-integer? lookup-position)
-           (< lookup-position (string-length content))
-           (let ([index (first-token-ending-after lookup-position)])
-             (and index
-                  (let ([the-token (vector-ref tokens index)])
-                    (and (<= (token-start the-token) lookup-position)
-                         (< lookup-position (token-end the-token))
-                         index))))))
+      (and-let* ([(exact-nonnegative-integer? lookup-position)]
+                 [(< lookup-position (string-length content))]
+                 [index (first-token-ending-after lookup-position)]
+                 [the-token (vector-ref tokens index)]
+                 [(<= (token-start the-token) lookup-position)]
+                 [(< lookup-position (token-end the-token))])
+        index))
 
     (define (token-at position [previous? #f])
-      (token-ref (token-index-at position previous?)))
+      (define index (token-index-at position previous?))
+      (and index (vector-ref tokens index)))
 
     (define (first-token-ending-after position)
       (let loop ([low 0] [high token-count])
@@ -324,11 +335,7 @@
                   (loop low middle))))))
 
     (define/public (get-text [start 0] [end 'eof])
-      (substring content
-                 start
-                 (if (eq? end 'eof)
-                     (string-length content)
-                     end)))
+      (substring content start (if (eq? end 'eof) (string-length content) end)))
 
     (define/public (get-character position)
       (if (and (exact-nonnegative-integer? position)
@@ -347,88 +354,91 @@
       (line-for-position clamped))
 
     (define/public (paragraph-start-position paragraph [visible? #t])
-      (vector-ref starts (min paragraph (sub1 (vector-length starts)))))
-
-    (define/public (paragraph-end-position paragraph [visible? #t])
-      (define next-line-start
-        (and (exact-nonnegative-integer? paragraph)
-             (< (add1 paragraph) (vector-length starts))
-             (vector-ref starts (add1 paragraph))))
-      (if next-line-start
-          (sub1 next-line-start)
+      (if (and (exact-nonnegative-integer? paragraph)
+               (< paragraph (vector-length starts)))
+          (vector-ref starts paragraph)
           (string-length content)))
 
-    ;; Return an updated textoid without invoking the language lexer. Replacing
-    ;; only a paragraph's leading whitespace cannot change token categories,
-    ;; delimiter nesting, or line count. Callers must fall back to `make-textoid`
-    ;; when this deliberately narrow precondition is not met.
+    (define/public (paragraph-end-position paragraph [visible? #t])
+      (if (and (exact-nonnegative-integer? paragraph)
+               (< (add1 paragraph) (vector-length starts)))
+          (sub1 (vector-ref starts (add1 paragraph)))
+          (string-length content)))
+
+    (define (indent-whitespace? text)
+      (for/and ([character (in-string text)])
+        (and (char-whitespace? character)
+             (not (char=? character #\newline)))))
+
+    (define (whitespace-edit-safe? start end insert-text)
+      (and (indent-whitespace? (substring content start end))
+           (indent-whitespace? insert-text)
+           (for/and ([the-token (in-vector tokens)]
+                     #:when (and (< (token-start the-token) end)
+                                 (> (token-end the-token) start)))
+             (eq? (token-type the-token) 'white-space))))
+
+    (define (whitespace-token-before position)
+      (and-let* ([index (last-token-ending-at-or-before position)]
+                 [the-token (vector-ref tokens index)]
+                 [(= (token-end the-token) position)]
+                 [(eq? (token-type the-token) 'white-space)])
+        the-token))
+
+    (define (apply-whitespace-edit! start end insert-text previous-token)
+      (define delta (- (string-length insert-text) (- end start)))
+      (set! content
+            (string-append (substring content 0 start) insert-text (substring content end)))
+      (for ([line-start (in-vector starts)]
+            [index (in-naturals)])
+        (when (> line-start start)
+          (vector-set! starts index (+ line-start delta))))
+      (for ([the-token (in-vector tokens)])
+        (define token-start-position (token-start the-token))
+        (define token-end-position (token-end the-token))
+        (cond
+          [(eq? the-token previous-token)
+           (set-token-end! the-token (+ token-end-position delta))]
+          [(<= token-end-position start) (void)]
+          [(>= token-start-position end)
+           (set-token-start! the-token (+ token-start-position delta))
+           (set-token-end! the-token (+ token-end-position delta))]
+          [else (set-token-end! the-token (+ token-end-position delta))])))
+
+    ;; Mutate and return this textoid without invoking the language lexer when
+    ;; the edit fits existing whitespace tokens and preserves line count.
+    ;; Otherwise return #f without mutation, so the caller can re-lex.
     (define/public (replace-leading-whitespace paragraph delete-amount insert-text)
-      (define paragraph-valid?
-        (and (exact-nonnegative-integer? paragraph)
-             (< paragraph (vector-length starts))))
-      (define start
-        (and paragraph-valid? (vector-ref starts paragraph)))
-      (define end
-        (and start (+ start delete-amount)))
-      (define paragraph-end
-        (and paragraph-valid?
-             (send this paragraph-end-position paragraph)))
-      (define deleted-text
-        (and end paragraph-end (<= end paragraph-end)
-             (substring content start end)))
-      (define safe-edit?
-        (and deleted-text
-             (for/and ([character (in-string deleted-text)])
-               (and (char-whitespace? character)
-                    (not (char=? character #\newline))))
-             (for/and ([character (in-string insert-text)])
-               (and (char-whitespace? character)
-                    (not (char=? character #\newline))))
-             (for/and ([the-token (in-vector tokens)]
-                       #:when (and (< (token-start the-token) end)
-                                   (> (token-end the-token) start)))
-               (eq? (token-type the-token) 'white-space))))
-      (and safe-edit?
-           (let* ([insert-length (string-length insert-text)]
-                  [delta (- insert-length delete-amount)]
-                  [previous-index
-                   (and (zero? delete-amount)
-                        (positive? insert-length)
-                        (last-token-ending-at-or-before start))]
-                  [previous-whitespace?
-                   (and previous-index
-                        (let ([previous-token (vector-ref tokens previous-index)])
-                          (and (= (token-end previous-token) start)
-                               (eq? (token-type previous-token) 'white-space))))]
-                  [overlapping-whitespace?
-                   (or (positive? delete-amount)
-                       (zero? insert-length)
-                       previous-whitespace?)])
-             (and overlapping-whitespace?
-                  (begin
-                    (set! content
-                          (string-append (substring content 0 start)
+      (let/ec decline
+        (unless (and (exact-nonnegative-integer? paragraph)
+                     (< paragraph (vector-length starts)))
+          (decline #f))
+        (define start (vector-ref starts paragraph))
+        (define end (+ start delete-amount))
+        (unless (and (<= end (paragraph-end-position paragraph))
+                     (whitespace-edit-safe? start end insert-text))
+          (decline #f))
+        (define insertion? (and (zero? delete-amount) (positive? (string-length insert-text))))
+        (define previous-token (and insertion? (whitespace-token-before start)))
+        ;; A pure insertion needs a preceding whitespace token to extend;
+        ;; this path cannot create tokens or rebuild navigation indexes.
+        (unless (or (positive? delete-amount)
+                    (zero? (string-length insert-text))
+                    previous-token)
+          (decline #f))
+        (apply-whitespace-edit! start end insert-text previous-token)
+        this))
+
+    ;; Return this object on the whitespace fast path, or a rebuilt textoid.
+    ;; Re-lexing may fail (#f); the original object then remains unchanged.
+    (define/public (replace-line-prefix! paragraph delete-amount insert-text)
+      (or (replace-leading-whitespace paragraph delete-amount insert-text)
+          (let ([start (paragraph-start-position paragraph)])
+            (make-textoid (string-append (substring content 0 start)
                                          insert-text
-                                         (substring content end)))
-                    (for ([index (in-range (vector-length starts))])
-                      (when (> (vector-ref starts index) start)
-                        (vector-set! starts index
-                                     (+ (vector-ref starts index) delta))))
-                    (for ([the-token (in-vector tokens)]
-                          [index (in-naturals)])
-                      (define token-start-position (token-start the-token))
-                      (define token-end-position (token-end the-token))
-                      (cond
-                        [(and previous-whitespace?
-                              (= index previous-index))
-                         (set-token-end! the-token (+ token-end-position delta))]
-                        [(<= token-end-position start) (void)]
-                        [(>= token-start-position end)
-                         (set-token-start! the-token (+ token-start-position delta))
-                         (set-token-end! the-token (+ token-end-position delta))]
-                        [else
-                         (set-token-end! the-token (+ token-end-position delta))]))
-                    this)))))
+                                         (substring content (+ start delete-amount)))
+                          #:source-directory source-dir
+                          #:paren-matches parens))))
 
     (define/public (get-token-range position)
       (define the-token (token-at position))
@@ -441,17 +451,17 @@
       (and the-token (token-attributes the-token)))
 
     (define/public (classify-position position)
-      (define classification (send this classify-position* position))
+      (define classification (classify-position* position))
       (and classification
            (hash-ref classification 'type 'unknown)))
 
     (define/public (skip-whitespace position direction comments?)
       (define (skip? the-token)
         (and the-token
-             (or (eq? (token-type the-token) 'white-space)
-                 (and comments?
-                      (memq (token-type the-token)
-                            '(comment sexp-comment))))))
+             (memq (token-type the-token)
+                   (if comments?
+                       skip-types/forward
+                       '(white-space)))))
       (case direction
         [(forward)
          (let loop ([position position])
@@ -473,88 +483,71 @@
          (error 'skip-whitespace "bad direction: ~e" direction)]))
 
     (define/public (backward-match position cutoff)
-      (backward-matching-search position cutoff 'one))
-
-    (define/public (backward-containing-sexp position cutoff)
-      (backward-matching-search position cutoff 'all))
+      (define initial-index (token-index-at (sub1 position)))
+      (and-let* ([index
+                  (cond
+                    [(not initial-index) #f]
+                    [(memq (token-type (vector-ref tokens initial-index))
+                           skip-types/backward)
+                     (vector-ref previous-backward-token initial-index)]
+                    [else initial-index])])
+        (let* ([the-token (vector-ref tokens index)]
+               [kind (vector-ref token-kinds index)]
+               [start (token-start the-token)])
+          (cond
+            [(< (min (sub1 position) (sub1 (token-end the-token))) cutoff) #f]
+            [(eq? kind 'open) #f]
+            [(eq? kind 'close)
+             (if (> (token-end the-token) position)
+                 start
+                 (and-let* ([open-index (vector-ref matching-open index)]
+                            [open-token (vector-ref tokens open-index)]
+                            [(>= (sub1 (token-end open-token)) cutoff)])
+                   (token-start open-token)))]
+            [else start]))))
 
     ;; This follows the boundary behavior of syntax-color's text objects: an
     ;; opener immediately before the cursor is not itself a backward match,
     ;; while a cursor inside an atom matches that atom's start.
-    (define/private (backward-matching-search initial-position cutoff mode)
-      (case mode
-        [(one)
-         (define initial-index (token-index-at (sub1 initial-position)))
-         (define index
-           (let loop ([index initial-index])
-             (cond
-               [(not index) #f]
-               [(memq (token-type (vector-ref tokens index))
-                      '(white-space comment))
-                (loop (vector-ref previous-backward-token index))]
-               [else index])))
-         (and index
-              (let* ([the-token (vector-ref tokens index)]
-                     [kind (vector-ref token-kinds index)]
-                     [start (token-start the-token)])
-                (cond
-                  [(< (min (sub1 initial-position)
-                           (sub1 (token-end the-token)))
-                      cutoff)
-                   #f]
-                  [(eq? kind 'open) #f]
-                  [(eq? kind 'close)
-                   (if (> (token-end the-token) initial-position)
-                       start
-                       (let ([open-index (vector-ref matching-open index)])
-                         (and open-index
-                              (let ([open-token (vector-ref tokens open-index)])
-                                (and (>= (sub1 (token-end open-token)) cutoff)
-                                     (token-start open-token))))))]
-                  [else start])))]
-        [(all)
-         (define query-position
-           (if (<= initial-position cutoff) cutoff (sub1 initial-position)))
-         (define query-index (token-index-at query-position))
-         (define direct-open-index
-           (and query-index
-                (eq? (vector-ref token-kinds query-index) 'open)
-                query-index))
-         (define prefix-index
-           (last-token-ending-at-or-before initial-position))
-         (define stack
-           (and prefix-index (vector-ref open-stack-after prefix-index)))
-         (define open-index
-           (or direct-open-index (and (pair? stack) (car stack))))
-         (and open-index
-              (let ([open-token (vector-ref tokens open-index)])
-                (and (>= (sub1 (token-end open-token)) cutoff)
-                     (min (send this skip-whitespace
-                                (token-end open-token) 'forward #f)
-                          initial-position))))]))
+    (define/public (backward-containing-sexp position cutoff)
+      (define query-position
+        (if (<= position cutoff) cutoff (sub1 position)))
+      (define query-index (token-index-at query-position))
+      (define direct-open-index
+        (and query-index
+             (eq? (vector-ref token-kinds query-index) 'open)
+             query-index))
+      (define prefix-index
+        (last-token-ending-at-or-before position))
+      (define stack
+        (and prefix-index (vector-ref open-stack-after prefix-index)))
+      (and-let* ([open-index (or direct-open-index (and (pair? stack) (car stack)))]
+                 [open-token (vector-ref tokens open-index)]
+                 [(>= (sub1 (token-end open-token)) cutoff)])
+        (min (skip-whitespace (token-end open-token) 'forward #f)
+             position)))
 
     (define/public (forward-match position cutoff)
       (define initial-index (first-token-ending-after position))
-      (define index
-        (let loop ([index initial-index])
-          (cond
-            [(not index) #f]
-            [(memq (token-type (vector-ref tokens index))
-                   '(white-space comment sexp-comment))
-             (loop (vector-ref next-forward-token index))]
-            [else index])))
-      (and index
-           (let* ([the-token (vector-ref tokens index)]
-                  [kind (vector-ref token-kinds index)]
-                  [end
-                   (cond
-                     [(eq? kind 'open)
-                      (define close-index (vector-ref matching-close index))
-                      (and close-index
-                           (token-end (vector-ref tokens close-index)))]
-                     [(eq? kind 'close) #f]
-                     [else (token-end the-token)])])
-             (and end (<= end cutoff) end))))
+      (and-let* ([index
+                  (cond
+                    [(not initial-index) #f]
+                    [(memq (token-type (vector-ref tokens initial-index))
+                           skip-types/forward)
+                     (vector-ref next-forward-token initial-index)]
+                    [else initial-index])]
+                 [end
+                  (let ([the-token (vector-ref tokens index)]
+                        [kind (vector-ref token-kinds index)])
+                    (cond
+                      [(eq? kind 'open)
+                       (define close-index (vector-ref matching-close index))
+                       (and close-index
+                            (token-end (vector-ref tokens close-index)))]
+                      [(eq? kind 'close) #f]
+                      [else (token-end the-token)]))]
+                 [(<= end cutoff)])
+        end))
 
     (define/public (get-backward-navigation-limit position)
       0)
@@ -570,3 +563,6 @@
 
 (define (textoid-replace-leading-whitespace textoid paragraph delete-amount insert-text)
   (send textoid replace-leading-whitespace paragraph delete-amount insert-text))
+
+(define (textoid-replace-line-prefix! textoid paragraph delete-amount insert-text)
+  (send textoid replace-line-prefix! paragraph delete-amount insert-text))
