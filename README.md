@@ -106,9 +106,10 @@ project configuration file.
 }
 ```
 
-Settings apply to the whole language-server process. Omitting a key keeps the
-current value, except that an omitted formatter key inside a `formatting`
-object uses that key's shipped default. Unknown values are ignored.
+Settings apply to the whole language-server process. A `racket-langserver`
+section is a snapshot: omitted keys use shipped defaults, so removing
+formatter configuration returns both backends to `fixw`. Unknown values are
+ignored.
 
 ### Resyntax
 

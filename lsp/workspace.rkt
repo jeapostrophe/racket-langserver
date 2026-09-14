@@ -5,6 +5,7 @@
          didChangeConfiguration
          update-configuration)
 (require compiler/module-suffix
+         json
          racket/match)
 (require "../common/json-util.rkt"
          "../common/path-util.rkt"
@@ -93,7 +94,7 @@
   (match resyntax
     [(Resyntax-Settings #:enable (and enable (not (? Nothing?))))
      (set-resyntax-enabled! enable)]
-    [_ (void)])
+    [_ (set-resyntax-enabled! default-resyntax-enabled)])
   (match formatting
     [(Formatting-Configuration
        #:document-formatter document-formatter
@@ -110,12 +111,22 @@
          (if (Nothing? fmt-settings)
              (Formatting-Settings-fmt-settings default-formatting-settings)
              fmt-settings)))]
-    [_ (void)]))
+    [_ (set-formatting-settings! default-formatting-settings)]))
 
-;; `workspace/configuration` returns a list; `workspace/didChangeConfiguration`
-;; may send the settings object directly. Apply both process-wide, like resyntax.
+;; A `racket-langserver` section is a snapshot. Omitted keys use shipped
+;; defaults. `workspace/configuration` returns a list; `workspace/didChangeConfiguration`
+;; may send the settings object, `null`, or an empty object.
+(define (normalize-configuration-item item)
+  (if (eq? item (json-null))
+      (hasheq)
+      item))
+
 (define (update-configuration settings)
-  (match settings
+  (define normalized
+    (if (list? settings)
+        (map normalize-configuration-item settings)
+        (normalize-configuration-item settings)))
+  (match normalized
     [(as-Langserver-Settings-Update value)
      (for ([item (in-list (if (list? value) value (list value)))])
        (apply-langserver-settings item))]

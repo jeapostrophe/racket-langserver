@@ -5,12 +5,15 @@
 
 (provide get-resyntax-enabled
          set-resyntax-enabled!
+         default-resyntax-enabled
          (struct-out Formatting-Settings)
          default-formatting-settings
          current-formatting-settings
          set-formatting-settings!)
 
-(define resyntax-enabled? #t)
+(define default-resyntax-enabled #t)
+
+(define resyntax-enabled? default-resyntax-enabled)
 
 (define (get-resyntax-enabled)
   resyntax-enabled?)

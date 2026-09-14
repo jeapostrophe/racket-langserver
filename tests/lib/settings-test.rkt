@@ -65,16 +65,34 @@
       (set-formatting-settings! default-formatting-settings))
 
     (test-case
-      "unrelated pushed settings preserve formatter choices"
-      (set-formatting-settings! default-formatting-settings)
-      (update-configuration
-        (hasheq 'formatting
-                (hasheq 'documentFormatter "fmt"
-                        'indentationFormatter "drracket")))
+      "removed formatting configuration returns to fixw"
+      (set-formatting-settings!
+        (Formatting-Settings 'fmt 'drracket empty-fmt-settings))
       (update-configuration (hasheq 'resyntax (hasheq 'enable #f)))
       (check-equal? current-formatting-settings
-                    (Formatting-Settings 'fmt 'drracket empty-fmt-settings))
-      (set-resyntax-enabled! #t)
+                    (Formatting-Settings 'fixw 'fixw empty-fmt-settings))
+      (set-resyntax-enabled! default-resyntax-enabled)
+      (set-formatting-settings! default-formatting-settings))
+
+    (test-case
+      "null and empty configuration return to shipped defaults"
+      (set-formatting-settings!
+        (Formatting-Settings 'fmt 'drracket empty-fmt-settings))
+      (set-resyntax-enabled! #f)
+      (update-configuration (json-null))
+      (check-equal? current-formatting-settings
+                    (Formatting-Settings 'fixw 'fixw empty-fmt-settings))
+      (check-equal? (get-resyntax-enabled) default-resyntax-enabled)
+      (set-formatting-settings!
+        (Formatting-Settings 'fmt 'drracket empty-fmt-settings))
+      (update-configuration (list (json-null)))
+      (check-equal? current-formatting-settings
+                    (Formatting-Settings 'fixw 'fixw empty-fmt-settings))
+      (set-formatting-settings!
+        (Formatting-Settings 'fmt 'drracket empty-fmt-settings))
+      (update-configuration (hasheq))
+      (check-equal? current-formatting-settings
+                    (Formatting-Settings 'fixw 'fixw empty-fmt-settings))
       (set-formatting-settings! default-formatting-settings))
 
     (test-case
