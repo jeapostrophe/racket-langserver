@@ -286,7 +286,7 @@
              (doc-format-edits doc
                                (Range start end)
                                #:backend backend
-                               #:fmt-settings 
+                               #:fmt-settings
                                (Formatting-Settings-fmt-settings current-formatting-settings)
                                #:formatting-options opts)))))]
     [_

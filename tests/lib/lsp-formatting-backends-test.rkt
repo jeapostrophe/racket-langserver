@@ -14,6 +14,11 @@
 (define scribble-uri "file:///lsp-formatters.scrbl")
 (define scribble-text "#lang scribble/base\n@itemlist[\n@item{one}\n]")
 (define options (hasheq 'tabSize 2 'insertSpaces #t))
+(define standard-racket-indentation?
+  (with-handlers ([exn:fail? (lambda (_exn) #f)])
+    (procedure? (dynamic-require 'syntax-color/racket-indentation
+                                 'racket-amount-to-indent))))
+
 (define document-params
   (hasheq 'textDocument (hasheq 'uri racket-uri)
           'options options))
@@ -121,20 +126,21 @@
                                             'end (hasheq 'line 3 'character 0))
                                     'newText " "))))))
 
-  (test-case
-    "on-type formatting uses only the indentation formatter"
-    (with-open-document
-      racket-uri
-      racket-text
-      (Formatting-Settings 'fmt 'drracket empty-fmt-settings)
-      (lambda ()
-        (parameterize ([current-fmt-runner
-                        (lambda (_arguments _text)
-                          (error 'test "fmt must not be run"))])
-          (define response (on-type-formatting! 3 on-type-params))
-          (check-equal?
-            (hash-ref (first (hash-ref response 'result)) 'newText)
-            "  ")))))
+  (when standard-racket-indentation?
+    (test-case
+      "on-type formatting uses only the indentation formatter"
+      (with-open-document
+        racket-uri
+        racket-text
+        (Formatting-Settings 'fmt 'drracket empty-fmt-settings)
+        (lambda ()
+          (parameterize ([current-fmt-runner
+                          (lambda (_arguments _text)
+                            (error 'test "fmt must not be run"))])
+            (define response (on-type-formatting! 3 on-type-params))
+            (check-equal?
+              (hash-ref (first (hash-ref response 'result)) 'newText)
+              "  "))))))
 
   (test-case
     "missing selected fmt is reported without fallback"
