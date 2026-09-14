@@ -3,6 +3,8 @@
           (for-label racket
                      (file "../doclib/doc.rkt")
                      (file "../common/interfaces.rkt")
+                     (only-in (file "../doclib/formatter/fmt.rkt")
+                              empty-fmt-settings)
                      (only-in (file "../workspace/api.rkt")
                               Workspace?
                               make-workspace
@@ -305,22 +307,28 @@ from @tt{racket-langserver/json-util}. Nested struct values are encoded recursiv
                                [trim-trailing-whitespace boolean?]
                                [insert-final-newline boolean?]
                                [trim-final-newlines boolean?]
-                               [key (or/c false/c hash?)])
+                               [extras hash?])
             #:transparent]{
   Formatting options accepted by @racket[doc-format-edits].
 
   The @tt{tab-size} and @tt{insert-spaces} fields are required in protocol payloads.
   The remaining fields (@tt{trim-trailing-whitespace}, @tt{insert-final-newline},
-  @tt{trim-final-newlines}, @tt{key}) are optional in the JSON payload;
+  @tt{trim-final-newlines}) are optional in the JSON payload;
   absent fields are represented as @racket[(Nothing)] rather than @racket[#f].
   Test for an absent optional field with @tt{Nothing?} from @tt{racket-langserver/common/json-util}.
+  The @tt{extras} hash contains otherwise-unclaimed JSON properties and is
+  flattened into the object when encoded.
+
+  All formatter backends currently ignore standard LSP formatting options and
+  extra properties. The @racket['fmt] backend reads @tt{width}, @tt{indent},
+  and @tt{maxBlankLines} from workspace @tt{fmtSettings} instead.
 
   The corresponding JSON field names use camelCase:
   @tt{tabSize}, @tt{insertSpaces}, @tt{trimTrailingWhitespace}, @tt{insertFinalNewline},
   @tt{trimFinalNewlines}.
 
-  Not all generated accessors are exported. Public callers should rely on
-  @racket[FormattingOptions-tab-size] and @racket[FormattingOptions-trim-trailing-whitespace].
+  All generated field accessors are exported, including
+  @racket[FormattingOptions-extras].
 }
 
 @subsection{Lexer Entries}
@@ -807,11 +815,25 @@ Exceptions are noted in individual entries.
 @defproc[(doc-format-edits [doc Doc?]
                       [fmt-range Range?]
                       [#:formatting-options opts FormattingOptions?]
+                      [#:backend backend symbol? 'fixw]
+                      [#:fmt-settings fmt-settings Fmt-Settings? empty-fmt-settings]
                       [#:on-type? on-type? boolean? #f])
-         (or/c (listof TextEdit?) #f)]{
-  Computes formatting edits for the lines covered by @tt{fmt-range}.
-  Returns a list of @racket[TextEdit] values to apply. For documents without
-  a recognized s-expression language, returns an empty list.
+         (listof TextEdit?)]{
+  Computes formatting edits for the lines covered by @tt{fmt-range}. The
+  supported @tt{backend} values are @racket['fixw], @racket['drracket], and
+  @racket['fmt].
+  Returns a list of @racket[TextEdit] values to apply. @racket['fixw] and
+  @racket['fmt] accept recognized s-expression languages. For other languages,
+  those backends are replaced by @racket['drracket]. @racket['drracket]
+  additionally accepts Scribble and languages whose readers provide a usable
+  @tt{drracket:indentation} or @tt{drracket:range-indentation} hook. For other
+  non-s-expression languages, a missing or failing hook produces no edits.
+
+  @racket['fmt] formats the complete document and may return one replacement
+  whose line count differs from the original. LSP range and on-type requests
+  never select it; they use the separately configured indentation backend.
+  @racket['fmt] also consumes @tt{fmt-settings} (@tt{width}, @tt{indent}, and
+  @tt{maxBlankLines}) from workspace configuration.
 
   When @tt{on-type?} is @racket[#t], blank lines are indented too. For LSP
   on-type formatting requests, prefer @racket[doc-on-type-format-edits].
@@ -824,10 +846,12 @@ Exceptions are noted in individual entries.
 @defproc[(doc-on-type-format-edits [doc Doc?]
                                    [pos Pos?]
                                    [ch string?]
+                                   [#:backend backend symbol? 'fixw]
                                    [#:formatting-options opts FormattingOptions?])
-         (or/c (listof TextEdit?) #f)]{
+         (listof TextEdit?)]{
   Computes formatting edits for an on-type formatting trigger. The @tt{pos}
-  argument is the cursor position after @tt{ch} has been inserted.
+  argument is the cursor position after @tt{ch} has been inserted. The
+  supported @tt{backend} values are @racket['fixw] and @racket['drracket].
 
   For recognized s-expression languages, close delimiters format the containing
   form, and other triggers format the current line. For non-s-expression or

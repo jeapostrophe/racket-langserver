@@ -12,6 +12,7 @@
          "doc-trace.rkt"
          "check-syntax-compat.rkt"
          "formatting.rkt"
+         (only-in "formatter/fmt.rkt" empty-fmt-settings)
          "internal-types.rkt"
          "lexer.rkt"
          (only-in "lexer/state.rkt"
@@ -437,41 +438,44 @@
            (doc-abs-pos->pos doc current-line-end-pos)))
 
   (match ch
-    ["\n" (current-line-range)]
-    [")" (containing-form-range)]
-    ["]" (containing-form-range)]
+    [(or ")" "]") (containing-form-range)]
     [_ (current-line-range)]))
 
 ;; Shared path for all formatting requests
 (define/contract (doc-format-edits doc fmt-range
-                                   #:formatting-options _opts
+                                   #:formatting-options opts
+                                   #:backend [backend 'fixw]
+                                   #:fmt-settings [fmt-settings empty-fmt-settings]
                                    #:on-type? [on-type? #f])
   (->* (Doc? Range? #:formatting-options FormattingOptions?)
-       (#:on-type? boolean?)
-       (or/c (listof TextEdit?) #f))
+       (#:backend symbol?
+        #:fmt-settings Fmt-Settings?
+        #:on-type? boolean?)
+       (listof TextEdit?))
   (define doc-text (Doc-text doc))
   (define-values (start-line end-line)
     (formatting-range->lines doc-text fmt-range))
-  (define text (send doc-text get-text))
-  (define policy (doc-language-policy doc))
-  (cond
-    [(Language-Policy-format? policy)
-     (formatting text
-                 start-line
-                 end-line
-                 #:src-dir (doc-src-dir doc)
-                 #:interactive? on-type?)]
-    [else '()]))
+  (formatting doc-text
+              start-line
+              end-line
+              #:formatting-options opts
+              #:backend backend
+              #:fmt-settings fmt-settings
+              #:lexer-state (doc-lexer-state doc)
+              #:src-dir (doc-src-dir doc)
+              #:interactive? on-type?))
 
 (define/contract (doc-on-type-format-edits doc pos ch
-                                           #:formatting-options opts)
+                                           #:formatting-options opts
+                                           #:backend [backend 'fixw])
   (->* (Doc? Pos? string? #:formatting-options FormattingOptions?)
-       ()
-       (or/c (listof TextEdit?) #f))
+       (#:backend symbol?)
+       (listof TextEdit?))
   (cond
     [(doc-sexp-language? doc)
      (doc-format-edits doc
                        (doc-on-type-formatting-range doc pos ch)
+                       #:backend backend
                        #:on-type? #t
                        #:formatting-options opts)]
     [else '()]))

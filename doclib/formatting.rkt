@@ -1,24 +1,80 @@
 #lang racket/base
 
-(require "external/fixw.rkt"
-         "../common/interfaces.rkt"
-         racket/port)
+(require racket/class
+         racket/contract
+         "editor.rkt"
+         "formatter/drracket.rkt"
+         "formatter/fixw.rkt"
+         "formatter/fmt.rkt"
+         (only-in "lexer.rkt"
+                  LexerState?
+                  LexerState-language-policy
+                  LexerState-snapshot)
+         (only-in "doc-lang.rkt"
+                  Language-Policy-body-mode
+                  sexp-format-language?)
+         "../common/interfaces.rkt")
 
-(provide formatting)
+(provide formatting
+         exn:fail:fmt?
+         exn:fail:fmt-unavailable?)
 
-(define (formatting text start-ln end-ln
-                    #:src-dir [src-dir #f]
-                    #:interactive? [interactive? #f])
-  (define original-lines (port->lines (open-input-string text)))
-  (define formatted-lines
-    (get-formatted-lines text src-dir #:interactive? interactive?))
-  (for/list ([original-line (in-list original-lines)]
-             [formatted-line (in-list formatted-lines)]
-             [ln (in-naturals)]
-             #:break (> ln end-ln)
-             #:when (and (<= start-ln ln end-ln)
-                         (not (string=? original-line formatted-line))))
-    (TextEdit #:range (Range (Pos ln 0)
-                             (Pos ln (string-length original-line)))
-              #:newText formatted-line)))
+(define (selected-backend backend policy text)
+  (if (and (memq backend '(fixw fmt))
+           (not (sexp-format-language? text policy)))
+      'drracket
+      backend))
 
+(define/contract (formatting doc-text start-ln end-ln
+                             #:formatting-options options
+                             #:backend [backend 'fixw]
+                             #:fmt-settings [fmt-settings empty-fmt-settings]
+                             #:lexer-state [lexer-state #f]
+                             #:src-dir [src-dir #f]
+                             #:interactive? [interactive? #f])
+  (->* ((is-a?/c lsp-editor%)
+        exact-nonnegative-integer?
+        exact-nonnegative-integer?
+        #:formatting-options FormattingOptions?)
+       (#:backend symbol?
+        #:fmt-settings Fmt-Settings?
+        #:lexer-state (or/c LexerState? #f)
+        #:src-dir (or/c path? #f)
+        #:interactive? boolean?)
+       (listof TextEdit?))
+  ;; fixw and fmt format only recognized s-expression languages. Other
+  ;; languages use DrRacket even when fixw or fmt is selected.
+  (define text (send doc-text get-text))
+  (define policy
+    (and lexer-state (LexerState-language-policy lexer-state)))
+  (case (selected-backend backend policy text)
+    [(fixw)
+     (fixw-format-edits text
+                        start-ln
+                        end-ln
+                        #:formatting-options options
+                        #:src-dir src-dir
+                        #:interactive? interactive?)]
+    [(drracket)
+     (define racket-fallback?
+       (and policy (eq? 'sexp (Language-Policy-body-mode policy))))
+     (drracket-format-edits text
+                            start-ln
+                            end-ln
+                            #:formatting-options options
+                            #:racket-fallback? racket-fallback?
+                            #:lexer-snapshot (and racket-fallback?
+                                                  (LexerState-snapshot lexer-state))
+                            #:src-dir src-dir
+                            #:interactive? interactive?)]
+    [(fmt)
+     (define formatted (fmt-format-document text fmt-settings))
+     (if formatted
+         (list (TextEdit #:range (Range (Pos 0 0)
+                                        (abs-pos->Pos doc-text (send doc-text end-pos)))
+                         #:newText formatted))
+         '())]
+    [else
+     (raise-arguments-error 'formatting
+                            "formatter backend is not available"
+                            "backend" backend)]))

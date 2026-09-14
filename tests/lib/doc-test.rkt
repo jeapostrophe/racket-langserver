@@ -10,6 +10,7 @@
            "../../doclib/editor.rkt"
            "../../doclib/internal-types.rkt"
            "../../doclib/lexer.rkt"
+           "../../doclib/formatter/fmt.rkt"
            "../../common/interfaces.rkt"
            "../../common/path-util.rkt"
            racket/class
@@ -306,7 +307,7 @@
                          #:trim-trailing-whitespace #t
                          #:insert-final-newline #f
                          #:trim-final-newlines #f
-                         #:key #f)) ;; tab-size 2
+                         #:extras (hasheq))) ;; tab-size 2
     (define edits (doc-format-edits d (Range (Pos 0 0) (Pos 2 0)) #:formatting-options opts))
     (check-equal? (length edits) 1)
     (check-true (andmap TextEdit? edits))
@@ -319,7 +320,7 @@
                          #:trim-trailing-whitespace #t
                          #:insert-final-newline #f
                          #:trim-final-newlines #f
-                         #:key #f))
+                         #:extras (hasheq)))
     (define edits4 (doc-format-edits d (Range (Pos 0 0) (Pos 2 0)) #:formatting-options opts4))
     (check-equal? (length edits4) 1)
     (check-true (andmap TextEdit? edits4))
@@ -333,7 +334,7 @@
                          #:trim-trailing-whitespace #t
                          #:insert-final-newline #f
                          #:trim-final-newlines #f
-                         #:key #f))
+                         #:extras (hasheq)))
 
     (define normal-doc
       (make-doc "file:///test.rkt"
@@ -355,14 +356,33 @@
       (list (TextEdit (Range (Pos 3 0) (Pos 3 0)) "  "))))
 
   (test-case
-    "Formatting language guard"
+    "Non-sexp languages use DrRacket when fixw or fmt is selected"
     (define opts
       (FormattingOptions #:tab-size 2
                          #:insert-spaces #t
                          #:trim-trailing-whitespace #t
                          #:insert-final-newline #f
                          #:trim-final-newlines #f
-                         #:key #f))
+                         #:extras (hasheq)))
+    (define scribble-doc
+      (make-doc "file:///test.scrbl"
+                "#lang scribble/base\n@itemlist[\n@item{one}\n]"))
+    (define scribble-range (Range (Pos 0 0) (Pos 3 0)))
+    (define scribble-edits
+      (list (TextEdit (Range (Pos 2 0) (Pos 2 0)) " ")
+            (TextEdit (Range (Pos 3 0) (Pos 3 0)) " ")))
+    (check-equal?
+      (doc-format-edits scribble-doc scribble-range #:formatting-options opts)
+      scribble-edits)
+    (parameterize ([current-fmt-runner
+                    (lambda (_arguments _text)
+                      (error 'test "fmt must not be run"))])
+      (check-equal?
+        (doc-format-edits scribble-doc
+                          scribble-range
+                          #:backend 'fmt
+                          #:formatting-options opts)
+        scribble-edits))
 
     (define raw-doc
       (make-doc "file:///test.rkt" "(define x\n1)"))
@@ -389,7 +409,7 @@
                          #:trim-trailing-whitespace #t
                          #:insert-final-newline #f
                          #:trim-final-newlines #f
-                         #:key #f))
+                         #:extras (hasheq)))
 
     (define sexp-doc
       (make-doc "file:///test.rkt"
@@ -589,7 +609,7 @@
                          #:trim-trailing-whitespace #t
                          #:insert-final-newline #f
                          #:trim-final-newlines #f
-                         #:key #f))
+                         #:extras (hasheq)))
     (define edits (doc-format-edits d (Range (Pos 0 0) (Pos 2 0)) #:formatting-options opts))
     (check-equal?
       edits

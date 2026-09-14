@@ -88,12 +88,49 @@
   (when (regexp-match (get-module-suffix-regexp) uri)
     (lsp-close-doc! uri)))
 
+(define (apply-langserver-settings settings)
+  (match-define (Langserver-Settings #:resyntax resyntax #:formatting formatting)
+    settings)
+  (match resyntax
+    [(Resyntax-Settings #:enable (and enable (not (? Nothing?))))
+     (set-resyntax-enabled! enable)]
+    [_ (set-resyntax-enabled! default-resyntax-enabled)])
+  (match formatting
+    [(Formatting-Configuration
+       #:document-formatter document-formatter
+       #:indentation-formatter indentation-formatter
+       #:fmt-settings fmt-settings)
+     (set-formatting-settings!
+       (Formatting-Settings
+         (if (Nothing? document-formatter)
+             (Formatting-Settings-document-formatter default-formatting-settings)
+             (Document-Formatter-v document-formatter))
+         (if (Nothing? indentation-formatter)
+             (Formatting-Settings-indentation-formatter default-formatting-settings)
+             (Indentation-Formatter-v indentation-formatter))
+         (if (Nothing? fmt-settings)
+             (Formatting-Settings-fmt-settings default-formatting-settings)
+             fmt-settings)))]
+    [_ (set-formatting-settings! default-formatting-settings)]))
+
+;; A `racket-langserver` section is a snapshot. Omitted keys use shipped
+;; defaults. `workspace/configuration` returns a list; `workspace/didChangeConfiguration`
+;; may send the settings object, `null`, or an empty object.
+(define (normalize-configuration-item item)
+  (if (eq? item (json-null))
+      (hasheq)
+      item))
+
 (define (update-configuration settings)
-  (for ([setting settings]
-        #:unless (equal? setting (json-null)))
-    (define key '(resyntax enable))
-    (when (jsexpr-has-key? setting key)
-      (set-resyntax-enabled! (jsexpr-ref setting key)))))
+  (define normalized
+    (if (list? settings)
+        (map normalize-configuration-item settings)
+        (normalize-configuration-item settings)))
+  (match normalized
+    [(as-Langserver-Settings-Update value)
+     (for ([item (in-list (if (list? value) value (list value)))])
+       (apply-langserver-settings item))]
+    [_ (void)]))
 
 (define (didChangeConfiguration params)
   (match-define (hash-table ['settings settings]) params)
