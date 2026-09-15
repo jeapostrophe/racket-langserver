@@ -188,7 +188,9 @@
         ["workspace/didChangeWatchedFiles"
          (workspace/didChangeWatchedFiles params)]
         ["workspace/didChangeConfiguration"
-         (workspace/didChangeConfiguration params)]
+         (workspace/didChangeConfiguration (λ (method params handler)
+                                             (send-request method params handler))
+                                           params)]
         ["textDocument/didOpen"
          (text-document/did-open! (λ (method params handler)
                                     (send-request method params handler))
@@ -237,7 +239,7 @@
                'full #t
                'range #t))
 
-     (text-document/client-capability-workspace/configuration?
+     (workspace/client-capability-workspace/configuration?
        (if (jsexpr-has-key? capabilities '(workspace configuration))
            (jsexpr-ref capabilities '(workspace configuration))
            #f))
