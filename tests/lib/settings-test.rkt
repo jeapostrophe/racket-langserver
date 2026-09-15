@@ -144,6 +144,30 @@
                             'fmtSettings (hasheq 'width "91"))))))
       (check-equal? current-formatting-settings
                     (Formatting-Settings 'fmt 'drracket empty-fmt-settings))
+      (set-formatting-settings! default-formatting-settings))
+
+    (test-case
+      "didChangeConfiguration tolerates a missing racket-langserver section"
+      (for ([settings (in-list (list (json-null)
+                                     (hasheq)
+                                     (hasheq 'pylsp (hasheq 'x 1))))])
+        (set-formatting-settings!
+          (Formatting-Settings 'fmt 'drracket empty-fmt-settings))
+        (check-not-exn
+          (lambda () (didChangeConfiguration (hasheq 'settings settings))))
+        (check-equal? current-formatting-settings
+                      (Formatting-Settings 'fixw 'fixw empty-fmt-settings)))
+      (set-formatting-settings! default-formatting-settings))
+
+    (test-case
+      "didChangeConfiguration applies a scoped racket-langserver section"
+      (set-formatting-settings! default-formatting-settings)
+      (didChangeConfiguration
+        (hasheq 'settings
+                (hasheq 'racket-langserver
+                        (hasheq 'formatting (hasheq 'documentFormatter "fmt")))))
+      (check-equal? current-formatting-settings
+                    (Formatting-Settings 'fmt 'fixw empty-fmt-settings))
       (set-formatting-settings! default-formatting-settings))))
 
 (module+ test
