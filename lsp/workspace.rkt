@@ -134,5 +134,6 @@
 
 (define (didChangeConfiguration params)
   (match-define (hash-table ['settings settings]) params)
-  (update-configuration settings))
+  (match-define (hash-table ['racket-langserver langserver-settings]) settings)
+  (update-configuration langserver-settings))
 
