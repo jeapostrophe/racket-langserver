@@ -85,22 +85,22 @@ See [features.md](features.md) for a detailed breakdown of each feature.
 
 Set options in your editor's language-server settings under `racket-langserver`.
 The server reads that section through ordinary LSP configuration; there is no
-project configuration file.
+project configuration file. **Ignore** vscode warning of `Unknown Configuration Setting`!
 
-```json
+```jsonc
 {
   "racket-langserver": {
     "resyntax": {
       "enable": true
     },
     "formatting": {
-      "documentFormatter": "fmt",
-      "indentationFormatter": "drracket",
-      "fmtSettings": {
-        "width": 91,
-        "indent": 2,
-        "maxBlankLines": 1
-      }
+      "documentFormatter": "fixw", // fixw | drracket | fmt
+      "indentationFormatter": "fixw", // fixw | drracket
+      // "fmtSettings": {
+      //   "width": 91,
+      //   "indent": 2,
+      //   "maxBlankLines": 1
+      // }
     }
   }
 }
@@ -113,22 +113,17 @@ ignored.
 
 ### Resyntax
 
-`resyntax.enable` turns Resyntax diagnostics and code actions on or off. It
+`resyntax.enable` turns [Resyntax](https://github.com/jackfirth/resyntax) diagnostics and code actions on or off. It
 defaults to `true`. Resyntax is an optional package; if it is not installed,
 the server runs normally and produces no Resyntax suggestions.
 
 ### Formatting
 
-- `formatting.documentFormatter` sets the backend for whole-document formatting
-  (`Format Document`). Allowed values are `fixw`, `drracket`, and `fmt`.
-- `formatting.indentationFormatter` sets the backend for range and on-type
-  indentation (`Format Selection` and format on type). Allowed values are `fixw`
-  and `drracket`.
-- Both default to `fixw`, preserving earlier release behavior.
-- `formatting.fmtSettings` is optional. Its `width`, `indent`, and
-  `maxBlankLines` keys are nonnegative integers passed to `raco fmt` for
-  Format Document when the document backend is `fmt`. Omit a key to keep
-  `fmt`'s own default.
+| Name                              | Description                                                                                                                                                                                | Allowed values                                                                       |
+| --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------ |
+| `formatting.documentFormatter`    | Sets the formatter backend used for whole-document formatting (`Format Document`).                                                                                                         | **`fixw`**(default), `drracket`, `fmt`                                               |
+| `formatting.indentationFormatter` | Sets the formatter backend used for range formatting (`Format Selection`) and on-type indentation.                                                                                         | **`fixw`**(default), `drracket`                                                      |
+| `formatting.fmtSettings`          | Optional settings passed to `raco fmt` when `documentFormatter` is `fmt`. Its `width`, `indent`, and `maxBlankLines` keys are nonnegative integers. Omitted keys use `fmt`'s own defaults. | Object containing optional `width`, `indent`, and `maxBlankLines` integer properties |
 
 Standard LSP formatting options (`tabSize`, `insertSpaces`, and the
 trim/newline flags) are ignored by all backends.
