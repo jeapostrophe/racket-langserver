@@ -87,20 +87,20 @@ Set options in your editor's language-server settings under `racket-langserver`.
 The server reads that section through ordinary LSP configuration; there is no
 project configuration file. **Ignore** vscode warning of `Unknown Configuration Setting`!
 
-```json
+```jsonc
 {
   "racket-langserver": {
     "resyntax": {
       "enable": true
     },
     "formatting": {
-      "documentFormatter": "fmt",
-      "indentationFormatter": "drracket",
-      "fmtSettings": {
-        "width": 91,
-        "indent": 2,
-        "maxBlankLines": 1
-      }
+      "documentFormatter": "fixw", // fixw | drracket | fmt
+      "indentationFormatter": "fixw", // fixw | drracket
+      // "fmtSettings": {
+      //   "width": 91,
+      //   "indent": 2,
+      //   "maxBlankLines": 1
+      // }
     }
   }
 }
