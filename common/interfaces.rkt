@@ -227,7 +227,7 @@
   [tooltip string?])
 
 (define-json-struct ConfigurationItem
-  [scopeUri string?]
+  [scopeUri (optional string?)]
   [section string?])
 
 (define-json-struct ConfigurationParams

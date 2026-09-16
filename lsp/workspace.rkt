@@ -3,7 +3,9 @@
          didChangeWorkspaceFolders
          didChangeWatchedFiles
          didChangeConfiguration
-         update-configuration)
+         update-configuration
+         fetch-configuration
+         client-capability-workspace/configuration?)
 (require compiler/module-suffix
          json
          racket/match)
@@ -132,8 +134,25 @@
        (apply-langserver-settings item))]
     [_ (void)]))
 
-(define (didChangeConfiguration params)
+(define client-capability-workspace/configuration? (make-parameter #f))
+
+;; `scopeUri` is optional; the callback applies process-wide either way.
+(define (fetch-configuration request-client [uri (Nothing)])
+  (when (client-capability-workspace/configuration?)
+    (request-client "workspace/configuration"
+                    (->jsexpr
+                      (ConfigurationParams
+                        #:items (list (ConfigurationItem
+                                        #:scopeUri uri
+                                        #:section "racket-langserver"))))
+                    update-configuration)))
+
+;; A client that has no `racket-langserver` section to push is not saying the
+;; configuration is empty, it is saying to use the pull model instead.
+(define (didChangeConfiguration request-client params)
   (match-define (hash-table ['settings settings]) params)
-  (match-define (hash-table ['racket-langserver langserver-settings]) settings)
-  (update-configuration langserver-settings))
+  (match settings
+    [(hash-table ['racket-langserver langserver-settings])
+     (update-configuration langserver-settings)]
+    [_ (fetch-configuration request-client)]))
 

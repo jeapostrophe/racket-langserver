@@ -144,7 +144,56 @@
                             'fmtSettings (hasheq 'width "91"))))))
       (check-equal? current-formatting-settings
                     (Formatting-Settings 'fmt 'drracket empty-fmt-settings))
-      (set-formatting-settings! default-formatting-settings))))
+      (set-formatting-settings! default-formatting-settings))
+
+    (test-case
+      "didChangeConfiguration applies a pushed racket-langserver section"
+      (set-formatting-settings! default-formatting-settings)
+      (define requested (box '()))
+      (define (record-request method params handler)
+        (set-box! requested (cons method (unbox requested))))
+      (didChangeConfiguration
+        record-request
+        (hasheq 'settings
+                (hasheq 'racket-langserver
+                        (hasheq 'formatting (hasheq 'documentFormatter "fmt")))))
+      (check-equal? current-formatting-settings
+                    (Formatting-Settings 'fmt 'fixw empty-fmt-settings))
+      (check-equal? (unbox requested) '())
+      (set-formatting-settings! default-formatting-settings))
+
+    (test-case
+      "didChangeConfiguration pulls when there is no racket-langserver section"
+      ;; A client with nothing to push is asking us to use the pull model,
+      ;; not telling us the configuration is empty.
+      (for ([settings (in-list (list (json-null)
+                                     (hasheq)
+                                     (hasheq 'pylsp (hasheq 'x 1))))])
+        (set-formatting-settings!
+          (Formatting-Settings 'fmt 'drracket empty-fmt-settings))
+        (define requested (box '()))
+        (define (record-request method params handler)
+          (set-box! requested (cons method (unbox requested))))
+        (parameterize ([client-capability-workspace/configuration? #t])
+          (check-not-exn
+            (lambda () (didChangeConfiguration record-request
+                                               (hasheq 'settings settings)))))
+        (check-equal? (unbox requested) '("workspace/configuration"))
+        ;; the pull is in flight, so the old settings are deliberately kept
+        (check-equal? current-formatting-settings
+                      (Formatting-Settings 'fmt 'drracket empty-fmt-settings)))
+      (set-formatting-settings! default-formatting-settings))
+
+    (test-case
+      "didChangeConfiguration does not pull when the client cannot answer"
+      (define requested (box '()))
+      (define (record-request method params handler)
+        (set-box! requested (cons method (unbox requested))))
+      (parameterize ([client-capability-workspace/configuration? #f])
+        (check-not-exn
+          (lambda () (didChangeConfiguration record-request
+                                             (hasheq 'settings (json-null))))))
+      (check-equal? (unbox requested) '()))))
 
 (module+ test
   (run-tests settings-tests))
