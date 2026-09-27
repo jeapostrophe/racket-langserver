@@ -486,8 +486,8 @@
 ;; has line number 0 and character position 0.
 (define/contract (doc-range-tokens doc range)
   (-> Doc? Range? (listof SemanticToken?))
-  (define pos-start (doc-pos->abs-pos doc (Range-start range)))
-  (define pos-end (doc-pos->abs-pos doc (Range-end range)))
+  (define pos-start (clamped-abs-pos doc (Range-start range)))
+  (define pos-end (clamped-abs-pos doc (Range-end range)))
   (split-semantic-tokens-by-line
     doc
     (filter (λ (token)
