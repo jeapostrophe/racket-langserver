@@ -76,7 +76,10 @@
       [_ (eprintf "Invalid file event type: ~a~n" type)])))
 
 (define (handle-file-created uri)
-  (when (regexp-match (get-module-suffix-regexp) uri)
+  ;; File watchers can report creation after didOpen. The client's buffer and
+  ;; version remain authoritative until didClose.
+  (when (and (regexp-match (get-module-suffix-regexp) uri)
+             (not (lsp-get-doc uri #f)))
     (lsp-open-doc! uri "" 0)))
 
 (define (handle-file-changed uri)
