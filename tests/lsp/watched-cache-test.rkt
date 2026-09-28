@@ -204,6 +204,24 @@
           (check-locations binding uri '(2))))))
 
   (test-case
+    "closing an unsaved alias does not invalidate a verified survivor"
+    (for* ([saved-alias? '(#f #t)] [saved-last? '(#f #t)])
+      (with-source
+        (lambda (path uri alias)
+          (define saved-uri (if saved-alias? alias uri))
+          (define unsaved-uri (if saved-alias? uri alias))
+          (define-values (saved binding) (open-accepted! saved-uri))
+          (open-accepted! unsaved-uri (string-append source-text "first\n"))
+          (when saved-last?
+            (analyze! saved)
+            (wait-for-disk-verification! saved))
+          (lsp-close-doc! unsaved-uri)
+          (check-locations binding uri '(2))
+          (lsp-close-doc! saved-uri)
+          (check-paths binding (list path))
+          (check-locations binding uri '(2))))))
+
+  (test-case
     "reopening an alias starts without its retired contribution"
     (with-source
       (lambda (_path uri alias)
@@ -352,9 +370,35 @@
           (notify-watched! alias type)
           (check-eq? (lsp-get-doc uri) sd)
           (check-paths binding (list path))
-          ;; An edit and successful expansion must not forget the disk event.
-          (replace-buffer! sd source-text)
+          (lsp-close-doc! uri)
+          (check-paths binding '())))))
+
+  (test-case
+    "a fresh disk-matching analysis can restore provenance after a disk event"
+    (for ([type '(1 2 3)])
+      (with-source
+        (lambda (path uri alias)
+          (define-values (sd binding) (open-accepted! uri))
+          (define saved-text (string-append source-text "first\n"))
+          (display-to-file saved-text path #:exists 'truncate)
+          (notify-watched! alias type)
+          (replace-buffer! sd saved-text)
           (analyze! sd)
+          (wait-for-disk-verification! sd)
+          (lsp-close-doc! uri)
+          (check-paths binding (list path))
+          (check-locations binding uri '(2 3))))))
+
+  (test-case
+    "failed or disk-mismatching analysis cannot restore provenance after an event"
+    (for ([failed? '(#f #t)])
+      (with-source
+        (lambda (_path uri alias)
+          (define-values (sd binding) (open-accepted! uri))
+          (notify-watched! alias 2)
+          (replace-buffer! sd (if failed? "#lang racket/base\n("
+                                  (string-append source-text "first\n")))
+          (analyze! sd (if failed? 'failed 'succeeded))
           (lsp-close-doc! uri)
           (check-paths binding '())))))
 

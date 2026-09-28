@@ -182,11 +182,11 @@
                 ;; Provenance belongs to this accepted contribution. Optional
                 ;; disk I/O must never withhold completed analysis or queries.
                 (set-SafeDoc-contribution-matches-disk?! sd #f)
+                (set-SafeDoc-disk-changed?! sd #f)
                 (workspace-set-contribution! current-workspace contribution)
-                (unless (SafeDoc-disk-changed? sd)
-                  (scheduler-push-task! token 'disk-provenance
-                                        (lambda () (file-matches-text? uri (CSResult-text result)))
-                                        #:publish publish-provenance))
+                (scheduler-push-task! token 'disk-provenance
+                                      (lambda () (file-matches-text? uri (CSResult-text result)))
+                                      #:publish publish-provenance)
                 (when (and (get-resyntax-enabled) (resyntax-available?))
                   (scheduler-push-task! token 'resyntax resyntax-task
                                         #:publish publish-resyntax)))

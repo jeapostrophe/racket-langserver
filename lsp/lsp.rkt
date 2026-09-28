@@ -37,19 +37,18 @@
     (define invalidate? (safedoc-close! safe-doc))
     (hash-remove! open-docs uri-sym)
     (define path (uri->path uri))
-    (when invalidate?
-      (lsp-invalidate-path! path))
     (define survivors (open-docs-for-path path))
-    (when (pair? survivors)
-      ;; Retired aliases cannot supply facts for an open path. Remove first,
-      ;; then read and publish under each survivor's lock to avoid stale copies.
-      (workspace-remove-path! current-workspace path)
-      (for ([survivor (in-list survivors)])
-        (with-read-doc survivor
-          (lambda (doc)
-            (define contribution (Doc-contribution doc))
-            (when contribution
-              (workspace-set-contribution! current-workspace contribution))))))
+    ;; Closing a buffer does not change disk provenance for surviving aliases.
+    (when (or invalidate? (pair? survivors))
+      (workspace-remove-path! current-workspace path))
+    ;; Retired aliases cannot supply facts for an open path. Read and publish
+    ;; under each survivor's lock to avoid restoring a superseded contribution.
+    (for ([survivor (in-list survivors)])
+      (with-read-doc survivor
+        (lambda (doc)
+          (define contribution (Doc-contribution doc))
+          (when contribution
+            (workspace-set-contribution! current-workspace contribution)))))
     (clear-old-queries/doc-close token)))
 
 (define (open-docs-for-path path)

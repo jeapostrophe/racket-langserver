@@ -242,6 +242,8 @@ Finds all references to the identifier under the cursor. Local references are al
 
 Language behavior: not filtered by language family. Works where expansion succeeds and check-syntax produces binding data with reliable source ranges. Cross-file references are limited to files that have been opened and expanded in the workspace.
 
+After a file is closed, its cached references are retained only if the accepted analysis was verified against disk and no later disk change was reported. A new successful analysis can verify the file again after a disk change.
+
 ## Rename *(requires expansion)*
 
 Renames an identifier and all its uses within the current file. Collects the declaration position and all binding positions from check-syntax, then replaces each with the new name. Only identifiers defined in the current file can be renamed.

@@ -23,12 +23,11 @@
 (define (republish-open-doc-contributions!)
   (lsp-for-each-open-doc
     (lambda (safe-doc)
-      (define contribution
-        (with-read-doc safe-doc
-          (lambda (doc)
-            (Doc-contribution doc))))
-      (when contribution
-        (workspace-set-contribution! current-workspace contribution)))))
+      (with-read-doc safe-doc
+        (lambda (doc)
+          (define contribution (Doc-contribution doc))
+          (when contribution
+            (workspace-set-contribution! current-workspace contribution)))))))
 
 (define (didRenameFiles params)
   (match-define (^RenameFilesParams #:files files) params)
