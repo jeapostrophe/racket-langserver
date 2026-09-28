@@ -2,6 +2,10 @@
 
 (require "../../common/dynamic-import.rkt"
          "../../common/interfaces.rkt"
+         "../../common/json-util.rkt"
+         racket/async-channel
+         racket/place
+         racket/sandbox
          "../../lsp/resyntax-place.rkt"
          "resyntax-place-test-support.rkt")
 
@@ -13,8 +17,37 @@
 (module+ test
   (require rackunit)
 
-  (define (wait-for-thread th)
-    (sync th)
+  (define (await event)
+    (or (sync/timeout 20 event) (fail "timed out waiting for worker lifecycle event")))
+
+  (define (start text [timeout #f])
+    (define results (make-async-channel))
+    (define caller
+      (thread
+        (lambda ()
+          (async-channel-put results
+                             (with-handlers ([exn:break? (lambda (_e) 'cancelled)]
+                                             [exn:fail:resource? (lambda (_e) 'timed-out)]
+                                             [exn? values])
+                               (if timeout
+                                   (with-limits timeout #f (run-resyntax/in-place text "file:///controlled.rkt"))
+                                   (run-resyntax/in-place text "file:///controlled.rkt")))))))
+    (values caller results))
+
+  (define (request-received! worker text)
+    (check-equal? (await (Controlled-Worker-notice worker))
+                  (list text "file:///controlled.rkt")))
+
+  (define (reply! worker text)
+    (define result (Resyntax-Result 0 (string-length text) "file:///controlled.rkt" 'test text))
+    (place-channel-put (Controlled-Worker-control worker) (list (->jsexpr result)))
+    (list result))
+
+  (define (complete! worker text caller results)
+    (request-received! worker text)
+    (define expected (reply! worker text))
+    (check-equal? (await results) expected)
+    (await caller)
     (void))
 
   (test-case
@@ -49,50 +82,69 @@
       reset-resyntax-worker!))
 
   (test-case
-    "run-resyntax/in-place: reuses one worker across calls"
-    (reset-resyntax-worker!)
-    (dynamic-wind
-      void
-      (lambda ()
-        (when has-resyntax?
-          (run-resyntax/in-place "#lang racket\n(+ 1 2)" "file:///reuse-1.rkt")
-          (define worker-1 (get-resyntax-worker))
-          (check-not-false worker-1)
+    "successful requests reuse the same worker and return their own results"
+    (call-with-controlled-workers
+      (lambda (created)
+        (define-values (first results-1) (start "first"))
+        (define worker (await created))
+        (complete! worker "first" first results-1)
+        (define-values (second results-2) (start "second"))
+        (complete! worker "second" second results-2)
+        (check-eq? (get-resyntax-worker) (Controlled-Worker-place worker))
+        (check-true (resyntax-worker-live?))
+        (check-false (sync/timeout 0 created)))))
+
+  (for ([mode '(break timeout custodian kill death)])
+    (test-case
+      (format "~a disposes the worker and permits a distinct replacement result" mode)
+      (call-with-controlled-workers
+        (lambda (created)
+          ;; Warm startup is outside the short computation timeout.
+          (define-values (warm warm-results) (start "warm"))
+          (define old (await created))
+          (complete! old "warm" warm warm-results)
+          (define caller-custodian (make-custodian))
+          (define-values (caller results)
+            (parameterize ([current-custodian caller-custodian])
+              (start "abandoned" (and (eq? mode 'timeout) 0.5))))
+          (request-received! old "abandoned")
+          (case mode
+            [(break) (break-thread caller)]
+            [(custodian) (custodian-shutdown-all caller-custodian)]
+            [(kill) (kill-thread caller)]
+            [(death) (place-channel-put (Controlled-Worker-control old) 'die)])
+          (await caller)
+          (await (place-dead-evt (Controlled-Worker-place old)))
+          (await (resyntax-worker-idle-evt))
+          ;; Check before fixture cleanup can clear any global state.
+          (check-false (get-resyntax-worker))
+          (case mode
+            [(break) (check-eq? (await results) 'cancelled)]
+            [(timeout) (check-eq? (await results) 'timed-out)]
+            [(death) (check-equal? (await results) '())])
+          (define-values (next next-results) (start "replacement"))
+          (define fresh (await created))
+          (check-not-eq? (Controlled-Worker-place fresh) (Controlled-Worker-place old))
+          (complete! fresh "replacement" next next-results)
+          (check-eq? (get-resyntax-worker) (Controlled-Worker-place fresh))
           (check-true (resyntax-worker-live?))
-          (run-resyntax/in-place "#lang racket\n(+ 3 4)" "file:///reuse-2.rkt")
-          (check-eq? (get-resyntax-worker) worker-1)))
-      reset-resyntax-worker!))
+          (custodian-shutdown-all caller-custodian)))))
 
   (test-case
-    "run-resyntax/in-place: cancellation kills the worker and recreates it later"
-    (reset-resyntax-worker!)
-    (dynamic-wind
-      void
-      (lambda ()
-        (define delayed-worker #f)
-        (define break-caught? #f)
-        (call-with-test-resyntax-available?
-          #t
-          (lambda ()
-            (call-with-test-delayed-worker
-              250
-              (lambda ()
-                (set! delayed-worker (get-resyntax-worker))
-                (define worker-thread
-                  (thread
-                    (lambda ()
-                      (with-handlers ([exn:break? (lambda (_exn) (set! break-caught? #t))])
-                        (run-resyntax/in-place "#lang racket\n(+ 1 2)" "file:///cancel.rkt")))))
-                (sleep 0.05)
-                (break-thread worker-thread)
-                (wait-for-thread worker-thread)
-                (check-true break-caught?)))))
-        (check-false (get-resyntax-worker))
-        (check-false (resyntax-worker-live?))
-        (when has-resyntax?
-          (run-resyntax/in-place "#lang racket\n(+ 5 6)" "file:///after-cancel.rkt")
-          (define worker-after-cancel (get-resyntax-worker))
-          (check-not-false worker-after-cancel)
-          (check-true (resyntax-worker-live?))
-          (check-false (eq? worker-after-cancel delayed-worker))))
-      reset-resyntax-worker!)))
+    "cancelling a caller waiting for ownership leaves the active request intact"
+    (call-with-controlled-workers
+      (lambda (created)
+        (define-values (owner owner-results) (start "owner"))
+        (define worker (await created))
+        (request-received! worker "owner")
+        (define-values (waiting waiting-results) (start "waiting"))
+        (await (system-idle-evt))
+        (break-thread waiting)
+        (check-eq? (await waiting-results) 'cancelled)
+        (await waiting)
+        (check-eq? (get-resyntax-worker) (Controlled-Worker-place worker))
+        (check-true (resyntax-worker-live?))
+        (define expected (reply! worker "owner"))
+        (check-equal? (await owner-results) expected)
+        (await owner)
+        (void)))))

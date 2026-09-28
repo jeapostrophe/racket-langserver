@@ -1,13 +1,17 @@
 #lang racket/base
 
-(provide call-with-test-delayed-worker
+(provide call-with-controlled-workers
          call-with-test-resyntax-available?
          get-resyntax-worker
          reset-resyntax-worker!
-         resyntax-worker-live?)
+         resyntax-worker-live?
+         resyntax-worker-idle-evt
+         (struct-out Controlled-Worker))
 
-(require racket/match
-         racket/place)
+(require racket/async-channel
+         racket/match
+         racket/place
+         (submod "../../lsp/resyntax-place.rkt" test-support))
 
 (define resyntax-place-ns
   (begin
@@ -43,41 +47,57 @@
   (and worker
        (not (sync/timeout 0 (place-dead-evt worker)))))
 
-(define (make-delayed-worker delay-ms)
+(struct Controlled-Worker (place notice control) #:transparent)
+
+(define (make-controlled-worker)
+  (define-values (notice-parent notice-child) (place-channel))
+  (define-values (control-parent control-child) (place-channel))
   (define worker
     (place ch
-      (define delay-ms (place-channel-get ch))
+      (match-define (list notice control) (place-channel-get ch))
       (let loop ()
-        (match (place-channel-get ch)
-          [(list 'run (? string?) (? string?))
-           (sleep (/ delay-ms 1000.0))
-           (place-channel-put ch (list))
-           (loop)]
-          ['stop
-           (void)]
-          [_
-           (place-channel-put ch (list))
-           (loop)]))))
-  (place-channel-put worker delay-ms)
-  worker)
+        (match-define (list (? string? text) (? string? uri)) (place-channel-get ch))
+        (place-channel-put notice (list text uri))
+        (match (place-channel-get control)
+          ['die (void)]
+          [reply (place-channel-put ch reply) (loop)]))))
+  (place-channel-put worker (list notice-child control-child))
+  (Controlled-Worker worker notice-parent control-parent))
 
-(define (call-with-test-delayed-worker delay-ms thunk)
-  (define previous-worker (module-value resyntax-place-ns 'resyntax-worker))
-  (define delayed-worker (make-delayed-worker delay-ms))
+(define (call-with-controlled-workers proc)
+  (define created (make-async-channel))
+  (define workers '())
+  (define callers (make-custodian))
   (dynamic-wind
+    reset-resyntax-worker!
     (lambda ()
-      (set-module-variable! resyntax-place-ns 'resyntax-worker delayed-worker))
-    thunk
+      (parameterize ([current-custodian callers]
+                     [current-resyntax-worker-factory
+                      (lambda ()
+                        (define worker (make-controlled-worker))
+                        (set! workers (cons worker workers))
+                        (async-channel-put created worker)
+                        (Controlled-Worker-place worker))])
+        (call-with-test-resyntax-available? #t (lambda () (proc created)))))
     (lambda ()
-      (when (worker-live? delayed-worker)
-        (place-kill delayed-worker))
-      (set-module-variable! resyntax-place-ns 'resyntax-worker previous-worker))))
+      (custodian-shutdown-all callers)
+      (for ([worker (in-list workers)]) (place-kill (Controlled-Worker-place worker)))
+      (reset-resyntax-worker!))))
 
 (define (call-with-test-resyntax-available? available? thunk)
   (call-with-module-variable external-resyntax-ns 'has-resyntax? available? thunk))
 
 (define (reset-resyntax-worker!)
-  (eval-in resyntax-place-ns '(call-with-semaphore resyntax-worker-lock kill-worker!)))
+  ;; A broken implementation can strand this lock. Cleanup must report that
+  ;; failure instead of hanging the whole suite while attempting to reset it.
+  (define lock (module-value resyntax-place-ns 'resyntax-worker-lock))
+  (unless (sync/timeout 5 lock) (error 'reset-resyntax-worker! "worker lock remained held"))
+  (dynamic-wind void
+                (lambda () (eval-in resyntax-place-ns '(kill-worker!)))
+                (lambda () (semaphore-post lock))))
+
+(define (resyntax-worker-idle-evt)
+  (semaphore-peek-evt (module-value resyntax-place-ns 'resyntax-worker-lock)))
 
 (define (get-resyntax-worker)
   (module-value resyntax-place-ns 'resyntax-worker))
