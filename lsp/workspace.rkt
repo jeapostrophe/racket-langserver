@@ -6,9 +6,9 @@
          update-configuration
          fetch-configuration
          client-capability-workspace/configuration?)
-(require compiler/module-suffix
-         json
+(require json
          net/url
+         racket/list
          racket/match)
 (require "../common/json-util.rkt"
          "../common/path-util.rkt"
@@ -32,26 +32,14 @@
 
 (define (didRenameFiles params)
   (match-define (^RenameFilesParams #:files files) params)
-  (for ([f files])
-    (match-define (FileRename #:oldUri old-uri #:newUri new-uri) f)
-    (workspace-remove-path! current-workspace (uri->path old-uri))
-
-    ; remove all awaiting internal queries about `old-uri`
-    (define safe-doc (lsp-get-doc old-uri #f))
-
-
-    ; `safe-doc = #f` should be rarely happened.
-    ; we simply give up to handle it, let's trust LSP client will send
-    ; other request about analysis this file.
-    (when safe-doc
-      (lsp-close-doc! old-uri))
-
-    (when (and safe-doc (regexp-match (get-module-suffix-regexp) new-uri))
-      (define-values (old-text old-version)
-        (with-read-doc safe-doc
-          (lambda (doc)
-            (values (doc-get-text doc) (Doc-version doc)))))
-      (lsp-open-doc! new-uri old-text old-version))))
+  ;; File operations invalidate both disk paths. Client textDocument
+  ;; notifications own buffer lifetimes and schedule analysis on didOpen.
+  (invalidate-file-uris!
+    (append-map
+      (lambda (file)
+        (match-define (FileRename #:oldUri old-uri #:newUri new-uri) file)
+        (list old-uri new-uri))
+      files)))
 
 (define (didChangeWorkspaceFolders params)
   (match-define (^DidChangeWorkspaceFoldersParams #:event event) params)
@@ -67,9 +55,15 @@
 
 (define (didChangeWatchedFiles params)
   (match-define (^DidChangeWatchedFilesParams #:changes changes) params)
-  (define paths
+  (invalidate-file-uris!
     (for/list ([change changes])
       (match-define (FileEvent #:uri uri #:type _) change)
+      uri)))
+
+(define (invalidate-file-uris! uris)
+  ;; Decode the entire batch before changing any cached or open document state.
+  (define paths
+    (for/list ([uri (in-list uris)])
       (define url (string->url uri))
       (and (equal? (url-scheme url) "file") (url->path url))))
   (for ([path paths] #:when path)
