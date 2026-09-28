@@ -53,7 +53,9 @@
   (wait-for-disk-verification! safe-doc)
   (define contribution
     (with-read-doc safe-doc Doc-contribution))
-  (values uri safe-doc contribution (first (hash-keys (Doc-Contribution-references contribution)))))
+  (values uri safe-doc contribution
+          (with-read-doc safe-doc
+            (lambda (doc) (doc-module-binding-at doc (Pos 2 0))))))
 
 (define (check-contribution-paths module-binding expected)
   (check-equal?
@@ -80,8 +82,9 @@
         (workspace-add-folder! current-workspace root)
         (define safe-doc (lsp-open-doc! uri (string-append source-text "first\n") 2))
         (analyze! safe-doc)
-        (define contribution (with-read-doc safe-doc Doc-contribution))
-        (define binding (first (hash-keys (Doc-Contribution-references contribution))))
+        (define binding
+          (with-read-doc safe-doc
+            (lambda (doc) (doc-module-binding-at doc (Pos 2 0)))))
         (define (reference-count)
           (length (append-map Reference-Source-locations
                               (workspace-reference-sources current-workspace binding))))

@@ -54,7 +54,7 @@
   (values sd
           (with-read-doc sd
             (lambda (doc)
-              (first (hash-keys (Doc-Contribution-references (Doc-contribution doc))))))))
+              (doc-module-binding-at doc (Pos 2 0))))))
 
 (define (renamed! old-uri new-uri)
   (didRenameFiles (hasheq 'files (list (hasheq 'oldUri old-uri 'newUri new-uri)))))

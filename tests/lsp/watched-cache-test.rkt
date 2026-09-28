@@ -55,9 +55,9 @@
   (when (and (equal? text source-text)
              (file-exists? (uri->path uri)))
     (wait-for-disk-verification! sd))
-  (define contribution
-    (with-read-doc sd Doc-contribution))
-  (values sd (first (hash-keys (Doc-Contribution-references contribution)))))
+  (values sd
+          (with-read-doc sd
+            (lambda (doc) (doc-module-binding-at doc (Pos 2 0))))))
 
 (define (check-paths binding expected)
   (check-equal?

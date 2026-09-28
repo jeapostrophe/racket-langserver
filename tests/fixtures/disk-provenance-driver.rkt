@@ -3,8 +3,8 @@
 (require rackunit
          racket/async-channel
          racket/file
-         racket/list
          racket/path
+         "../../common/interfaces.rkt"
          "../../common/path-util.rkt"
          "../../common/settings.rkt"
          "../../doclib/doc.rkt"
@@ -28,8 +28,9 @@
   (define (verified? sd)
     (with-read-safedoc sd SafeDoc-contribution-matches-disk?))
   (define (reference-paths sd)
-    (define contribution (with-read-doc sd Doc-contribution))
-    (define binding (first (hash-keys (Doc-Contribution-references contribution))))
+    (define binding
+      (with-read-doc sd
+        (lambda (doc) (doc-module-binding-at doc (Pos 2 0)))))
     (map Reference-Source-path (workspace-reference-sources current-workspace binding)))
   (define (with-blocked-read proc)
     (define entered (make-async-channel))
