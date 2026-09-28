@@ -11,16 +11,18 @@
          "../../lsp/text-document.rkt"
          "analysis-test-support.rkt")
 
-(require/expose "../../lsp/scheduler.rkt" (_scheduler))
-
-(define scheduler-custodian (current-custodian))
-(define (suspend-scheduler!)
-  (parameterize ([current-custodian scheduler-custodian])
-    (thread-suspend _scheduler)))
-
 (define source "#lang racket/base\n(require racket/list)\nfirst\n")
-(define raised-source
-  "#lang racket/base\n(require (for-syntax racket/base))\n(begin-for-syntax (raise 'analysis-failure))\n")
+(define analysis-started
+  (make-log-receiver (current-logger) 'info 'analysis-failure-test))
+(define (failure-source mode)
+  (string-append
+    source
+    "(require (for-syntax racket/base))\n"
+    "(begin-for-syntax\n"
+    "  (define release (make-semaphore))\n"
+    "  (log-message (current-logger) 'info 'analysis-failure-test \"started\" release)\n"
+    "  (semaphore-wait release)\n"
+    (if (eq? mode 'raised-value) "  (raise 'analysis-failure))\n" ")\n")))
 
 (module+ test
   (for ([mode '(raised-value publication-error)])
@@ -31,6 +33,7 @@
       (define uri (path->uri path))
       (define enabled (get-resyntax-enabled))
       (define waiters '())
+      (define release #f)
       (dynamic-wind
         void
         (lambda ()
@@ -42,16 +45,18 @@
           (define accepted (with-read-doc sd Doc-contribution))
           (with-write-doc sd
             (lambda (doc)
-              (doc-reset! doc (if (eq? mode 'raised-value) raised-source source))
+              (doc-reset! doc (failure-source mode))
               (doc-update-version! doc 3)))
-          ;; Hold dispatch so both requests observe running analysis. The real
-          ;; worker will execute after their waiters have been registered.
-          (suspend-scheduler!)
+          ;; Hold expansion at the fixture's semaphore until both requests are
+          ;; registered, without suspending the scheduler's async-channel wait.
           (safedoc-run-check-syntax!
             (if (eq? mode 'publication-error)
                 (lambda (_method _params) (error 'test "diagnostic delivery failed"))
                 void)
             sd)
+          (define started (sync/timeout 20 analysis-started))
+          (check-not-false started "analysis reached the expansion gate")
+          (set! release (vector-ref started 2))
           (define responses (make-async-channel))
           (define replies
             (list
@@ -64,7 +69,7 @@
             (check-true (procedure? reply))
             (set! waiters
                   (cons (thread (lambda () (async-channel-put responses (reply)))) waiters)))
-          (thread-resume _scheduler)
+          (semaphore-post release)
           (for ([_ (in-list replies)])
             (define reply (sync/timeout 20 responses))
             (check-true (hash? reply) "analysis failure releases the pending request")
@@ -76,7 +81,7 @@
           (check-false (procedure?
                          (full-semantic-tokens 3 (hasheq 'textDocument (hasheq 'uri uri))))))
         (lambda ()
-          (thread-resume _scheduler)
+          (when release (semaphore-post release))
           (lsp-close-doc! uri)
           (for ([waiter (in-list waiters)]) (sync/timeout 5 waiter))
           (set-resyntax-enabled! enabled)
