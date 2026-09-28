@@ -2,6 +2,7 @@
 
 (require racket/contract
          "../common/path-util.rkt"
+         "../doclib/doc.rkt"
          "../workspace/current.rkt"
          "../workspace/state.rkt"
          "safedoc.rkt"
@@ -35,17 +36,33 @@
     (scheduler-close-doc! token)
     (define invalidate? (safedoc-close! safe-doc))
     (hash-remove! open-docs uri-sym)
+    (define path (uri->path uri))
     (when invalidate?
-      (lsp-invalidate-path! (uri->path uri)))
+      (lsp-invalidate-path! path))
+    (define survivors (open-docs-for-path path))
+    (when (pair? survivors)
+      ;; Retired aliases cannot supply facts for an open path. Remove first,
+      ;; then read and publish under each survivor's lock to avoid stale copies.
+      (workspace-remove-path! current-workspace path)
+      (for ([survivor (in-list survivors)])
+        (with-read-doc survivor
+          (lambda (doc)
+            (define contribution (Doc-contribution doc))
+            (when contribution
+              (workspace-set-contribution! current-workspace contribution))))))
     (clear-old-queries/doc-close token)))
+
+(define (open-docs-for-path path)
+  (for/list ([(uri safe-doc) (in-hash open-docs)]
+             #:when (equal? path (uri->path (symbol->string uri))))
+    safe-doc))
 
 ;; Open buffers remain authoritative. Defer cache invalidation until the last
 ;; open URI for this decoded path closes, including percent-encoded aliases.
 (define/contract (lsp-invalidate-path! path)
   (-> path? void?)
   (define open? #f)
-  (for ([(uri safe-doc) (in-hash open-docs)]
-        #:when (equal? path (uri->path (symbol->string uri))))
+  (for ([safe-doc (in-list (open-docs-for-path path))])
     (when (safedoc-disk-changed! safe-doc path)
       (set! open? #t)))
   (unless open?

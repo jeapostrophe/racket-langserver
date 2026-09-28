@@ -4,7 +4,9 @@
          racket/async-channel
          racket/file
          racket/list
+         racket/set
          racket/string
+         "../../common/interfaces.rkt"
          "../../common/path-util.rkt"
          "../../common/settings.rkt"
          "../../doclib/doc.rkt"
@@ -61,6 +63,14 @@
   (check-equal?
     (map Reference-Source-path (workspace-reference-sources current-workspace binding))
     expected))
+
+(define (check-locations binding uri lines)
+  (check-equal?
+    (list->set
+      (append-map Reference-Source-locations
+                  (workspace-reference-sources current-workspace binding)))
+    (for/set ([line (in-list lines)])
+      (Location uri (Range (Pos line 0) (Pos line 5))))))
 
 (module+ test
   (test-case
@@ -129,20 +139,184 @@
           (lsp-close-doc! uri)
           (check-paths binding '())))))
 
-  ;; This asserts source-path lifetime only; contribution ownership across
-  ;; simultaneous URI aliases is a separate existing limitation.
   (test-case
-    "unsaved alias invalidation waits for the last open buffer in either close order"
-    (for ([unsaved-first? '(#f #t)])
+    "closing either alias restores the survivor regardless of publication order"
+    (for* ([unsaved-first? '(#f #t)]
+           [saved-last? '(#f #t)])
+      (with-source
+        (lambda (path uri alias)
+          (define-values (saved binding) (open-accepted! uri))
+          (define-values (_unsaved _binding)
+            (open-accepted! alias (string-append source-text "first\n")))
+          (when saved-last?
+            (analyze! saved)
+            (wait-for-disk-verification! saved))
+          (check-locations binding uri (if saved-last? '(2) '(2 3)))
+          (lsp-close-doc! (if unsaved-first? alias uri))
+          (check-paths binding (list path))
+          (check-locations binding uri (if unsaved-first? '(2) '(2 3)))
+          (notify-watched! alias 3)
+          (check-locations binding uri (if unsaved-first? '(2) '(2 3)))
+          (lsp-close-doc! (if unsaved-first? uri alias))
+          (check-paths binding '())))))
+
+  (test-case
+    "an unanalysed or failed survivor cannot retain a closed alias's facts"
+    (for* ([saved? '(#f #t)]
+           [failed? '(#f #t)])
+      (with-source
+        (lambda (_path uri alias)
+          (define survivor (lsp-open-doc! alias "#lang racket/base\n(" 2))
+          (when failed? (analyze! survivor 'failed))
+          (define-values (_owner binding)
+            (open-accepted! uri (if saved? source-text
+                                    (string-append source-text "first\n"))))
+          (lsp-close-doc! uri)
+          (check-locations binding uri '())
+          ;; A later accepted result can still populate the same path.
+          (replace-buffer! survivor source-text)
+          (analyze! survivor)
+          (check-locations binding uri '(2))))))
+
+  (test-case
+    "watched events preserve the current contribution while aliases remain open"
+    (with-source
+      (lambda (_path uri alias)
+        (define-values (saved binding) (open-accepted! uri))
+        (define-values (_other _binding)
+          (open-accepted! alias (string-append source-text "first\n")))
+        (for ([saved-last? '(#f #t)])
+          (when saved-last? (analyze! saved))
+          (notify-watched! alias 2)
+          (check-locations binding uri (if saved-last? '(2) '(2 3)))))))
+
+  (test-case
+    "closing verified aliases retains the surviving accepted contribution"
+    (for ([alias-first? '(#f #t)])
       (with-source
         (lambda (path uri alias)
           (define-values (_saved binding) (open-accepted! uri))
-          (define-values (_unsaved _binding)
-            (open-accepted! alias (string-append source-text "first\n")))
-          (lsp-close-doc! (if unsaved-first? alias uri))
+          (define-values (_other _binding) (open-accepted! alias))
+          (lsp-close-doc! (if alias-first? alias uri))
+          (check-locations binding uri '(2))
+          (lsp-close-doc! (if alias-first? uri alias))
           (check-paths binding (list path))
-          (lsp-close-doc! (if unsaved-first? uri alias))
-          (check-paths binding '())))))
+          (check-locations binding uri '(2))))))
+
+  (test-case
+    "reopening an alias starts without its retired contribution"
+    (with-source
+      (lambda (_path uri alias)
+        (define-values (saved binding) (open-accepted! uri))
+        (define-values (retired _binding)
+          (open-accepted! alias (string-append source-text "first\n")))
+        ;; Failed analysis preserves the survivor's last accepted facts.
+        (replace-buffer! saved "#lang racket/base\n(")
+        (analyze! saved 'failed)
+        (define reopened
+          (lsp-open-doc! alias (string-append source-text "first\nfirst\n") 2))
+        (check-locations binding uri '(2))
+        (check-false
+          (with-current-safedoc retired 2
+            (lambda (_sd) (fail "retired alias accepted a late publication"))))
+        (analyze! reopened)
+        (check-locations binding uri '(2 3 4))
+        (lsp-close-doc! alias)
+        (check-locations binding uri '(2)))))
+
+  (test-case
+    "an unanalysed third alias cannot erase an accepted survivor"
+    (with-source
+      (lambda (_path uri alias)
+        (define third (string-replace uri "source.rkt" "s%6furce.rkt"))
+        (dynamic-wind
+          void
+          (lambda ()
+            (define-values (_saved binding) (open-accepted! uri))
+            (lsp-open-doc! third source-text 2)
+            (define-values (_unsaved _binding)
+              (open-accepted! alias (string-append source-text "first\n")))
+            (lsp-close-doc! alias)
+            (check-locations binding uri '(2))
+            (lsp-close-doc! uri)
+            (check-locations binding uri '()))
+          (lambda () (lsp-close-doc! third))))))
+
+  (test-case
+    "three divergent aliases never retain a retired contribution in any close order"
+    (for ([order (in-list (permutations '(0 1 2)))])
+      (with-source
+        (lambda (_path uri alias)
+          (define third (string-replace uri "source.rkt" "s%6furce.rkt"))
+          (define uris (list uri alias third))
+          (define expected
+            (for/list ([line '(3 4 5)])
+              (set (Location uri (Range (Pos 2 0) (Pos 2 5)))
+                   (Location uri (Range (Pos line 0) (Pos line 5))))))
+          (dynamic-wind
+            void
+            (lambda ()
+              (define binding #f)
+              (for ([opened-uri (in-list uris)] [index (in-naturals)])
+                (define-values (_sd key)
+                  (open-accepted! opened-uri
+                                  (string-append source-text (make-string index #\newline)
+                                                 "first\n")))
+                (set! binding key))
+              (let loop ([remaining order])
+                (when (pair? remaining)
+                  (lsp-close-doc! (list-ref uris (car remaining)))
+                  (define locations
+                    (list->set
+                      (append-map Reference-Source-locations
+                                  (workspace-reference-sources current-workspace binding))))
+                  (if (null? (cdr remaining))
+                      (check-equal? locations (set))
+                      (check-not-false
+                        (member locations
+                                (map (lambda (index) (list-ref expected index))
+                                     (cdr remaining)))))
+                  (loop (cdr remaining)))))
+            (lambda () (lsp-close-doc! third)))))))
+
+  (test-case
+    "alias close restores a survivor's concurrent accepted publication"
+    (with-source
+      (lambda (_path uri alias)
+        (define-values (survivor binding) (open-accepted! uri))
+        (define-values (_other _binding)
+          (open-accepted! alias (string-append source-text "first\n")))
+        (replace-buffer! survivor (string-append source-text "first\nfirst\n"))
+        (define entered (make-async-channel))
+        (define release (make-semaphore))
+        (define closing (make-semaphore))
+        (define worker #f)
+        (define closer #f)
+        (dynamic-wind
+          void
+          (lambda ()
+            (safedoc-run-check-syntax!
+              (lambda (_method _params)
+                (async-channel-put entered (current-thread))
+                (sync (semaphore-peek-evt release)))
+              survivor)
+            (set! worker (sync/timeout 20 entered))
+            (check-true (thread? worker))
+            (set! closer
+                  (thread
+                    (lambda ()
+                      (semaphore-post closing)
+                      (lsp-close-doc! alias))))
+            (check-not-false (sync/timeout 5 closing))
+            (check-false (sync/timeout 0.05 closer))
+            (semaphore-post release)
+            (check-eq? (sync/timeout 20 worker) worker)
+            (check-eq? (sync/timeout 20 closer) closer)
+            (check-locations binding uri '(2 3 4)))
+          (lambda ()
+            (semaphore-post release)
+            (when worker (sync/timeout 20 worker))
+            (when closer (sync/timeout 20 closer)))))))
 
   (test-case
     "reopening after an unsaved close can retain fresh disk-matching analysis"
@@ -185,7 +359,7 @@
           (check-paths binding '())))))
 
   (test-case
-    "invalidation waits until every URI for an open path closes"
+    "invalidation drops closed facts when an open alias has no accepted analysis"
     (with-source
       (lambda (path uri alias)
         (define-values (_sd binding) (open-accepted! uri))
@@ -193,7 +367,7 @@
         (notify-watched! uri 3)
         (lsp-close-doc! uri)
         (check-eq? (lsp-get-doc alias) other)
-        (check-paths binding (list path))
+        (check-paths binding '())
         (lsp-close-doc! alias)
         (check-paths binding '()))))
 
