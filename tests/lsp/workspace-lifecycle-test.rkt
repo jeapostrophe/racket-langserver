@@ -93,7 +93,15 @@
         (didChangeWorkspaceFolders (folder-change (list root) '()))
         (check-contribution-paths module-binding (list source-path))
 
-        ;; Delete removes the old path contribution.
+        ;; A disk deletion does not invalidate the open buffer's accepted
+        ;; contribution. Watched events do not perform background analysis.
+        (didChangeWatchedFiles (delete-file source-path))
+        (check-eq? (lsp-get-doc reopened-uri) reopened-doc)
+        (check-contribution-paths module-binding (list source-path))
+
+        ;; The disk change is remembered until the client closes its buffer.
+        (lsp-close-doc! reopened-uri)
+        (check-contribution-paths module-binding '())
         (didChangeWatchedFiles (delete-file source-path))
         (check-contribution-paths module-binding '())
 

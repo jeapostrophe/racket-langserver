@@ -8,6 +8,7 @@
          client-capability-workspace/configuration?)
 (require compiler/module-suffix
          json
+         net/url
          racket/match)
 (require "../common/json-util.rkt"
          "../common/path-util.rkt"
@@ -15,7 +16,6 @@
          "lsp.rkt"
          "safedoc.rkt"
          "../doclib/doc.rkt"
-         "scheduler.rkt"
          "../common/settings.rkt"
          "../workspace/current.rkt"
          "../workspace/state.rkt")
@@ -67,31 +67,15 @@
 
 (define (didChangeWatchedFiles params)
   (match-define (^DidChangeWatchedFilesParams #:changes changes) params)
-  (for ([change changes])
-    (match-define (FileEvent #:uri uri #:type type) change)
-    (match (FileChangeType-v type)
-      ['created (handle-file-created uri)]
-      ['changed (handle-file-changed uri)]
-      ['deleted (handle-file-deleted uri)]
-      [_ (eprintf "Invalid file event type: ~a~n" type)])))
-
-(define (handle-file-created uri)
-  ;; File watchers can report creation after didOpen. The client's buffer and
-  ;; version remain authoritative until didClose.
-  (when (and (regexp-match (get-module-suffix-regexp) uri)
-             (not (lsp-get-doc uri #f)))
-    (lsp-open-doc! uri "" 0)))
-
-(define (handle-file-changed uri)
-  (when (regexp-match (get-module-suffix-regexp) uri)
-    (let ([safe-doc (lsp-get-doc uri #f)])
-      (when safe-doc
-        (clear-old-queries/doc-close (SafeDoc-token safe-doc))))))
-
-(define (handle-file-deleted uri)
-  (workspace-remove-path! current-workspace (uri->path uri))
-  (when (regexp-match (get-module-suffix-regexp) uri)
-    (lsp-close-doc! uri)))
+  (define paths
+    (for/list ([change changes])
+      (match-define (FileEvent #:uri uri #:type _) change)
+      (define url (string->url uri))
+      (and (equal? (url-scheme url) "file") (url->path url))))
+  (for ([path paths] #:when path)
+    ;; A disk event invalidates cached facts, never the client's buffer.
+    ;; Fresh closed-file analysis can be added separately.
+    (lsp-invalidate-path! path)))
 
 (define (apply-langserver-settings settings)
   (match-define (Langserver-Settings #:resyntax resyntax #:formatting formatting)
@@ -158,4 +142,3 @@
     [(hash-table ['racket-langserver langserver-settings])
      (update-configuration langserver-settings)]
     [_ (fetch-configuration request-client)]))
-

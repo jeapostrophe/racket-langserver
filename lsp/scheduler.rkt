@@ -6,7 +6,7 @@
          racket/sandbox)
 
 (struct PushTask
-  (token type task)
+  (token type task publish)
   #:transparent)
 
 (struct RegisterToken
@@ -21,11 +21,15 @@
   (token)
   #:transparent)
 
-(define (handle-timeout-or-break time-sec task)
+(define (handle-timeout-or-break time-sec task publish)
   (λ ()
     (with-handlers ([exn:break? (λ (_e) (void))]
                     [exn:fail:resource? (λ (_e) (void))])
-      (with-limits time-sec #f (task)))))
+      ;; Publication runs outside the hard timeout: killing its custodian while
+      ;; it holds a document lock would strand that lock.
+      (call-with-values
+        (lambda () (with-limits time-sec #f (task)))
+        publish))))
 
 ;; Scheduler
 
@@ -47,13 +51,13 @@
       (break-running-thread! th))
     (hash-remove! token->tasks token)))
 
-(define (handle-push-task! token->tasks active-tokens token type task)
+(define (handle-push-task! token->tasks active-tokens token type task publish)
   (when (set-member? active-tokens token)
     (define doc (hash-ref! token->tasks token make-hash))
     (when (hash-has-key? doc type)
       (break-running-thread! (hash-ref doc type)))
     ;; Each scheduled task is bounded to avoid zombie long-running jobs.
-    (define handled-task (handle-timeout-or-break 90 task))
+    (define handled-task (handle-timeout-or-break 90 task publish))
     (hash-set! doc type (thread handled-task))))
 
 ;; new incoming task will replace the old task immediately
@@ -64,8 +68,8 @@
   (let loop ()
     (define job (async-channel-get incoming-jobs-ch))
     (match job
-      [(PushTask token type task)
-       (handle-push-task! token->tasks active-tokens token type task)]
+      [(PushTask token type task publish)
+       (handle-push-task! token->tasks active-tokens token type task publish)]
       [(RegisterToken token)
        (cancel-tasks! token->tasks token)
        (set-add! active-tokens token)]
@@ -88,13 +92,16 @@
   ;; Stop all running tasks for this token, but keep token active for future tasks.
   (async-channel-put incoming-jobs-ch (StopTokenTasks token)))
 
-(define (scheduler-push-task! token type task)
-  (async-channel-put incoming-jobs-ch (PushTask token type task)))
+(define (scheduler-push-task! token type task #:publish [publish void])
+  (async-channel-put incoming-jobs-ch (PushTask token type task publish)))
 
 (provide scheduler-register-doc!
          scheduler-close-doc!
          scheduler-stop-all-tasks!
          scheduler-push-task!)
+
+(module+ test-support
+  (provide handle-timeout-or-break))
 
 ;; schedule queries
 
@@ -171,4 +178,3 @@
          clear-old-queries/doc-change
          clear-old-queries/check-syntax-finished
          clear-old-queries/doc-close)
-

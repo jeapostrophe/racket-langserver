@@ -3,6 +3,7 @@
 (with-write-doc 1)
 (with-read-safedoc 1)
 (with-write-safedoc 1)
+(with-current-safedoc 2)
 (syntax-parse 1)
 (define-json-expander 1)
 (for/fold/derived 2)
