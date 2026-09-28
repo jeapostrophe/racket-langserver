@@ -19,6 +19,16 @@
            data/interval-map)
 
   (test-case
+    "Semantic token viewport ranges can extend past the end of the document"
+    (define text "#; (ignored)")
+    (define d (make-doc "file:///viewport.rkt" text))
+    (define bounded (doc-range-tokens d (Range (Pos 0 0) (Pos 0 (string-length text)))))
+    (check-not-equal? bounded '())
+    (check-equal? (doc-range-tokens d (Range (Pos 0 0) (Pos 3 0))) bounded)
+    (check-equal? (doc-range-tokens d (Range (Pos 0 0) (Pos 0 100))) bounded)
+    (check-equal? (doc-range-tokens d (Range (Pos 3 0) (Pos 4 0))) '()))
+
+  (test-case
     "Document creation and basic accessors"
     (define d (make-doc "file:///test.rkt" "hello world"))
     (check-equal? (Doc-version d) 0)
