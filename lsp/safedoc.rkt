@@ -124,6 +124,24 @@
          (call-with-input-file* (uri->path uri)
            (lambda (in) (port-matches-text? in text))))))
 
+;; Success and failure share the same retirement and replacement guards.
+(define (publish-analysis! safe-doc running-status state update)
+  (define version (Check-Syntax-Status-version running-status))
+  (define finished-status (Check-Syntax-Status state version))
+  (with-current-safedoc safe-doc version
+    (lambda (sd)
+      (when (eq? running-status (SafeDoc-check-syntax-status sd))
+        (update sd)
+        (set-SafeDoc-check-syntax-status! sd finished-status))))
+  ;; Query callbacks acquire document read locks. Check this run's identity
+  ;; under the query semaphore, after releasing the document write lock.
+  (clear-old-queries/check-syntax-finished
+    (SafeDoc-token safe-doc)
+    #:ready? (lambda ()
+               (with-read-safedoc safe-doc
+                 (lambda (sd)
+                   (eq? finished-status (SafeDoc-check-syntax-status sd)))))))
+
 ;; The only place that actually runs check-syntax.
 (define (safedoc-run-check-syntax! notify-client safe-doc)
   (define-values (uri working-version text-buffer-copy token)
@@ -135,11 +153,16 @@
                 (doc-copy-text-buffer doc)
                 (SafeDoc-token sd)))))
 
+  ;; Identity distinguishes reruns at the same document version.
+  (define running-status (Check-Syntax-Status 'running working-version))
   (with-current-safedoc safe-doc working-version
     (lambda (sd)
-      (set-SafeDoc-check-syntax-status!
-        sd
-        (Check-Syntax-Status 'running working-version))))
+      (set-SafeDoc-check-syntax-status! sd running-status)))
+
+  (define (fail-analysis e)
+    (publish-analysis! safe-doc running-status 'failed void)
+    ((error-display-handler)
+     (if (exn? e) (exn-message e) (format "check-syntax raised: ~e" e)) e))
 
   (define (resyntax-task)
     (define text (send text-buffer-copy get-text))
@@ -172,34 +195,29 @@
           (lambda (sd)
             (when (eq? contribution (Doc-contribution (SafeDoc-doc sd)))
               (set-SafeDoc-contribution-matches-disk?! sd #t))))))
-    (when (with-current-safedoc safe-doc working-version
-            (lambda (sd)
-              (define doc (SafeDoc-doc sd))
-              (send-diagnostics notify-client uri diags)
+    (publish-analysis! safe-doc running-status
+                       (if (CSResult-succeed? result) 'succeeded 'failed)
+                       (lambda (sd)
+                         (define doc (SafeDoc-doc sd))
+                         (send-diagnostics notify-client uri diags)
 
-              (when (CSResult-succeed? result)
-                (doc-update-trace! doc trace contribution working-version)
-                ;; Provenance belongs to this accepted contribution. Optional
-                ;; disk I/O must never withhold completed analysis or queries.
-                (set-SafeDoc-contribution-matches-disk?! sd #f)
-                (set-SafeDoc-disk-changed?! sd #f)
-                (workspace-set-contribution! current-workspace contribution)
-                (scheduler-push-task! token 'disk-provenance
-                                      (lambda () (file-matches-text? uri (CSResult-text result)))
-                                      #:publish publish-provenance)
-                (when (and (get-resyntax-enabled) (resyntax-available?))
-                  (scheduler-push-task! token 'resyntax resyntax-task
-                                        #:publish publish-resyntax)))
-              (set-SafeDoc-check-syntax-status!
-                sd
-                (Check-Syntax-Status
-                  (if (CSResult-succeed? result) 'succeeded 'failed)
-                  working-version))))
-      (clear-old-queries/check-syntax-finished token)))
+                         (when (CSResult-succeed? result)
+                           (doc-update-trace! doc trace contribution working-version)
+                           ;; Provenance belongs to this accepted contribution. Optional
+                           ;; disk I/O must never withhold completed analysis or queries.
+                           (set-SafeDoc-contribution-matches-disk?! sd #f)
+                           (set-SafeDoc-disk-changed?! sd #f)
+                           (workspace-set-contribution! current-workspace contribution)
+                           (scheduler-push-task! token 'disk-provenance
+                                                 (lambda () (file-matches-text? uri (CSResult-text result)))
+                                                 #:publish publish-provenance)
+                           (when (and (get-resyntax-enabled) (resyntax-available?))
+                             (scheduler-push-task! token 'resyntax resyntax-task
+                                                   #:publish publish-resyntax))))))
 
   (scheduler-stop-all-tasks! token)
   (scheduler-push-task! token 'check-syntax check-syntax-task
-                        #:publish publish-check-syntax))
+                        #:publish publish-check-syntax #:fail fail-analysis))
 
 (provide SafeDoc-token
          SafeDoc?
