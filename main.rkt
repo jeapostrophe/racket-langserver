@@ -5,6 +5,7 @@
          racket/function
          racket/list
          racket/match
+         racket/port
          racket/class
          racket/async-channel
          "common/interfaces.rkt"
@@ -74,7 +75,10 @@
       [_
        (maybe-debug-log msg)
        (with-handlers ([exn:fail? report-error])
-         (send server process-message msg))])
+         ;; Language readers, lexers and formatting hooks can print. Protocol
+         ;; messages are queued to write-resp, which retains the real port.
+         (parameterize ([current-output-port (open-output-nowhere)])
+           (send server process-message msg)))])
     (consume))
   (define (write-resp)
     (display-message/flush (async-channel-get resp-ch))
@@ -89,4 +93,3 @@
 
 (module+ main
   (main-loop))
-
