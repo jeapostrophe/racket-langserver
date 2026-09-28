@@ -3,12 +3,14 @@
 (require "../../common/interfaces.rkt"
          "../../common/json-util.rkt"
          "../../common/path-util.rkt"
+         "../../common/settings.rkt"
          "../../doclib/doc.rkt"
          "../../lsp/lsp.rkt"
          "../../lsp/safedoc.rkt"
          "../../lsp/workspace.rkt"
          "../../workspace/api.rkt"
          "../../workspace/current.rkt"
+         "analysis-test-support.rkt"
          racket/file
          racket/list
          rackunit)
@@ -43,11 +45,10 @@
 (define (open-expanded-doc path)
   (define uri (path->uri path))
   (define safe-doc (lsp-open-doc! uri source-text 0))
+  (analyze! safe-doc)
+  (wait-for-disk-verification! safe-doc)
   (define contribution
-    (with-write-doc safe-doc
-      (lambda (doc)
-        (check-true (doc-expand! doc))
-        (Doc-contribution doc))))
+    (with-read-doc safe-doc Doc-contribution))
   (values uri safe-doc contribution (first (hash-keys (Doc-Contribution-references contribution)))))
 
 (define (check-contribution-paths module-binding expected)
@@ -62,17 +63,20 @@
     (define root (make-temporary-file "workspace-lifecycle~a" 'directory))
     (define source-path (build-path root "source.rkt"))
     (define renamed-path (build-path root "renamed.rkt"))
-    (define-values (uri safe-doc contribution module-binding)
-      (open-expanded-doc source-path))
-
+    (define resyntax-enabled (get-resyntax-enabled))
     (dynamic-wind
       void
       (lambda ()
+        (display-to-file source-text source-path)
+        (set-resyntax-enabled! #f)
+        (define-values (uri safe-doc contribution module-binding)
+          (open-expanded-doc source-path))
+
         ;; Folder addition republishes the accepted contribution of an open doc.
         (didChangeWorkspaceFolders (folder-change (list root) '()))
         (check-contribution-paths module-binding (list source-path))
 
-        ;; Closing a document does not remove its accepted contribution.
+        ;; Closing retains an accepted contribution verified against disk.
         (lsp-close-doc! uri)
         (check-contribution-paths module-binding (list source-path))
 
@@ -114,8 +118,8 @@
         (check-contribution-paths module-binding '())
         (check-true (SafeDoc? (lsp-get-doc (path->uri renamed-path) #f))))
       (lambda ()
-        (lsp-close-doc! uri)
         (lsp-close-doc! (path->uri source-path))
         (lsp-close-doc! (path->uri renamed-path))
         (workspace-remove-folder! current-workspace root)
+        (set-resyntax-enabled! resyntax-enabled)
         (delete-directory/files root)))))

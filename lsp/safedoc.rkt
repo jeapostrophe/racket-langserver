@@ -15,6 +15,7 @@
          "../workspace/state.rkt"
          "resyntax-place.rkt"
          "scheduler.rkt"
+         net/url
          racket/set
          "../common/json-util.rkt"
          "../common/settings.rkt"
@@ -35,7 +36,7 @@
 ;; Exported field accessors: SafeDoc-doc, SafeDoc-check-syntax-status.
 ;; Access fields only inside an eliminator that acquired the lock.
 (struct SafeDoc
-  (doc rwlock token check-syntax-status closed? disk-changed?)
+  (doc rwlock token check-syntax-status closed? disk-changed? contribution-matches-disk?)
   #:mutable
   #:transparent)
 
@@ -44,7 +45,7 @@
   ;; Token identifies this opened document instance in scheduler/query state.
   (define token (gensym 'doc-token))
   (scheduler-register-doc! token)
-  (SafeDoc doc (make-rwlock) token #f #f #f))
+  (SafeDoc doc (make-rwlock) token #f #f #f #f))
 
 (define (with-read-doc safe-doc proc)
   (call-with-read-lock
@@ -72,7 +73,8 @@
   (with-write-safedoc safe-doc
     (lambda (sd)
       (set-SafeDoc-closed?! sd #t)
-      (SafeDoc-disk-changed? sd))))
+      (or (SafeDoc-disk-changed? sd)
+          (not (SafeDoc-contribution-matches-disk? sd))))))
 
 (define (safedoc-disk-changed! safe-doc path)
   (with-write-safedoc safe-doc
@@ -109,6 +111,18 @@
   (send-diagnostics notify-client
                     (Doc-uri doc)
                     (doc-diagnostics doc)))
+
+;; Compare decoded text, consuming at most its length plus one character.
+;; The extra character distinguishes an exact match from a longer disk file.
+(define (port-matches-text? in text)
+  (and (equal? text (read-string (string-length text) in))
+       (eof-object? (read-char in))))
+
+(define (file-matches-text? uri text)
+  (and (equal? (url-scheme (string->url uri)) "file")
+       (with-handlers ([exn:fail:filesystem? (lambda (_e) #f)])
+         (call-with-input-file* (uri->path uri)
+           (lambda (in) (port-matches-text? in text))))))
 
 ;; The only place that actually runs check-syntax.
 (define (safedoc-run-check-syntax! notify-client safe-doc)
@@ -152,6 +166,12 @@
 
   (define (publish-check-syntax result contribution diags)
     (define trace (CSResult-trace result))
+    (define (publish-provenance matches-disk?)
+      (when matches-disk?
+        (with-current-safedoc safe-doc working-version
+          (lambda (sd)
+            (when (eq? contribution (Doc-contribution (SafeDoc-doc sd)))
+              (set-SafeDoc-contribution-matches-disk?! sd #t))))))
     (when (with-current-safedoc safe-doc working-version
             (lambda (sd)
               (define doc (SafeDoc-doc sd))
@@ -159,7 +179,14 @@
 
               (when (CSResult-succeed? result)
                 (doc-update-trace! doc trace contribution working-version)
+                ;; Provenance belongs to this accepted contribution. Optional
+                ;; disk I/O must never withhold completed analysis or queries.
+                (set-SafeDoc-contribution-matches-disk?! sd #f)
                 (workspace-set-contribution! current-workspace contribution)
+                (unless (SafeDoc-disk-changed? sd)
+                  (scheduler-push-task! token 'disk-provenance
+                                        (lambda () (file-matches-text? uri (CSResult-text result)))
+                                        #:publish publish-provenance))
                 (when (and (get-resyntax-enabled) (resyntax-available?))
                   (scheduler-push-task! token 'resyntax resyntax-task
                                         #:publish publish-resyntax)))
@@ -190,4 +217,7 @@
          with-write-safedoc)
 
 (module+ test-support
-  (provide with-current-safedoc))
+  (provide with-current-safedoc
+           SafeDoc-contribution-matches-disk?
+           port-matches-text?
+           file-matches-text?))

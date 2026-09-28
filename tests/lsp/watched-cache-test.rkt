@@ -13,7 +13,8 @@
          (submod "../../lsp/safedoc.rkt" test-support)
          "../../lsp/workspace.rkt"
          "../../workspace/api.rkt"
-         "../../workspace/current.rkt")
+         "../../workspace/current.rkt"
+         "analysis-test-support.rkt")
 
 (define source-text "#lang racket/base\n(require racket/list)\nfirst\n")
 
@@ -40,14 +41,20 @@
       (set-resyntax-enabled! resyntax-enabled)
       (delete-directory/files directory))))
 
-(define (open-accepted! uri)
-  (define sd (lsp-open-doc! uri source-text 2))
+(define (replace-buffer! sd text)
+  (with-write-doc sd
+    (lambda (doc)
+      (doc-reset! doc text)
+      (doc-update-version! doc (add1 (Doc-version doc))))))
+
+(define (open-accepted! uri [text source-text])
+  (define sd (lsp-open-doc! uri text 2))
+  (analyze! sd)
+  (when (and (equal? text source-text)
+             (file-exists? (uri->path uri)))
+    (wait-for-disk-verification! sd))
   (define contribution
-    (with-write-doc sd
-      (lambda (doc)
-        (check-true (doc-expand! doc))
-        (Doc-contribution doc))))
-  (workspace-set-contribution! current-workspace contribution)
+    (with-read-doc sd Doc-contribution))
   (values sd (first (hash-keys (Doc-Contribution-references contribution)))))
 
 (define (check-paths binding expected)
@@ -56,6 +63,99 @@
     expected))
 
 (module+ test
+  (test-case
+    "closing an already-unsaved buffer discards its accepted contribution"
+    (with-source
+      (lambda (path uri _alias)
+        (define-values (_sd binding)
+          (open-accepted! uri (string-append source-text "first\n")))
+        (check-paths binding (list path))
+        (lsp-close-doc! uri)
+        (check-paths binding '())
+        (check-equal? (file->string path) source-text))))
+
+  (test-case
+    "closing after an unsaved edit discards its accepted contribution"
+    (with-source
+      (lambda (path uri _alias)
+        (define-values (sd binding) (open-accepted! uri))
+        (replace-buffer! sd (string-append source-text "first\n"))
+        (analyze! sd)
+        (check-paths binding (list path))
+        (lsp-close-doc! uri)
+        (check-paths binding '()))))
+
+  (test-case
+    "restoring buffer text alone does not validate an older unsaved contribution"
+    (with-source
+      (lambda (_path uri _alias)
+        (define-values (sd binding)
+          (open-accepted! uri (string-append source-text "first\n")))
+        (replace-buffer! sd source-text)
+        (lsp-close-doc! uri)
+        (check-paths binding '()))))
+
+  (test-case
+    "a failed unsaved edit retains a previously accepted disk-matching contribution"
+    (with-source
+      (lambda (path uri _alias)
+        (define-values (sd binding) (open-accepted! uri))
+        (replace-buffer! sd "#lang racket/base\n(")
+        (analyze! sd 'failed)
+        (lsp-close-doc! uri)
+        (check-paths binding (list path)))))
+
+  (test-case
+    "analysis matching newly saved text can be retained on close"
+    (with-source
+      (lambda (path uri _alias)
+        (define text (string-append source-text "first\n"))
+        (define-values (sd binding) (open-accepted! uri text))
+        (display-to-file text path #:exists 'truncate)
+        (analyze! sd)
+        (wait-for-disk-verification! sd)
+        (lsp-close-doc! uri)
+        (check-paths binding (list path)))))
+
+  (test-case
+    "missing or unreadable source files do not prevent buffer analysis"
+    (for ([directory? '(#f #t)])
+      (with-source
+        (lambda (path uri _alias)
+          (delete-file path)
+          (when directory? (make-directory path))
+          (define-values (_sd binding) (open-accepted! uri))
+          (check-paths binding (list path))
+          (lsp-close-doc! uri)
+          (check-paths binding '())))))
+
+  ;; This asserts source-path lifetime only; contribution ownership across
+  ;; simultaneous URI aliases is a separate existing limitation.
+  (test-case
+    "unsaved alias invalidation waits for the last open buffer in either close order"
+    (for ([unsaved-first? '(#f #t)])
+      (with-source
+        (lambda (path uri alias)
+          (define-values (_saved binding) (open-accepted! uri))
+          (define-values (_unsaved _binding)
+            (open-accepted! alias (string-append source-text "first\n")))
+          (lsp-close-doc! (if unsaved-first? alias uri))
+          (check-paths binding (list path))
+          (lsp-close-doc! (if unsaved-first? uri alias))
+          (check-paths binding '())))))
+
+  (test-case
+    "reopening after an unsaved close can retain fresh disk-matching analysis"
+    (with-source
+      (lambda (path uri _alias)
+        (define-values (_unsaved binding)
+          (open-accepted! uri (string-append source-text "first\n")))
+        (lsp-close-doc! uri)
+        (check-paths binding '())
+        (define-values (_saved _binding) (open-accepted! uri))
+        (lsp-close-doc! uri)
+        (check-paths binding (list path)))))
+
   (test-case
     "each disk event invalidates a closed cache without opening a document"
     (for ([type (in-list '(1 2 3))])
@@ -79,10 +179,8 @@
           (check-eq? (lsp-get-doc uri) sd)
           (check-paths binding (list path))
           ;; An edit and successful expansion must not forget the disk event.
-          (with-write-doc sd
-            (lambda (doc)
-              (doc-update-version! doc 3)
-              (check-true (doc-expand! doc))))
+          (replace-buffer! sd source-text)
+          (analyze! sd)
           (lsp-close-doc! uri)
           (check-paths binding '())))))
 

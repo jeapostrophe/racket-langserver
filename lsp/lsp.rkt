@@ -33,9 +33,9 @@
   (when safe-doc
     (define token (SafeDoc-token safe-doc))
     (scheduler-close-doc! token)
-    (define disk-changed? (safedoc-close! safe-doc))
+    (define invalidate? (safedoc-close! safe-doc))
     (hash-remove! open-docs uri-sym)
-    (when disk-changed?
+    (when invalidate?
       (lsp-invalidate-path! (uri->path uri)))
     (clear-old-queries/doc-close token)))
 
