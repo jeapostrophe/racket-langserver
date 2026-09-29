@@ -3,6 +3,7 @@
 (require racket/async-channel
          racket/match
          racket/set
+         racket/port
          racket/sandbox)
 
 (struct PushTask
@@ -23,9 +24,11 @@
 
 (define (handle-timeout-or-break time-sec task)
   (λ ()
-    (with-handlers ([exn:break? (λ (_e) (void))]
-                    [exn:fail:resource? (λ (_e) (void))])
-      (with-limits time-sec #f (task)))))
+    ;; The scheduler predates request dispatch and needs its own stdout scope.
+    (parameterize ([current-output-port (open-output-nowhere)])
+      (with-handlers ([exn:break? (λ (_e) (void))]
+                      [exn:fail:resource? (λ (_e) (void))])
+        (with-limits time-sec #f (task))))))
 
 ;; Scheduler
 
@@ -171,4 +174,3 @@
          clear-old-queries/doc-change
          clear-old-queries/check-syntax-finished
          clear-old-queries/doc-close)
-
