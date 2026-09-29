@@ -48,7 +48,7 @@
       (channel-recv-evt (Q-out-ch q)))))
 
 (define (report-error exn)
-  (eprintf "\nCaught exn:\n~a\n" (exn->string exn)))
+  (log-racket-langserver-error "Caught exn:\n~a" (exn->string exn)))
 
 ;; We spawn some threads:
 ;; * current-thread - read request message from a specified input-port
@@ -84,9 +84,8 @@
   (spawn write-resp)
   (for ([msg (in-port read-message)])
     (sync (queue-send-evt q msg)))
-  (eprintf "Unexpected EOF\n")
+  (log-racket-langserver-error "Unexpected EOF")
   (exit 1))
 
 (module+ main
   (main-loop))
-

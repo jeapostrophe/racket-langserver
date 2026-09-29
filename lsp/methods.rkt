@@ -7,6 +7,7 @@
          racket/class
          racket/async-channel
          racket/path
+         "../common/debug.rkt"
          "../common/interfaces.rkt"
          "../common/json-util.rkt"
          "responses.rkt"
@@ -171,7 +172,7 @@
           ["textDocument/semanticTokens/range"
            (text-document/range-semantic-tokens id params)]
           [_
-           (eprintf "invalid request for method ~v\n" method)
+           (log-racket-langserver-error "invalid request for method ~v" method)
            (define err (format "The method ~v was not found" method))
            (error-response id ErrorCode-MethodNotFound err)])))
 
@@ -207,7 +208,7 @@
     ))
 
 (define ((report-request-error id method) exn)
-  (eprintf "Caught exn in request ~v\n~a\n" method (exn->string exn))
+  (log-racket-langserver-error "Caught exn in request ~v\n~a" method (exn->string exn))
   (define err (format "internal error in method ~v" method))
   (error-response id ErrorCode-InternalError err))
 
@@ -296,4 +297,3 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (provide server%)
-

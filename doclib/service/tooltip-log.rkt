@@ -7,6 +7,7 @@
 (require racket/contract
          racket/match
          racket/string
+         "../../common/debug.rkt"
          srfi/2)
 
 (provide (struct-out Tooltip)
@@ -78,9 +79,9 @@
              [(< start end)])
     (with-handlers ([exn:fail?
                      (lambda (exn)
-                       (eprintf "Ignoring malformed ~a tooltip: ~a\n"
-                                kind
-                                (exn-message exn))
+                       (log-racket-langserver-error "Ignoring malformed ~a tooltip: ~a"
+                                                    kind
+                                                    (exn-message exn))
                        #f)])
       (define text
         (if (string? text-or-thunk)
