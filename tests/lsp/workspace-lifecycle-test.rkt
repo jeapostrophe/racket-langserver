@@ -34,11 +34,11 @@
       #:files
       (list (FileRename #:oldUri (path->uri old-path) #:newUri (path->uri new-path))))))
 
-(define (delete-file path)
+(define (watched-file-change path type)
   (->jsexpr
     (DidChangeWatchedFilesParams
       #:changes
-      (list (FileEvent #:uri (path->uri path) #:type FileChangeType-deleted)))))
+      (list (FileEvent #:uri (path->uri path) #:type type)))))
 
 (define (open-expanded-doc path)
   (define uri (path->uri path))
@@ -88,14 +88,33 @@
         (with-write-doc reopened-doc
           (lambda (doc)
             (doc-reset! doc "#lang racket/base\n(")
+            (doc-update-version! doc 2)
             (check-false (doc-expand! doc))
             (check-eq? (Doc-contribution doc) reopened-contribution)))
         (didChangeWorkspaceFolders (folder-change (list root) '()))
         (check-contribution-paths module-binding (list source-path))
 
-        ;; Delete removes the old path contribution.
-        (didChangeWatchedFiles (delete-file source-path))
-        (check-contribution-paths module-binding '())
+        ;; Watched-file events leave the editor buffer and contribution untouched.
+        (for ([type (in-list (list FileChangeType-deleted
+                                   FileChangeType-created
+                                   FileChangeType-changed))])
+          (didChangeWatchedFiles (watched-file-change source-path type))
+          (check-eq? (lsp-get-doc reopened-uri #f) reopened-doc)
+          (with-read-doc reopened-doc
+            (lambda (doc)
+              (check-equal? (doc-get-text doc) "#lang racket/base\n(")
+              (check-equal? (Doc-version doc) 2)))
+          (check-contribution-paths module-binding (list source-path))
+          (didChangeWatchedFiles (watched-file-change renamed-path type))
+          (check-false (lsp-get-doc (path->uri renamed-path) #f)))
+
+        ;; The next incremental edit still applies to the editor's text.
+        (with-write-doc (lsp-get-doc reopened-uri)
+          (lambda (doc)
+            (doc-apply-edit! doc (Range (Pos 1 1) (Pos 1 1)) "void)")
+            (doc-update-version! doc 3)
+            (check-equal? (doc-get-text doc) "#lang racket/base\n(void)")
+            (check-equal? (Doc-version doc) 3)))
 
         ;; Rename removes the old path contribution and opens the new URI.
         (define-values (_rename-uri _rename-doc _rename-contribution _rename-binding)

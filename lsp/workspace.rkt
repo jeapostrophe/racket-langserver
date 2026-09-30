@@ -15,7 +15,6 @@
          "lsp.rkt"
          "safedoc.rkt"
          "../doclib/doc.rkt"
-         "scheduler.rkt"
          "../common/settings.rkt"
          "../workspace/current.rkt"
          "../workspace/state.rkt")
@@ -66,29 +65,7 @@
     (republish-open-doc-contributions!)))
 
 (define (didChangeWatchedFiles params)
-  (match-define (^DidChangeWatchedFilesParams #:changes changes) params)
-  (for ([change changes])
-    (match-define (FileEvent #:uri uri #:type type) change)
-    (match (FileChangeType-v type)
-      ['created (handle-file-created uri)]
-      ['changed (handle-file-changed uri)]
-      ['deleted (handle-file-deleted uri)]
-      [_ (eprintf "Invalid file event type: ~a~n" type)])))
-
-(define (handle-file-created uri)
-  (when (regexp-match (get-module-suffix-regexp) uri)
-    (lsp-open-doc! uri "" 0)))
-
-(define (handle-file-changed uri)
-  (when (regexp-match (get-module-suffix-regexp) uri)
-    (let ([safe-doc (lsp-get-doc uri #f)])
-      (when safe-doc
-        (clear-old-queries/doc-close (SafeDoc-token safe-doc))))))
-
-(define (handle-file-deleted uri)
-  (workspace-remove-path! current-workspace (uri->path uri))
-  (when (regexp-match (get-module-suffix-regexp) uri)
-    (lsp-close-doc! uri)))
+  (void))
 
 (define (apply-langserver-settings settings)
   (match-define (Langserver-Settings #:resyntax resyntax #:formatting formatting)
