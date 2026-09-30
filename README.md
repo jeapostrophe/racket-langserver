@@ -148,9 +148,7 @@ s-expression languages, where the server can derive a safe local range.
 ### Logging
 
 Server diagnostics use Racket's built-in logger under the `racket-langserver`
-topic. Errors go to stderr by default. Optional-module loading messages use
-info level; incoming messages and the `D`/`T` development helpers use debug
-level. Enable them with Racket's `-W` option:
+topic. Errors go to stderr by default. Enable debug logging with:
 
 ```sh
 racket -W "error debug@racket-langserver" -l racket-langserver
@@ -158,24 +156,8 @@ racket -W "error debug@racket-langserver" -l racket-langserver
 
 Alternatively, set `PLTSTDERR="error debug@racket-langserver"` in the server's
 environment. Debug messages include document text received from the client.
-
-To keep a log file, configure the launcher to capture stderr. For example,
-a POSIX shell wrapper can append it to a user-owned file:
-
-```sh
-mkdir -p "$HOME/.racket-langserver"
-exec racket -W "error debug@racket-langserver" -l racket-langserver \
-  2>> "$HOME/.racket-langserver/log"
-```
-
-The launcher manages the file's retention. Keep stdout connected to the LSP
-client; do not enable stdout logging with `-O` or `PLTSTDOUT`.
 See [Racket's logging documentation](https://docs.racket-lang.org/reference/logging.html)
-for severity and topic filters.
-
-Other Racket libraries retain their own logging topics and can be enabled
-through the same filters. Expansion logs used for tooltips and type information
-continue to be collected independently of stderr logging.
+for details.
 
 ## Development
 
