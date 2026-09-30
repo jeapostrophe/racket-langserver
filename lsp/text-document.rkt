@@ -249,11 +249,7 @@
 
      (if hints
          (success/enc id hints)
-         (async-query-wait
-           (SafeDoc-token safe-doc) respond-to-signal
-           #:ready? (lambda ()
-                      (with-read-safedoc safe-doc
-                        (lambda (sd) (not (safedoc-check-syntax-running? sd)))))))]
+         (async-query-wait (SafeDoc-token safe-doc) respond-to-signal))]
     [_ (error-response id ErrorCode-InvalidParams "textDocument/inlayHint failed")]))
 
 ;; Full document formatting request
@@ -376,11 +372,7 @@
 
   (if tokens
       (success/enc id (hash 'data tokens))
-      (async-query-wait
-        (SafeDoc-token safe-doc) respond-to-signal
-        #:ready? (lambda ()
-                   (with-read-safedoc safe-doc
-                     (lambda (sd) (not (safedoc-check-syntax-running? sd))))))))
+      (async-query-wait (SafeDoc-token safe-doc) respond-to-signal)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 

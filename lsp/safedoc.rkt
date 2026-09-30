@@ -6,7 +6,6 @@
 ;; managed by the language server.
 
 (require "../common/rwlock.rkt"
-         "../common/path-util.rkt"
          "../doclib/doc.rkt"
          "../doclib/check-syntax.rkt"
          "../doclib/lexer.rkt"
@@ -15,7 +14,6 @@
          "../workspace/state.rkt"
          "resyntax-place.rkt"
          "scheduler.rkt"
-         net/url
          racket/set
          "../common/json-util.rkt"
          "../common/settings.rkt"
@@ -36,7 +34,7 @@
 ;; Exported field accessors: SafeDoc-doc, SafeDoc-check-syntax-status.
 ;; Access fields only inside an eliminator that acquired the lock.
 (struct SafeDoc
-  (doc rwlock token check-syntax-status closed? disk-changed? contribution-matches-disk?)
+  (doc rwlock token check-syntax-status)
   #:mutable
   #:transparent)
 
@@ -45,7 +43,7 @@
   ;; Token identifies this opened document instance in scheduler/query state.
   (define token (gensym 'doc-token))
   (scheduler-register-doc! token)
-  (SafeDoc doc (make-rwlock) token #f #f #f #f))
+  (SafeDoc doc (make-rwlock) token #f))
 
 (define (with-read-doc safe-doc proc)
   (call-with-read-lock
@@ -66,30 +64,6 @@
   (call-with-write-lock
     (SafeDoc-rwlock safe-doc)
     (λ () (proc safe-doc))))
-
-;; Retirement and publication use the same lock, so work from a closed
-;; document cannot restore diagnostics or workspace contributions.
-(define (safedoc-close! safe-doc)
-  (with-write-safedoc safe-doc
-    (lambda (sd)
-      (set-SafeDoc-closed?! sd #t)
-      (or (SafeDoc-disk-changed? sd)
-          (not (SafeDoc-contribution-matches-disk? sd))))))
-
-(define (safedoc-disk-changed! safe-doc path)
-  (with-write-safedoc safe-doc
-    (lambda (sd)
-      (and (equal? path (uri->path (Doc-uri (SafeDoc-doc sd))))
-           (begin
-             (set-SafeDoc-disk-changed?! sd #t)
-             #t)))))
-
-(define (with-current-safedoc safe-doc version proc)
-  (with-write-safedoc safe-doc
-    (lambda (sd)
-      (and (not (SafeDoc-closed? sd))
-           (equal? version (Doc-version (SafeDoc-doc sd)))
-           (begin (proc sd) #t)))))
 
 (define (safedoc-check-syntax-running? sd)
   (define doc (SafeDoc-doc sd))
@@ -112,36 +86,6 @@
                     (Doc-uri doc)
                     (doc-diagnostics doc)))
 
-;; Compare decoded text, consuming at most its length plus one character.
-;; The extra character distinguishes an exact match from a longer disk file.
-(define (port-matches-text? in text)
-  (and (equal? text (read-string (string-length text) in))
-       (eof-object? (read-char in))))
-
-(define (file-matches-text? uri text)
-  (and (equal? (url-scheme (string->url uri)) "file")
-       (with-handlers ([exn:fail:filesystem? (lambda (_e) #f)])
-         (call-with-input-file* (uri->path uri)
-           (lambda (in) (port-matches-text? in text))))))
-
-;; Success and failure share the same retirement and replacement guards.
-(define (publish-analysis! safe-doc running-status state update)
-  (define version (Check-Syntax-Status-version running-status))
-  (define finished-status (Check-Syntax-Status state version))
-  (with-current-safedoc safe-doc version
-    (lambda (sd)
-      (when (eq? running-status (SafeDoc-check-syntax-status sd))
-        (update sd)
-        (set-SafeDoc-check-syntax-status! sd finished-status))))
-  ;; Query callbacks acquire document read locks. Check this run's identity
-  ;; under the query semaphore, after releasing the document write lock.
-  (clear-old-queries/check-syntax-finished
-    (SafeDoc-token safe-doc)
-    #:ready? (lambda ()
-               (with-read-safedoc safe-doc
-                 (lambda (sd)
-                   (eq? finished-status (SafeDoc-check-syntax-status sd)))))))
-
 ;; The only place that actually runs check-syntax.
 (define (safedoc-run-check-syntax! notify-client safe-doc)
   (define-values (uri working-version text-buffer-copy token)
@@ -153,27 +97,22 @@
                 (doc-copy-text-buffer doc)
                 (SafeDoc-token sd)))))
 
-  ;; Identity distinguishes reruns at the same document version.
-  (define running-status (Check-Syntax-Status 'running working-version))
-  (with-current-safedoc safe-doc working-version
+  (with-write-safedoc safe-doc
     (lambda (sd)
-      (set-SafeDoc-check-syntax-status! sd running-status)))
-
-  (define (fail-analysis e)
-    (publish-analysis! safe-doc running-status 'failed void)
-    ((error-display-handler)
-     (if (exn? e) (exn-message e) (format "check-syntax raised: ~e" e)) e))
+      (define doc (SafeDoc-doc sd))
+      (when (equal? working-version (Doc-version doc))
+        (set-SafeDoc-check-syntax-status!
+          sd
+          (Check-Syntax-Status 'running working-version)))))
 
   (define (resyntax-task)
     (define text (send text-buffer-copy get-text))
-    (run-resyntax/in-place text uri))
-
-  (define (publish-resyntax resyntax-results)
-    (with-current-safedoc safe-doc working-version
-      (lambda (sd)
-        (define doc (SafeDoc-doc sd))
-        (doc-update-resyntax-result! doc resyntax-results)
-        (send-doc-diagnostics notify-client doc))))
+    (define resyntax-results (run-resyntax/in-place text uri))
+    (with-write-doc safe-doc
+      (lambda (doc)
+        (when (equal? working-version (Doc-version doc))
+          (doc-update-resyntax-result! doc resyntax-results)
+          (send-doc-diagnostics notify-client doc)))))
 
   (define (check-syntax-task)
     (define text (send text-buffer-copy get-text))
@@ -185,39 +124,32 @@
     (define contribution
       (and (CSResult-succeed? result)
            (send trace get-contribution)))
-    (values result contribution (set->list (send trace get-warn-diags))))
 
-  (define (publish-check-syntax result contribution diags)
-    (define trace (CSResult-trace result))
-    (define (publish-provenance matches-disk?)
-      (when matches-disk?
-        (with-current-safedoc safe-doc working-version
-          (lambda (sd)
-            (when (eq? contribution (Doc-contribution (SafeDoc-doc sd)))
-              (set-SafeDoc-contribution-matches-disk?! sd #t))))))
-    (publish-analysis! safe-doc running-status
-                       (if (CSResult-succeed? result) 'succeeded 'failed)
-                       (lambda (sd)
-                         (define doc (SafeDoc-doc sd))
-                         (send-diagnostics notify-client uri diags)
+    (with-write-safedoc safe-doc
+      (lambda (sd)
+        (define doc (SafeDoc-doc sd))
+        (define cur-version (Doc-version doc))
+        (define diags (set->list (send trace get-warn-diags)))
+        (send-diagnostics notify-client uri diags)
 
-                         (when (CSResult-succeed? result)
-                           (doc-update-trace! doc trace contribution working-version)
-                           ;; Provenance belongs to this accepted contribution. Optional
-                           ;; disk I/O must never withhold completed analysis or queries.
-                           (set-SafeDoc-contribution-matches-disk?! sd #f)
-                           (set-SafeDoc-disk-changed?! sd #f)
-                           (workspace-set-contribution! current-workspace contribution)
-                           (scheduler-push-task! token 'disk-provenance
-                                                 (lambda () (file-matches-text? uri (CSResult-text result)))
-                                                 #:publish publish-provenance)
-                           (when (and (get-resyntax-enabled) (resyntax-available?))
-                             (scheduler-push-task! token 'resyntax resyntax-task
-                                                   #:publish publish-resyntax))))))
+        (when (and (CSResult-succeed? result)
+                   (equal? working-version cur-version))
+          (doc-update-trace! doc trace contribution cur-version)
+          (workspace-set-contribution! current-workspace contribution)
+          (when (and (get-resyntax-enabled) (resyntax-available?))
+            (scheduler-push-task! token 'resyntax resyntax-task)))
+        (when (equal? working-version (Doc-version doc))
+          (set-SafeDoc-check-syntax-status!
+            sd
+            (Check-Syntax-Status
+              (if (CSResult-succeed? result)
+                  'succeeded
+                  'failed)
+              working-version)))))
+    (clear-old-queries/check-syntax-finished token))
 
   (scheduler-stop-all-tasks! token)
-  (scheduler-push-task! token 'check-syntax check-syntax-task
-                        #:publish publish-check-syntax #:fail fail-analysis))
+  (scheduler-push-task! token 'check-syntax check-syntax-task))
 
 (provide SafeDoc-token
          SafeDoc?
@@ -225,8 +157,6 @@
          SafeDoc-check-syntax-status
          (struct-out Check-Syntax-Status)
          new-safedoc
-         safedoc-close!
-         safedoc-disk-changed!
          safedoc-run-check-syntax!
          safedoc-check-syntax-running?
          with-read-doc
@@ -234,8 +164,3 @@
          with-read-safedoc
          with-write-safedoc)
 
-(module+ test-support
-  (provide with-current-safedoc
-           SafeDoc-contribution-matches-disk?
-           port-matches-text?
-           file-matches-text?))
