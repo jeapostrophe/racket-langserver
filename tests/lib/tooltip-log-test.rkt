@@ -6,8 +6,10 @@
          "../../doclib/lexer.rkt"
          "../../doclib/service/hover/service.rkt"
          "../../doclib/service/tooltip-log.rkt"
+         "../../common/debug.rkt"
          drracket/check-syntax
          racket/class
+         racket/logging
          racket/string)
 
 (define add-mouse-over-status
@@ -84,8 +86,9 @@
     (define err
       (open-output-string))
     (define tooltips
-      (parameterize ([current-error-port err])
-        (online-tooltip-log-tooltips log source)))
+      (with-logging-to-port err
+        (lambda () (online-tooltip-log-tooltips log source))
+        #:logger racket-langserver-logger 'error))
     (check-equal? tooltips
                   (list (Tooltip source 2 3 "Survived")))
     (check-true

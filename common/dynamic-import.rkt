@@ -1,11 +1,13 @@
 #lang racket/base
 
+(require "debug.rkt")
+
 (provide dynamic-imports)
 
 (define-syntax-rule (import-once mod name fail-thunk)
   (define name
     (let ([logging-fail-thunk (λ ()
-                                (log-info "symbol '~a' from module '~a' fail to load." 'name mod)
+                                (log-racket-langserver-info "symbol '~a' from module '~a' fail to load." 'name mod)
                                 (fail-thunk))])
       (with-handlers ([exn:fail? (λ (_e)
                                    (logging-fail-thunk)

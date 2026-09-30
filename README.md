@@ -145,6 +145,20 @@ the built-in language table when their reader publishes a usable
 failing hook produces no edits. Format on type remains limited to recognized
 s-expression languages, where the server can derive a safe local range.
 
+### Logging
+
+Server diagnostics use Racket's built-in logger under the `racket-langserver`
+topic. Errors go to stderr by default. Enable debug logging with:
+
+```sh
+racket -W "error debug@racket-langserver" -l racket-langserver
+```
+
+Alternatively, set `PLTSTDERR="error debug@racket-langserver"` in the server's
+environment. Debug messages include document text received from the client.
+See [Racket's logging documentation](https://docs.racket-lang.org/reference/logging.html)
+for details.
+
 ## Development
 
 See [CONTRIBUTING.md](CONTRIBUTING.md).

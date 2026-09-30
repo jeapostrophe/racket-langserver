@@ -6,6 +6,9 @@
          racket/format)
 
 (provide
+  racket-langserver-logger
+  log-racket-langserver-error
+  log-racket-langserver-info
   maybe-debug-log
   maybe-debug-file
   D
@@ -13,21 +16,18 @@
 
 (define debug? #f)
 
+(define-logger racket-langserver)
+
 (define-runtime-path df "debug.out.rkt")
 (define (maybe-debug-file t)
   (when debug?
     (display-to-file t df #:exists 'replace)))
 
-(define-runtime-path dp "debug.log")
 (define (maybe-debug-log m)
-  (when debug?
-    (with-output-to-file dp
-      #:exists 'append
-      (lambda ()
-        (writeln m)))))
+  (log-racket-langserver-debug "~s" m))
 
 (define (err-log tag name msg)
-  (eprintf "[~a] ~a:\n~a\n" tag name msg))
+  (log-racket-langserver-debug "[~a] ~a:\n~a" tag name msg))
 
 ;; DEBUG macro: evaluates the expression, logs the result, and returns the result.
 (define-syntax-rule (D expr)
@@ -49,4 +49,3 @@
              (format "cpu time: ~a real time: ~a gc time: ~a"
                      cpu-time real-time gc-time))
     (apply values results)))
-
