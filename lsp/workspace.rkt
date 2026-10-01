@@ -31,26 +31,10 @@
 
 (define (didRenameFiles params)
   (match-define (^RenameFilesParams #:files files) params)
+  ;; Document close/open notifications own editor buffers, not file operations.
   (for ([f files])
-    (match-define (FileRename #:oldUri old-uri #:newUri new-uri) f)
-    (workspace-remove-path! current-workspace (uri->path old-uri))
-
-    ; remove all awaiting internal queries about `old-uri`
-    (define safe-doc (lsp-get-doc old-uri #f))
-
-
-    ; `safe-doc = #f` should be rarely happened.
-    ; we simply give up to handle it, let's trust LSP client will send
-    ; other request about analysis this file.
-    (when safe-doc
-      (lsp-close-doc! old-uri))
-
-    (when (and safe-doc (regexp-match (get-module-suffix-regexp) new-uri))
-      (define-values (old-text old-version)
-        (with-read-doc safe-doc
-          (lambda (doc)
-            (values (doc-get-text doc) (Doc-version doc)))))
-      (lsp-open-doc! new-uri old-text old-version))))
+    (match-define (FileRename #:oldUri old-uri #:newUri _) f)
+    (workspace-remove-path! current-workspace (uri->path old-uri))))
 
 (define (didChangeWorkspaceFolders params)
   (match-define (^DidChangeWorkspaceFoldersParams #:event event) params)

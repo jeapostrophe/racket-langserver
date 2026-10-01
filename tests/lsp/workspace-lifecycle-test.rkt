@@ -6,11 +6,11 @@
          "../../doclib/doc.rkt"
          "../../lsp/lsp.rkt"
          "../../lsp/safedoc.rkt"
+         "../../lsp/scheduler.rkt"
          "../../lsp/workspace.rkt"
          "../../workspace/api.rkt"
          "../../workspace/current.rkt"
          racket/file
-         racket/list
          rackunit)
 
 (define source-text
@@ -48,7 +48,8 @@
       (lambda (doc)
         (check-true (doc-expand! doc))
         (Doc-contribution doc))))
-  (values uri safe-doc contribution (first (hash-keys (Doc-Contribution-references contribution)))))
+  (values uri safe-doc contribution
+          (with-read-doc safe-doc (lambda (doc) (doc-module-binding-at doc (Pos 2 0))))))
 
 (define (check-contribution-paths module-binding expected)
   (check-equal?
@@ -116,14 +117,27 @@
             (check-equal? (doc-get-text doc) "#lang racket/base\n(void)")
             (check-equal? (Doc-version doc) 3)))
 
-        ;; Rename removes the old path contribution and opens the new URI.
+        ;; Rename preserves editor ownership until client close/open notifications.
         (define-values (_rename-uri _rename-doc _rename-contribution _rename-binding)
           (open-expanded-doc source-path))
+        (define query-signal #f)
+        (async-query-wait (SafeDoc-token _rename-doc)
+                          (lambda (signal) (set! query-signal signal)))
         (didChangeWorkspaceFolders (folder-change (list root) '()))
         (check-contribution-paths module-binding (list source-path))
         (didRenameFiles (rename-files source-path renamed-path))
         (check-contribution-paths module-binding '())
-        (check-true (SafeDoc? (lsp-get-doc (path->uri renamed-path) #f))))
+        (check-eq? (lsp-get-doc uri #f) _rename-doc)
+        (check-false query-signal "a rename does not finish or cancel the buffer's queries")
+        (check-false (lsp-get-doc (path->uri renamed-path) #f))
+
+        ;; A destination that is already open also keeps its text and version.
+        (define destination (lsp-open-doc! (path->uri renamed-path) "unsaved destination" 7))
+        (didRenameFiles (rename-files source-path renamed-path))
+        (check-eq? (lsp-get-doc uri #f) _rename-doc)
+        (check-eq? (lsp-get-doc (path->uri renamed-path) #f) destination)
+        (check-equal? (with-read-doc destination doc-get-text) "unsaved destination")
+        (check-equal? (with-read-doc destination Doc-version) 7))
       (lambda ()
         (lsp-close-doc! uri)
         (lsp-close-doc! (path->uri source-path))
