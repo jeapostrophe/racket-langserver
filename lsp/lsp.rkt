@@ -1,10 +1,19 @@
 #lang racket/base
 
+;; Open-document registry for one session. The table locates SafeDoc buffers;
+;; source revisions and observed disk text stay in the source store.
+;; server% installs this registry during dispatch. Direct helper callers use
+;; the default table.
+
 (require racket/contract
+         "../common/path-util.rkt"
          "safedoc.rkt"
+         "source-controller.rkt"
          "scheduler.rkt")
 
-(define open-docs (make-hasheq))
+;; A deferred response thread inherits the parameterization of the dispatch
+;; that started it, so it must see this table rather than the default.
+(define current-open-docs (make-parameter (make-hasheq)))
 
 (define/contract lsp-get-doc
   (case->
@@ -12,15 +21,16 @@
     (-> string? any/c any/c))
   (case-lambda
     [(uri)
-     (hash-ref open-docs (string->symbol uri))]
+     (hash-ref (current-open-docs) (string->symbol uri))]
     [(uri default)
-     (hash-ref open-docs (string->symbol uri) default)]))
+     (hash-ref (current-open-docs) (string->symbol uri) default)]))
 
 (define/contract (lsp-open-doc! uri text version)
   (-> string? string? exact-nonnegative-integer? SafeDoc?)
   (lsp-close-doc! uri)
   (define safe-doc (new-safedoc uri text version))
-  (hash-set! open-docs (string->symbol uri) safe-doc)
+  (source-controller-open! (current-source-controller) (uri->path uri) safe-doc)
+  (hash-set! (current-open-docs) (string->symbol uri) safe-doc)
   safe-doc)
 
 (define/contract (lsp-close-doc! uri)
@@ -28,19 +38,21 @@
   (define uri-sym (string->symbol uri))
   (define safe-doc (lsp-get-doc uri #f))
   (when safe-doc
+    (source-controller-close! (current-source-controller) (uri->path uri) safe-doc)
     (define token (SafeDoc-token safe-doc))
     (scheduler-close-doc! token)
     (clear-old-queries/doc-close token))
-  (hash-remove! open-docs uri-sym))
+  (hash-remove! (current-open-docs) uri-sym))
 
 ;; Callbacks may acquire a SafeDoc lock. Snapshot the registry so callback
 ;; mutations cannot invalidate hash iteration.
 (define/contract (lsp-for-each-open-doc proc)
   (-> (-> SafeDoc? any/c) void?)
-  (for ([safe-doc (in-list (hash-values open-docs))])
+  (for ([safe-doc (in-list (hash-values (current-open-docs)))])
     (proc safe-doc)))
 
-(provide lsp-get-doc
+(provide current-open-docs
+         lsp-get-doc
          lsp-open-doc!
          lsp-close-doc!
          lsp-for-each-open-doc)

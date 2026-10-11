@@ -6,6 +6,7 @@
 ;; managed by the language server.
 
 (require "../common/rwlock.rkt"
+         "../workspace/source-store.rkt"
          "../doclib/doc.rkt"
          "../doclib/check-syntax.rkt"
          "../doclib/lexer.rkt"
@@ -31,10 +32,17 @@
 ;; SafeDoc eliminators:
 ;;   with-read-safedoc / with-write-safedoc — get safe-doc, access any field
 ;;   with-read-doc / with-write-doc — get doc only (legacy)
-;; Exported field accessors: SafeDoc-doc, SafeDoc-check-syntax-status.
+;; Exported field accessors: SafeDoc-doc, SafeDoc-token,
+;; SafeDoc-check-syntax-status, SafeDoc-source-view, set-SafeDoc-source-view!.
 ;; Access fields only inside an eliminator that acquired the lock.
-(struct SafeDoc
-  (doc rwlock token check-syntax-status)
+;; source-view is the source store's immutable lifetime projection, updated by
+;; the consumer under this lock. It is #f before registration and after close.
+(struct/contract SafeDoc
+  ([doc Doc?]
+   [rwlock RWLock?]
+   [token symbol?]
+   [check-syntax-status (or/c #f Check-Syntax-Status?)]
+   [source-view (or/c #f Source-View?)])
   #:mutable
   #:transparent)
 
@@ -43,7 +51,7 @@
   ;; Token identifies this opened document instance in scheduler/query state.
   (define token (gensym 'doc-token))
   (scheduler-register-doc! token)
-  (SafeDoc doc (make-rwlock) token #f))
+  (SafeDoc doc (make-rwlock) token #f #f))
 
 (define (with-read-doc safe-doc proc)
   (call-with-read-lock
@@ -152,6 +160,8 @@
   (scheduler-push-task! token 'check-syntax check-syntax-task))
 
 (provide SafeDoc-token
+         SafeDoc-source-view
+         set-SafeDoc-source-view!
          SafeDoc?
          SafeDoc-doc
          SafeDoc-check-syntax-status

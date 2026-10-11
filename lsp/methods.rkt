@@ -15,6 +15,8 @@
          (prefix-in workspace/ "workspace.rkt")
          "../workspace/current.rkt"
          "../workspace/state.rkt"
+         "lsp.rkt"
+         "source-controller.rkt"
          (prefix-in text-document/ "text-document.rkt"))
 
 ;; Process a request or an notification.
@@ -67,11 +69,22 @@
     (init-field
       response-channel
       request-channel
-      notification-channel)
+      notification-channel
+      [source-controller (make-source-controller)])
     (field
       ; Each request sent by server should register its response handler here
       [response-handlers (make-hash)]
       [server-request-id 0])
+    (define open-documents (make-hasheq))
+
+    (define/public (get-source-controller) source-controller)
+
+    ;; Owner callbacks run here, on the consumer, and read the session
+    ;; controller and registry parameters.
+    (define/public (process-source-event event)
+      (parameterize ([current-source-controller source-controller]
+                     [current-open-docs open-documents])
+        (source-controller-handle! source-controller event)))
 
     (define/public (send-response msg)
       (async-channel-put response-channel msg))
@@ -92,9 +105,14 @@
                                  'method method
                                  'params params)))
 
-    ;; Processes a message (a JSON). This displays any repsonse it generates
-    ;; and should always return void.
+    ;; Deferred response threads are created inside this parameterization, so
+    ;; they inherit the session controller and registry.
     (define/public (process-message msg)
+      (parameterize ([current-source-controller source-controller]
+                     [current-open-docs open-documents])
+        (process-message/owner msg)))
+
+    (define/private (process-message/owner msg)
       (match msg
         ;; Request
         [(hash-table ['id (? (or/c number? string?) id)]
@@ -138,6 +156,7 @@
           ["initialize"
            (initialize id params)]
           ["shutdown"
+           (source-controller-shutdown! source-controller)
            (shutdown id)]
           ["textDocument/hover"
            (text-document/hover id params)]

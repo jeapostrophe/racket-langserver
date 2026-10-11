@@ -1,4 +1,7 @@
 #lang racket/base
+
+;; Workspace notifications and settings. Folder membership changes index and
+;; search scope only; it does not change source revisions or eligibility.
 (provide didRenameFiles
          didChangeWorkspaceFolders
          didChangeWatchedFiles
@@ -6,14 +9,17 @@
          update-configuration
          fetch-configuration
          client-capability-workspace/configuration?)
+
 (require compiler/module-suffix
          json
          racket/match)
+
 (require "../common/json-util.rkt"
          "../common/path-util.rkt"
          "../common/interfaces.rkt"
          "lsp.rkt"
          "safedoc.rkt"
+         "source-controller.rkt"
          "../doclib/doc.rkt"
          "../common/settings.rkt"
          "../workspace/current.rkt"
@@ -31,11 +37,18 @@
 
 (define (didRenameFiles params)
   (match-define (^RenameFilesParams #:files files) params)
-  ;; Document close/open notifications own editor buffers, not file operations.
+  ;; textDocument open and close own the editor buffer. Rename invalidates the
+  ;; old and new path identities and drops the old index entry.
   (for ([f files])
-    (match-define (FileRename #:oldUri old-uri #:newUri _) f)
-    (workspace-remove-path! current-workspace (uri->path old-uri))))
+    (match-define (FileRename #:oldUri old-uri #:newUri new-uri) f)
+    (define old-path (uri->path old-uri))
+    (source-controller-invalidate! (current-source-controller) old-path)
+    (define new-path (uri->path new-uri))
+    (source-controller-invalidate! (current-source-controller) new-path)
+    (workspace-remove-path! current-workspace old-path)))
 
+;; Index scope only. Adding or removing a folder does not invalidate source
+;; records or start a disk read.
 (define (didChangeWorkspaceFolders params)
   (match-define (^DidChangeWorkspaceFoldersParams #:event event) params)
   (match-define (WorkspaceFoldersChangeEvent #:added added #:removed removed) event)

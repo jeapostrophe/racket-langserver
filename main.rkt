@@ -1,4 +1,7 @@
 #lang racket/base
+
+;; Stdio language server. One consumer thread dispatches client messages and
+;; source-controller events for the session.
 (require json
          mzlib/cml
          racket/exn
@@ -11,8 +14,11 @@
          "common/interfaces.rkt"
          "common/debug.rkt"
          "lsp/methods.rkt"
+         "lsp/source-controller.rkt"
          "lsp/msg-io.rkt"
          "lsp/responses.rkt")
+
+(provide start-consumer)
 
 ;; https://www.cs.utah.edu/plt/publications/pldi04-ff.pdf
 
@@ -51,13 +57,40 @@
 (define (report-error exn)
   (log-racket-langserver-error "Caught exn:\n~a" (exn->string exn)))
 
-;; We spawn some threads:
-;; * current-thread - read request message from a specified input-port
-;;                    or current-input-port and put it into queue `q`.
-;; * mgr-t          - defined in queue, forward message between current and consume threads.
-;; * consume        - read message from queue `q` and really process it.
-;; * out-t          - defined in `lsp/msg-io.rkt`, put the response message
-;;                    to a specified output-port or current-output-port.
+;; The same pump is used by stdio and integration tests. Alternating preference
+;; when both queues are ready prevents either producer from starving the other;
+;; receiving only the head of the client queue preserves protocol message order.
+(define (start-consumer server client-evt)
+  (define controller (send server get-source-controller))
+  (define internal-evt
+    (wrap-evt (source-controller-events controller) (lambda (event) (cons 'internal event))))
+  (define message-evt (wrap-evt client-evt (lambda (msg) (cons 'client msg))))
+  (thread
+    (lambda ()
+      ;; Language readers, lexers, and formatting hooks can print. Protocol
+      ;; messages are queued; write-resp retains the real port and displays them.
+      (parameterize ([current-output-port (open-output-nowhere)])
+        (let loop ([prefer-client? #t])
+          (define event
+            (or (sync/timeout 0 (if prefer-client? message-evt internal-evt))
+                (sync message-evt internal-evt)))
+          (with-handlers ([exn:fail? report-error])
+            (match event
+              [(cons 'internal source-event) (send server process-source-event source-event)]
+              [(cons 'client 'parse-json-error)
+               (send server send-response
+                     (error-response (json-null) ErrorCode-ParseError
+                                     "Invalid JSON was received by the server."))]
+              [(cons 'client msg)
+               (maybe-debug-log msg)
+               (send server process-message msg)]))
+          (loop (eq? 'internal (car event))))))))
+
+;; Threads started for stdio:
+;; * current-thread reads messages from the input port into queue `q`.
+;; * mgr-t, inside queue, forwards those messages to the consumer.
+;; * start-consumer dispatches client messages and internal source events.
+;; * write-resp displays queued responses on the output port.
 (define (main-loop)
   (define resp-ch (make-async-channel))
   (define server (new server%
@@ -66,25 +99,11 @@
                    [notification-channel resp-ch]))
 
   (define q (queue))
-  (define (consume)
-    (define msg (sync (queue-recv-evt q)))
-    (match msg
-      ['parse-json-error
-       (define err "Invalid JSON was received by the server.")
-       (display-message/flush (error-response (json-null) ErrorCode-ParseError err))]
-      [_
-       (maybe-debug-log msg)
-       (with-handlers ([exn:fail? report-error])
-         ;; Language readers, lexers and formatting hooks can print. Protocol
-         ;; messages are queued to write-resp, which retains the real port.
-         (parameterize ([current-output-port (open-output-nowhere)])
-           (send server process-message msg)))])
-    (consume))
   (define (write-resp)
     (display-message/flush (async-channel-get resp-ch))
     (write-resp))
 
-  (spawn consume)
+  (start-consumer server (queue-recv-evt q))
   (spawn write-resp)
   (for ([msg (in-port read-message)])
     (sync (queue-send-evt q msg)))

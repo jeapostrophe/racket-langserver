@@ -44,6 +44,7 @@
       proc)))
 
 (provide make-rwlock
+         RWLock?
          call-with-read-lock
          call-with-write-lock)
 

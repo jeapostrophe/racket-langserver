@@ -1,4 +1,7 @@
 #lang racket/base
+
+;; textDocument notification and request handlers. An edit records the new
+;; source revision inside the SafeDoc write lock before Check Syntax runs.
 (require json
          racket/match
          racket/list
@@ -15,6 +18,8 @@
          "compose/references.rkt"
          "semantic-token-lsp.rkt"
          "scheduler.rkt"
+         "source-controller.rkt"
+         "../common/path-util.rkt"
          "lsp.rkt"
          "workspace.rkt")
 
@@ -49,8 +54,9 @@
 
   (clear-old-queries/doc-change token)
 
-  (with-write-doc safe-doc
-    (λ (doc)
+  (with-write-safedoc safe-doc
+    (λ (sd)
+      (define doc (SafeDoc-doc sd))
       (for ([change (in-list content-changes*)])
         (match change
           [(^ContentChangeEvent-Incremental #:range range #:text text)
@@ -58,7 +64,8 @@
           [(^ContentChangeEvent-Full #:text text)
            (doc-reset! doc text)]))
 
-      (doc-update-version! doc version)))
+      (doc-update-version! doc version)
+      (source-controller-edited! (current-source-controller) (uri->path uri) sd)))
 
   (safedoc-run-check-syntax! notify-client safe-doc))
 
