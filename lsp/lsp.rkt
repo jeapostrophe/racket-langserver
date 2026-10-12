@@ -27,13 +27,13 @@
 
 (define/contract (lsp-open-doc! uri text version)
   (-> string? string? exact-nonnegative-integer? SafeDoc?)
-  (define source-id (uri->path uri))
+  (define source-id (uri->source-id uri))
   ;; One exact source path has one registered buffer. Retire the previous URI;
   ;; a delayed close using a different spelling cannot close its replacement.
   (lsp-for-each-open-doc
     (lambda (safe-doc)
       (define old-uri (with-read-doc safe-doc Doc-uri))
-      (when (equal? source-id (uri->path old-uri))
+      (when (equal? source-id (uri->source-id old-uri))
         (lsp-close-doc! old-uri))))
   (define safe-doc (new-safedoc uri text version))
   (source-controller-open! (current-source-controller) source-id safe-doc)
@@ -45,7 +45,7 @@
   (define uri-sym (string->symbol uri))
   (define safe-doc (lsp-get-doc uri #f))
   (when safe-doc
-    (source-controller-close! (current-source-controller) (uri->path uri) safe-doc))
+    (source-controller-close! (current-source-controller) (uri->source-id uri) safe-doc))
   (hash-remove! (current-open-docs) uri-sym))
 
 ;; Callbacks may acquire a SafeDoc lock. Snapshot the registry so callback

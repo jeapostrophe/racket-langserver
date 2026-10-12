@@ -2,7 +2,8 @@
 
 ;; Source-store transitions with no controller and no disk. These checks cover
 ;; observation, authority tickets, and which text the store retains.
-(require rackunit
+(require "../../common/path-util.rkt"
+         rackunit
          "../../workspace/source-store.rkt")
 
 (define path (build-path (current-directory) "source.rkt"))
@@ -20,7 +21,7 @@
     (check-exn exn:fail:contract?
                (lambda () (Source-View path revision 'disk 'present #f)))
     (check-exn exn:fail:contract?
-               (lambda () (Source-Snapshot path revision 'disk (string-copy "text"))))
+               (lambda () (Source-Snapshot (File-Source (path->uri path) path) revision 'disk (string-copy "text"))))
     (check-exn exn:fail:contract?
                (lambda () (Source-Snapshot "source.rkt" revision 'disk "text"))))
 

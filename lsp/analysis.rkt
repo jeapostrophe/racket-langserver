@@ -47,8 +47,8 @@
     [else value]))
 
 (define (analyze-source snapshot)
-  (define uri (path->uri (Source-Snapshot-source-id snapshot)))
-  (define doc (make-doc uri (Source-Snapshot-text snapshot)))
+  (define source (Source-Snapshot-source snapshot))
+  (define doc (make-doc (source-uri source) (Source-Snapshot-text snapshot) #:source source))
   (define result (doc-check-syntax doc))
   (define trace (CSResult-trace result))
   (define succeeded? (CSResult-succeed? result))

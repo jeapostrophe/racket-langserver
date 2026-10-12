@@ -1,18 +1,30 @@
 #lang racket/base
 
-;; Keep filesystem paths as path? inside the program; URI strings stay at the
-;; LSP / protocol edge. Converting to string in uri->path would mix two
-;; representations for the same path. path? is type-safer and a little cheaper
-;; for path ops.
+;; Filesystem locations stay as paths. Source descriptors retain the original
+;; protocol URI independently from the backend location.
 
 (provide path->uri
          uri->path
-         directory-contains?)
+         directory-contains?
+         file-uri?
+         uri->source-id
+         uri->suffix
+         (struct-out File-Source)
+         (struct-out Virtual-Source)
+         (struct-out Virtual-Id)
+         source?
+         source-id?
+         make-source
+         source-id
+         source-uri
+         source-backend-path
+         source-location->uri)
 
 (require net/url
          racket/contract
          racket/list
-         racket/path)
+         racket/path
+         racket/match)
 
 (define/contract (path->uri path)
   (-> path? string?)
@@ -44,3 +56,60 @@
   (define file-parts (explode-path (simple-form-path filepath)))
   (and (>= (length file-parts) (length dir-parts))
        (equal? dir-parts (take file-parts (length dir-parts)))))
+
+;; File identities retain their exact path spelling. Virtual identities retain
+;; the complete URI; virtual backend paths never identify documents in server state.
+(struct/contract File-Source ([uri string?] [path path?]) #:transparent)
+(struct/contract Virtual-Id ([uri string?]) #:transparent)
+(struct/contract Virtual-Source ([uri string?] [path complete-path?]) #:transparent)
+
+(define (source? value)
+  (or (File-Source? value) (Virtual-Source? value)))
+
+(define (source-id? value)
+  (or (path? value) (Virtual-Id? value)))
+
+(define (file-uri? uri)
+  (equal? (url-scheme (string->url uri)) "file"))
+
+(define (uri->source-id uri)
+  (if (file-uri? uri) (uri->path uri) (Virtual-Id uri)))
+
+(define (make-source uri)
+  (if (file-uri? uri)
+      (File-Source uri (uri->path uri))
+      (Virtual-Source
+        uri
+        (build-path (find-system-path 'temp-dir)
+                    (format "racket-langserver-~a-~a" (current-inexact-milliseconds) (gensym))
+                    "buffer.rkt"))))
+
+(define (source-id source)
+  (match source
+    [(File-Source _ path) path]
+    [(Virtual-Source uri _) (Virtual-Id uri)]))
+
+(define (source-uri source)
+  (match source
+    [(File-Source uri _) uri]
+    [(Virtual-Source uri _) uri]))
+
+(define (source-backend-path source)
+  (match source
+    [(File-Source _ path) path]
+    [(Virtual-Source _ path) path]))
+
+;; Use this at result construction, where a backend location crosses into LSP.
+(define (source-location->uri source path)
+  (if (equal? path (source-backend-path source))
+      (source-uri source)
+      (path->uri path)))
+
+(define (uri->suffix uri)
+  (define segments (and uri (url-path (string->url uri))))
+  (define extension
+    (and segments (pair? segments)
+         (let ([name (path/param-path (last segments))])
+           (and (string? name) (not (equal? name ""))
+                (path-get-extension (string->path name))))))
+  (and extension (bytes->string/utf-8 (subbytes extension 1))))

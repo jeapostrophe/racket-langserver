@@ -459,11 +459,6 @@
               (regexp-match? (Language-Spec-name-rx spec) name)
               spec))))
 
-(define (uri->suffix uri)
-  (define extension (and uri (path-get-extension (uri->path uri))))
-  (and extension
-       (bytes->string/utf-8 (subbytes extension 1))))
-
 (define (match-by-suffix uri)
   (define maybe-suffix (uri->suffix uri))
   (and maybe-suffix

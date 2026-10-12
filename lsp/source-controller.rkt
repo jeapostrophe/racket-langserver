@@ -103,12 +103,12 @@
   #:transparent)
 
 (struct/contract Refresh
-  ([source-id path?]
+  ([source-id source-id?]
    [reply Completion?])
   #:transparent)
 
 (struct/contract Read-Done
-  ([source-id path?]
+  ([source-id source-id?]
    [attempt Read-Attempt?]
    [result any/c])
   #:transparent)
@@ -191,7 +191,7 @@
       (with-read-safedoc buffer
         (lambda (sd)
           (define view (SafeDoc-source-view sd))
-          (Source-Snapshot source-id (Source-View-revision view) 'buffer
+          (Source-Snapshot (Doc-source (SafeDoc-doc sd)) (Source-View-revision view) 'buffer
                            (string->immutable-string (doc-get-text (SafeDoc-doc sd))))))
       (source-store-disk-snapshot store source-id)))
 

@@ -5,10 +5,12 @@
 ;; Buffer text stays in SafeDoc. This module retains only observed disk text
 ;; and does not read files. Close leaves a disk view unobserved.
 (require racket/contract
-         racket/match)
+         racket/match
+         "../common/path-util.rkt")
 
 (provide (struct-out Source-View)
          (struct-out Source-Snapshot)
+         Source-Snapshot-source-id
          make-source-store
          source-store-view
          source-store-buffer
@@ -20,7 +22,7 @@
          source-store-disk-snapshot)
 
 (struct/contract Source-View
-  ([source-id path?]
+  ([source-id source-id?]
    [revision symbol?]
    [origin (or/c 'buffer 'disk)]
    [state (or/c 'present 'unobserved 'missing 'unavailable)]
@@ -28,7 +30,7 @@
   #:transparent)
 
 (struct/contract Source-Snapshot
-  ([source-id path?]
+  ([source source?]
    [revision symbol?]
    [origin (or/c 'buffer 'disk)]
    [text (and/c string? immutable?)])
@@ -41,6 +43,9 @@
    [buffer any/c]
    [disk-text (or/c #f (and/c string? immutable?))])
   #:mutable)
+
+(define (Source-Snapshot-source-id snapshot)
+  (source-id (Source-Snapshot-source snapshot)))
 
 (define (make-source-store)
   (make-hash))
@@ -114,5 +119,5 @@
   (define record (record-for store source-id))
   (match (File-Record-view record)
     [(struct* Source-View ([revision revision] [origin 'disk] [state 'present]))
-     (Source-Snapshot source-id revision 'disk (File-Record-disk-text record))]
+     (Source-Snapshot (File-Source (path->uri source-id) source-id) revision 'disk (File-Record-disk-text record))]
     [_ #f]))

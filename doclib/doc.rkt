@@ -46,7 +46,7 @@
          racket/format)
 
 (struct/contract Doc
-  ([uri string?]
+  ([source source?]
    [text (is-a?/c lsp-editor%)]
    [trace (is-a?/c build-trace%)]
    [contribution (or/c #f Doc-Contribution?)]
@@ -56,7 +56,7 @@
    [lexer-state (lazy-cache-of LexerState?)])
   #:mutable)
 
-(define (make-Doc #:uri uri
+(define (make-Doc #:source source
                   #:text text
                   #:trace trace
                   #:contribution [contribution #f]
@@ -64,7 +64,7 @@
                   #:trace-version [trace-version #f]
                   #:resyntax-results [resyntax-results (list)]
                   #:lexer-state [lexer-state (make-lazy-cache)])
-  (Doc uri
+  (Doc source
        text
        trace
        contribution
@@ -73,20 +73,23 @@
        resyntax-results
        lexer-state))
 
-(define/contract (make-doc uri text [version 0])
+(define (Doc-uri doc)
+  (source-uri (Doc-source doc)))
+
+(define/contract (make-doc uri text [version 0] #:source [source (make-source uri)])
   (->* (string? string?)
-       (exact-nonnegative-integer?)
+       (exact-nonnegative-integer? #:source source?)
        Doc?)
   (define doc-text (new lsp-editor%))
   (send doc-text insert text 0)
-  (define lexer-state (build-lexer-state text uri))
+  (define lexer-state (build-lexer-state text (source-uri source)))
   ;; the init trace should not be #f
   (define doc-trace
     (new build-trace%
-      [src (uri->path uri)]
+      [src (source-backend-path source)]
       [doc-text doc-text]
       [lexer-state lexer-state]))
-  (make-Doc #:uri uri
+  (make-Doc #:source source
             #:text doc-text
             #:trace doc-trace
             #:version version))
@@ -150,7 +153,7 @@
 
 (define/contract (doc-update-uri! doc new-uri)
   (-> Doc? string? void?)
-  (set-Doc-uri! doc new-uri))
+  (set-Doc-source! doc (make-source new-uri)))
 
 (define/contract (doc-reset! doc new-text)
   (-> Doc? string? void?)
@@ -1224,6 +1227,7 @@
 (provide Doc?
          Doc-version
          Doc-uri
+         Doc-source
          Doc-contribution
          (struct-out Doc-Contribution)
          make-doc

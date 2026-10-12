@@ -36,7 +36,7 @@
   (match-define (hash-table ['textDocument (^DocItem #:uri uri #:version version #:text text)]) params)
   (fetch-configuration request-client uri)
   (lsp-open-doc! uri text version)
-  (source-controller-analyze! (current-source-controller) (uri->path uri)))
+  (source-controller-analyze! (current-source-controller) (uri->source-id uri)))
 
 (define (did-close! params)
   (match-define (hash-table ['textDocument (DocItem-js #:uri uri)]) params)
@@ -62,9 +62,9 @@
            (doc-reset! doc text)]))
 
       (doc-update-version! doc version)
-      (source-controller-edited! (current-source-controller) (uri->path uri) sd)))
+      (source-controller-edited! (current-source-controller) (uri->source-id uri) sd)))
 
-  (source-controller-analyze! (current-source-controller) (uri->path uri)))
+  (source-controller-analyze! (current-source-controller) (uri->source-id uri)))
 
 ;; Hover request
 ;; Returns an object conforming to the Hover interface, to
