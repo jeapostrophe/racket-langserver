@@ -1,0 +1,136 @@
+#lang racket/base
+
+(require json
+         rackunit
+         racket/async-channel
+         racket/list
+         racket/path
+         "../../common/interfaces.rkt"
+         "../../common/json-util.rkt"
+         "../../common/path-util.rkt"
+         "../../doclib/doc.rkt"
+         "../../doclib/internal-types.rkt"
+         "../../lsp/analysis.rkt"
+         "../../lsp/lsp.rkt"
+         "../../lsp/safedoc.rkt"
+         "../../lsp/source-controller.rkt"
+         "../../workspace/api.rkt"
+         "../../workspace/current.rkt"
+         "../../workspace/source-store.rkt"
+         (submod "source-controller-test.rkt" test-support))
+
+(define (module-text name)
+  (format "#lang racket/base\n(require racket/list)\n(define (~a unused) (first '(1)))\n(~a 2)\n" name name))
+
+(define (open-uri! session uri text)
+  (notify session "textDocument/didOpen"
+          (hasheq 'textDocument (hasheq 'uri uri 'languageId "racket" 'version 0 'text text))))
+
+(define (analyzed session uri)
+  (define event
+    (owner session
+           (lambda (controller)
+             (source-controller-acquire-analysis!
+               controller (source-controller-snapshot controller (uri->source-id uri))))))
+  (check-eq? 'succeeded (Analysis-Outcome-state (await event))))
+
+(define (feature session id method uri [extra (hasheq)])
+  (async-channel-put (Session-clients session)
+                     (hasheq 'id id 'method method
+                             'params (hash-set extra 'textDocument (hasheq 'uri uri))))
+  (response session id))
+
+(define (check-local-results session uri)
+  (define position (hasheq 'position (hasheq 'line 3 'character 1)))
+  (define definition (feature session 1 "textDocument/definition" uri position))
+  (check-equal? (hash-ref (hash-ref definition 'result) 'uri) uri)
+  (define references
+    (feature session 2 "textDocument/references" uri
+             (hash-set position 'context (hasheq 'includeDeclaration #t))))
+  (check-equal? (length (hash-ref references 'result)) 2)
+  (for ([location (in-list (hash-ref references 'result))])
+    (check-equal? (hash-ref location 'uri) uri))
+  (define rename
+    (feature session 3 "textDocument/rename" uri (hash-set position 'newName "renamed")))
+  (check-equal? (hash-keys (hash-ref (hash-ref rename 'result) 'changes))
+                (list (string->symbol uri)))
+  (define actions
+    (feature session 4 "textDocument/codeAction" uri
+             (hasheq 'range (hasheq 'start (hasheq 'line 2 'character 0)
+                                    'end (hasheq 'line 2 'character 40))
+                     'context (hasheq 'diagnostics '()))))
+  (check-not-equal? (hash-ref actions 'result) '())
+  (for ([action (in-list (hash-ref actions 'result))])
+    (check-equal? (hash-keys (hash-ref (hash-ref action 'edit) 'changes))
+                  (list (string->symbol uri))))
+  ;; The live file also uses `first`; imported virtual references must not merge it.
+  (define imported-references
+    (feature session 6 "textDocument/references" uri
+             (hasheq 'position (hasheq 'line 2 'character 25)
+                     'context (hasheq 'includeDeclaration #t))))
+  (check-equal? (length (hash-ref imported-references 'result)) 1)
+  (check-equal? (hash-ref (car (hash-ref imported-references 'result)) 'uri) uri)
+  ;; Imported definitions would need another disk-source analysis.
+  (check-equal? (hash-ref (feature session 5 "textDocument/definition" uri
+                                   (hasheq 'position (hasheq 'line 2 'character 25))) 'result)
+                (json-null)))
+
+(module+ test
+  (test-case "live file and matching virtual paths keep private analysis, locations and edits"
+    ;; Cover synthetic locations too, so workspace isolation cannot pass merely
+    ;; because the generated paths happen to fall outside the workspace folders.
+    (define root (car (explode-path scratch)))
+    (workspace-add-folder! current-workspace root)
+    (dynamic-wind
+      void
+      (lambda ()
+        (with-session
+          (make-source-controller #:read (lambda (_) (error 'disk "unexpected disk acquisition")) #:resyntax #f)
+          (lambda (session)
+            (define file-path (build-path scratch "virtual-coexist.rkt"))
+            (define file-uri (path->uri file-path))
+            (define virtual-prefix (regexp-replace #rx"^file:" file-uri "git:"))
+            (define a (string-append virtual-prefix "?rev=one#cell"))
+            (define b (string-append virtual-prefix "?rev=two#cell"))
+            (for ([uri (in-list (list file-uri a b))]
+                  [name (in-list '(live alpha beta))])
+              (open-uri! session uri (module-text name)))
+            (barrier session)
+            (for ([uri (in-list (list file-uri a b))]) (analyzed session uri))
+            (notify session "workspace/didChangeWorkspaceFolders"
+                    (hasheq 'event
+                            (hasheq 'added (list (hasheq 'uri (path->uri root) 'name "root"))
+                                    'removed '())))
+            (barrier session)
+            (define live-binding (Module-Binding file-path '() 0 'live))
+            (check-not-false (workspace-definition-location current-workspace live-binding))
+            (for ([uri (in-list (list a b))]
+                  [name (in-list '(alpha beta))])
+              (define backend
+                (owner session
+                       (lambda (_)
+                         (with-read-doc (lsp-get-doc uri)
+                           (lambda (doc) (source-backend-path (Doc-source doc)))))))
+              (check-false (workspace-definition-location current-workspace (Module-Binding backend '() 0 name)))
+              (check-local-results session uri))
+            ;; The two original URIs each own their diagnostic stream.
+            (define publications (for/list ([_ (in-range 3)]) (await (Session-notifications session))))
+            (check-equal? (sort (map (lambda (msg) (hash-ref (hash-ref msg 'params) 'uri)) publications) string<?)
+                          (sort (list file-uri a b) string<?))
+            (for ([msg (in-list publications)])
+              (define uri (hash-ref (hash-ref msg 'params) 'uri))
+              (for ([diag (in-list (hash-ref (hash-ref msg 'params) 'diagnostics))]
+                    #:when (equal? (hash-ref diag 'message) "unused variable"))
+                (check-equal? (hash-ref diag 'source) uri)))
+            (notify session "textDocument/didClose" (hasheq 'textDocument (hasheq 'uri a)))
+            (barrier session)
+            (check-equal? (hash-ref (await (Session-notifications session)) 'params)
+                          (hasheq 'uri a 'diagnostics '()))
+            (check-false (owner session (lambda (_) (lsp-get-doc a #f))))
+            (check-not-false (owner session (lambda (_) (lsp-get-doc b #f))))
+            (check-not-false (workspace-definition-location current-workspace live-binding))
+            (check-local-results session b)
+            (for ([uri (in-list (list file-uri b))])
+              (notify session "textDocument/didClose" (hasheq 'textDocument (hasheq 'uri uri))))
+            (barrier session))))
+      (lambda () (workspace-remove-folder! current-workspace root)))))

@@ -31,7 +31,7 @@
       (define contribution
         (with-read-doc safe-doc
           (lambda (doc)
-            (Doc-contribution doc))))
+            (and (File-Source? (Doc-source doc)) (Doc-contribution doc)))))
       (when contribution
         (workspace-set-contribution! current-workspace contribution)))))
 
@@ -41,11 +41,12 @@
   ;; old and new path identities and drops the old index entry.
   (for ([f files])
     (match-define (FileRename #:oldUri old-uri #:newUri new-uri) f)
-    (define old-path (uri->path old-uri))
-    (source-controller-invalidate! (current-source-controller) old-path)
-    (define new-path (uri->path new-uri))
-    (source-controller-invalidate! (current-source-controller) new-path)
-    (workspace-remove-path! current-workspace old-path)))
+    (when (file-uri? old-uri)
+      (define old-path (uri->path old-uri))
+      (source-controller-invalidate! (current-source-controller) old-path)
+      (workspace-remove-path! current-workspace old-path))
+    (when (file-uri? new-uri)
+      (source-controller-invalidate! (current-source-controller) (uri->path new-uri)))))
 
 ;; Index scope only. Adding or removing a folder does not invalidate source
 ;; records or start a disk read.
@@ -54,10 +55,12 @@
   (match-define (WorkspaceFoldersChangeEvent #:added added #:removed removed) event)
   (for ([f added])
     (match-define (WorkspaceFolder #:uri uri #:name _) f)
-    (workspace-add-folder! current-workspace (uri->path uri)))
+    (when (file-uri? uri)
+      (workspace-add-folder! current-workspace (uri->path uri))))
   (for ([f removed])
     (match-define (WorkspaceFolder #:uri uri #:name _) f)
-    (workspace-remove-folder! current-workspace (uri->path uri)))
+    (when (file-uri? uri)
+      (workspace-remove-folder! current-workspace (uri->path uri))))
   (when (pair? added)
     (republish-open-doc-contributions!)))
 

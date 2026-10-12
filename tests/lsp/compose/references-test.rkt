@@ -47,10 +47,10 @@
         module-binding))
     (define sources (merge-reference-sources workspace document-result #f))
 
-    (check-equal? (Reference-Source-path (first sources)) live-path)
+    (check-equal? (Reference-Source-source-id (first sources)) live-path)
     (check-equal? (Reference-Source-locations (first sources))
                   (list live-location))
-    (check-equal? (list->set (map Reference-Source-path (rest sources)))
+    (check-equal? (list->set (map Reference-Source-source-id (rest sources)))
                   (set source-a source-b)))
 
   (test-case

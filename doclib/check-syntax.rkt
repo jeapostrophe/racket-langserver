@@ -66,6 +66,7 @@
   (define new-trace
     (new build-trace%
       [src path]
+      [source source]
       [doc-text doc-text]
       [lexer-state lexer-state]))
 

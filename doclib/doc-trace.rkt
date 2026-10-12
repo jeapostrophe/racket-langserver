@@ -25,12 +25,14 @@
   (class (check-syntax-annotations-mixin object%)
     (init-field src
                 doc-text
-                lexer-state)
+                lexer-state
+                [source (File-Source (path->uri src) src)])
     (define docs (new docs%))
     (define completions (new completion%))
     (define requires (new require%))
     (define diag (new diag%
                    [src src]
+                   [source source]
                    [doc-text doc-text]
                    [lexer-state lexer-state]))
     (define decls
@@ -128,7 +130,7 @@
           (if (= start (CharRange-end range))
               (add1 start)
               (CharRange-end range)))
-        (Location (path->uri src)
+        (Location (source-location->uri source src)
                   (Range (abs->pos start) (abs->pos end))))
 
       (define references

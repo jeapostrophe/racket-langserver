@@ -53,7 +53,7 @@
 
 (define (check-contribution-paths module-binding expected)
   (check-equal?
-    (map Reference-Source-path
+    (map Reference-Source-source-id
          (workspace-reference-sources current-workspace module-binding))
     expected))
 

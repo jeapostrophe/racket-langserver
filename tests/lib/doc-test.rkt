@@ -1345,7 +1345,7 @@ END
     (define result (doc-references d uri (Pos 2 0) #t))
     (check-true (Module-Binding? (Document-Reference-Result-module-binding result)))
     (define source (Document-Reference-Result-source result))
-    (check-equal? (Reference-Source-path source) (uri->path uri))
+    (check-equal? (Reference-Source-source-id source) (uri->path uri))
     (check-equal? (map Location-range (Reference-Source-locations source))
                   (list (Range (Pos 1 8) (Pos 1 9))
                         (Range (Pos 2 0) (Pos 2 1))))

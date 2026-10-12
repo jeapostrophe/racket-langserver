@@ -25,7 +25,8 @@
 ;; live on typed-racket%, not here.
 (define diag%
   (class base-service%
-    (init-field src doc-text lexer-state)
+    (init-field src doc-text lexer-state
+                [source (File-Source (path->uri src) src)])
     (super-new)
 
     (define diags (mutable-seteq))
@@ -66,11 +67,12 @@
     ;; Mouse-over status
     (define (hint-unused-variable src-obj start finish)
       (unless (string=? "_" (send doc-text get-text start (add1 start)))
+        (define uri (source-location->uri source src-obj))
         (define diag
           (Diagnostic #:range (Range #:start (abs-pos->Pos doc-text start)
                                      #:end (abs-pos->Pos doc-text finish))
                       #:severity DiagnosticSeverity-Information
-                      #:source (path->uri src-obj)
+                      #:source uri
                       #:message "unused variable"))
 
         (define code-action
@@ -81,7 +83,7 @@
             #:isPreferred #f
             #:edit (WorkspaceEdit
                      #:changes
-                     (hasheq (string->symbol (path->uri src-obj))
+                     (hasheq (string->symbol uri)
                              (list (TextEdit #:range (Range #:start (abs-pos->Pos doc-text start)
                                                             #:end (abs-pos->Pos doc-text start))
                                              #:newText "_"))))))

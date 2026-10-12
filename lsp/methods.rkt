@@ -265,7 +265,8 @@
      ;; null is there are no folder is open.
      (cond
        [(not (equal? root-uri (json-null)))
-        (workspace-add-folder! current-workspace (uri->path root-uri))]
+        (when (file-uri? root-uri)
+          (workspace-add-folder! current-workspace (uri->path root-uri)))]
        [(not (equal? root-path (json-null)))
         (workspace-add-folder! current-workspace (string->path root-path))]
        [else (void)])

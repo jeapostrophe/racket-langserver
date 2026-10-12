@@ -87,6 +87,7 @@
   (define doc-trace
     (new build-trace%
       [src (source-backend-path source)]
+      [source source]
       [doc-text doc-text]
       [lexer-state lexer-state]))
   (make-Doc #:source source
@@ -410,10 +411,9 @@
 ;; formatting ;;
 
 (define (doc-src-dir doc)
-  (with-handlers ([exn:fail? (λ (_exn) #f)])
-    (define doc-path (uri->path (Doc-uri doc)))
-    (define-values (base _name _must-be-dir?) (split-path doc-path))
-    base))
+  (and (File-Source? (Doc-source doc))
+       (let-values ([(base _name _must-be-dir?) (split-path (source-backend-path (Doc-source doc)))])
+         base)))
 
 (define (formatting-range->lines doc-text fmt-range)
   (define last-line (send doc-text at-line (send doc-text end-pos)))
@@ -964,12 +964,13 @@
     [definition-range
      (Location #:uri uri
                #:range definition-range)]
+    [(Virtual-Source? (Doc-source doc)) #f]
     [else
      (match (doc-module-binding-at doc pos)
        [(Module-Binding path submods _phase+space id)
         (define def-range (doc-get-definition-by-id path submods id))
         (and def-range
-             (Location #:uri (path->uri path)
+             (Location #:uri (source-location->uri (Doc-source doc) path)
                        #:range def-range))]
        [#f #f])]))
 
@@ -988,7 +989,7 @@
        (for/list ([range (in-list ranges)])
          (Location #:uri uri #:range range)))
      (Document-Reference-Result
-       (Reference-Source (uri->path uri) local-locations)
+       (Reference-Source (source-id (Doc-source doc)) local-locations)
        (doc-module-binding-at doc pos))]
     [else #f]))
 
