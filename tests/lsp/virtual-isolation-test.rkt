@@ -134,3 +134,69 @@
               (notify session "textDocument/didClose" (hasheq 'textDocument (hasheq 'uri uri))))
             (barrier session))))
       (lambda () (workspace-remove-folder! current-workspace root)))))
+
+(module+ test
+  (test-case "file and workspace events preserve virtual revisions and cached analysis"
+    (define root (car (explode-path scratch)))
+    (workspace-add-folder! current-workspace root)
+    (dynamic-wind
+      void
+      (lambda ()
+        (define analyses (make-async-channel))
+        (with-session
+          (make-source-controller
+            #:read (lambda (_) (error 'disk "events must not acquire disk"))
+            #:resyntax #f
+            #:analyze (lambda (snapshot)
+                        (async-channel-put analyses (Source-Snapshot-source-id snapshot))
+                        (analyze-source snapshot)))
+          (lambda (session)
+            (define path (build-path scratch "event-coexist.rkt"))
+            (define file-uri (path->uri path))
+            (define virtual-uri (string-append (regexp-replace #rx"^file:" file-uri "notebook:") "#cell"))
+            (define virtual-id (uri->source-id virtual-uri))
+            (open-uri! session file-uri (module-text 'live))
+            (open-uri! session virtual-uri (module-text 'alpha))
+            (barrier session)
+            (analyzed session file-uri)
+            (analyzed session virtual-uri)
+            (await analyses)
+            (await analyses)
+            (define before (view session virtual-id))
+            (define (unchanged)
+              (barrier session)
+              (check-eq? before (view session virtual-id)))
+            (for ([type (in-list '(1 2 3))])
+              (notify session "workspace/didChangeWatchedFiles"
+                      (hasheq 'changes (list (hasheq 'uri file-uri 'type type))))
+              (unchanged))
+            (for ([add? (in-list '(#f #t))])
+              (define folder (list (hasheq 'uri (path->uri root) 'name "root")))
+              (notify session "workspace/didChangeWorkspaceFolders"
+                      (hasheq 'event (hasheq 'added (if add? folder '())
+                                             'removed (if add? '() folder))))
+              (unchanged))
+            (check-false (sync/timeout 0 analyses))
+            (define next-uri (path->uri (build-path scratch "event-renamed.rkt")))
+            (notify session "workspace/didRenameFiles"
+                    (hasheq 'files (list (hasheq 'oldUri file-uri 'newUri next-uri))))
+            (unchanged)
+            (analyzed session file-uri)
+            (check-equal? (await analyses) path "rename reanalyzes only the open file")
+            ;; Non-file event endpoints must not be decoded into the live path.
+            (notify session "workspace/didRenameFiles"
+                    (hasheq 'files (list (hasheq 'oldUri virtual-uri 'newUri "untitled:renamed"))))
+            (notify session "workspace/didChangeWorkspaceFolders"
+                    (hasheq 'event (hasheq 'added (list (hasheq 'uri "untitled:folder" 'name "ignored"))
+                                           'removed '())))
+            (unchanged)
+            (check-false (sync/timeout 0 analyses))
+            (check-equal? (owner session
+                                 (lambda (_)
+                                   (with-read-doc (lsp-get-doc virtual-uri) doc-get-text)))
+                          (module-text 'alpha))
+            (check-local-results session virtual-uri)
+            (for ([uri (in-list (list file-uri virtual-uri))])
+              (notify session "textDocument/didClose" (hasheq 'textDocument (hasheq 'uri uri))))
+            (barrier session))))
+      (lambda () (workspace-remove-folder! current-workspace root)))))

@@ -4,8 +4,8 @@
 ;; jobs, bounded execution and result acceptance. The session consumer applies
 ;; every mutation and table read. Other threads submit commands and wait on
 ;; reply or change events; disk reads and analysis run on private workers.
-;; Source ids are exact filepaths or tagged complete virtual URIs. Backend
-;; virtual backend locations belong to snapshots, never to the source registry.
+;; Source ids are exact filepaths or tagged complete virtual URIs. Virtual
+;; backend locations belong to snapshots, never to the source registry.
 (require racket/async-channel
          racket/contract
          racket/file
