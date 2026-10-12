@@ -5,6 +5,7 @@
 ;; Unsuccessful expansion returns the feature's empty result, never an old trace.
 (require "../common/interfaces.rkt"
          "../common/json-util.rkt"
+         "../common/time.rkt"
          "../doclib/doc.rkt"
          "../workspace/source-store.rkt"
          "analysis.rkt"
@@ -17,7 +18,7 @@
 (define current-analysis-request-timeout (make-parameter 90))
 
 (define (analysis-query safe-doc id read-result empty-result)
-  (define deadline (+ (current-inexact-monotonic-milliseconds)
+  (define deadline (+ (current-deadline-milliseconds)
                       (* 1000 (current-analysis-request-timeout))))
   (define controller (current-source-controller))
   (define shutdown (source-controller-shutdown-evt controller))
@@ -35,7 +36,7 @@
   (define (cancelled)
     (error-response id ErrorCode-RequestCancelled "Document changed or closed"))
   (define (expired?)
-    (>= (current-inexact-monotonic-milliseconds) deadline))
+    (>= (current-deadline-milliseconds) deadline))
   (define (changed?)
     (or (not view) (sync/timeout 0 (Source-View-changed view))))
   (cond
@@ -45,7 +46,7 @@
        (with-handlers ([(lambda (_) #t) (lambda (_) (failed "Analysis request failed"))])
          (define outcome
            (and job view
-                (sync job (Source-View-changed view) shutdown (alarm-evt deadline #t))))
+                (sync job (Source-View-changed view) shutdown (deadline-evt deadline))))
          (cond
            [(changed?) (cancelled)]
            [(expired?) (failed "Analysis request deadline expired")]

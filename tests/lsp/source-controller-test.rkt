@@ -14,6 +14,7 @@
          racket/runtime-path
          "../../main.rkt"
          "../../common/path-util.rkt"
+         "../../common/time.rkt"
          "../../doclib/doc.rkt"
          "../../lsp/lsp.rkt"
          "../../lsp/methods.rkt"
@@ -71,12 +72,12 @@
 
 (define (response session id)
   (define pending (Session-pending session))
-  (define deadline (+ (current-inexact-monotonic-milliseconds) 5000))
+  (define deadline (+ (current-deadline-milliseconds) 5000))
   (define result
     (or (hash-ref pending id #f)
         (let loop ()
           (define msg
-            (sync/timeout (max 0 (/ (- deadline (current-inexact-monotonic-milliseconds)) 1000))
+            (sync/timeout (max 0 (/ (- deadline (current-deadline-milliseconds)) 1000))
                           (Session-responses session)))
           (unless msg (error 'response "no response for id ~a within 5 seconds" id))
           (define received-id (hash-ref msg 'id #f))

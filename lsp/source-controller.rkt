@@ -15,6 +15,7 @@
          "../common/json-util.rkt"
          "../common/path-util.rkt"
          "../common/settings.rkt"
+         "../common/time.rkt"
          "../doclib/doc.rkt"
          "../doclib/external/resyntax.rkt"
          "../workspace/current.rkt"
@@ -268,7 +269,7 @@
     (pump-jobs! controller)))
 
 (define (start-read! controller source-id batch)
-  (define deadline (+ (current-inexact-monotonic-milliseconds)
+  (define deadline (+ (current-deadline-milliseconds)
                       (* 1000 (Source-Controller-timeout controller))))
   (define custodian (make-custodian))
   (define attempt
@@ -293,7 +294,7 @@
                 (wrap-evt (thread-dead-evt worker)
                           (lambda (_)
                             (or (sync/timeout 0 result-ch) (Source-Failure 'reader-exited))))
-                (wrap-evt (alarm-evt deadline #t)
+                (wrap-evt (deadline-evt deadline)
                           (lambda (_) (Source-Failure 'read-timeout)))))
         (async-channel-put (Source-Controller-events controller)
                            (Read-Done source-id attempt outcome))
@@ -458,7 +459,7 @@
 
 (define (start-job! controller job)
   (define snapshot (Job-snapshot job))
-  (define deadline (+ (current-inexact-monotonic-milliseconds)
+  (define deadline (+ (current-deadline-milliseconds)
                       (* 1000 (Source-Controller-analysis-timeout controller))))
   (define custodian (make-custodian))
   (set-Job-state! job 'running)
@@ -487,7 +488,7 @@
                           (lambda (_)
                             (or (sync/timeout 0 result-ch)
                                 (Analysis-Outcome 'failed 'worker-exited))))
-                (wrap-evt (alarm-evt deadline #t)
+                (wrap-evt (deadline-evt deadline)
                           (lambda (_) (Analysis-Outcome 'failed 'analysis-timeout)))))
         (async-channel-put (Source-Controller-events controller) (Job-Done job result))
         (custodian-shutdown-all custodian)))))
