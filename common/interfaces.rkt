@@ -48,6 +48,7 @@
          (json-type-out Indentation-Formatter)
          (json-type-out Fmt-Settings)
          (json-type-out Formatting-Configuration)
+         (json-type-out Document-Exclusions)
          (json-type-out Langserver-Settings)
          (json-type-out Langserver-Settings-Update)
          (json-type-out FileRename)
@@ -254,6 +255,11 @@
   [document-formatter (optional Document-Formatter) #:json documentFormatter]
   [indentation-formatter (optional Indentation-Formatter) #:json indentationFormatter]
   [fmt-settings (optional Fmt-Settings) #:json fmtSettings])
+
+;; Restart-only document routing, supplied by initialize.initializationOptions.
+(define-json-struct Document-Exclusions
+  [ignored-uri-schemes (optional (listof string?)) #:json ignoredUriSchemes]
+  [ignored-uris (optional (listof string?)) #:json ignoredUris])
 
 (define-json-struct Langserver-Settings
   [resyntax (optional Resyntax-Settings)]

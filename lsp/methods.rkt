@@ -12,6 +12,7 @@
          "../common/json-util.rkt"
          "responses.rkt"
          "../common/path-util.rkt"
+         "../common/settings.rkt"
          (prefix-in workspace/ "workspace.rkt")
          "../workspace/current.rkt"
          "../workspace/state.rkt"
@@ -70,6 +71,7 @@
       [response-handlers (make-hash)]
       [server-request-id 0])
     (define open-documents (make-hasheq))
+    (define document-exclusions (initialization-options->document-exclusions (hasheq)))
     (source-controller-set-notifier! source-controller
                                      (lambda (method params) (send-notification method params)))
 
@@ -79,7 +81,8 @@
     ;; controller and registry parameters.
     (define/public (process-source-event event)
       (parameterize ([current-source-controller source-controller]
-                     [current-open-docs open-documents])
+                     [current-open-docs open-documents]
+                     [current-document-exclusions document-exclusions])
         (source-controller-handle! source-controller event)))
 
     (define/public (send-response msg)
@@ -105,7 +108,8 @@
     ;; they inherit the session controller and registry.
     (define/public (process-message msg)
       (parameterize ([current-source-controller source-controller]
-                     [current-open-docs open-documents])
+                     [current-open-docs open-documents]
+                     [current-document-exclusions document-exclusions])
         (process-message/owner msg)))
 
     (define/private (process-message/owner msg)
@@ -148,48 +152,61 @@
     ;; (-> (or/c integer? string?) string? jsexpr? jsexpr?)
     (define/public (handle-request id method params)
       (with-handlers ([exn:fail? (report-request-error id method)])
-        (match method
-          ["initialize"
-           (initialize id params)]
-          ["shutdown"
-           (source-controller-shutdown! source-controller)
-           (shutdown id)]
-          ["textDocument/hover"
-           (text-document/hover id params)]
-          ["textDocument/codeAction"
-           (text-document/code-action id params)]
-          ["textDocument/completion"
-           (text-document/completion id params)]
-          ["textDocument/signatureHelp"
-           (text-document/signatureHelp id params)]
-          ["textDocument/definition"
-           (text-document/definition id params)]
-          ["textDocument/documentHighlight"
-           (text-document/document-highlight id params)]
-          ["textDocument/references"
-           (text-document/references id params)]
-          ["textDocument/documentSymbol"
-           (text-document/document-symbol id params)]
-          ["textDocument/inlayHint"
-           (text-document/inlay-hint id params)]
-          ["textDocument/rename"
-           (text-document/rename id params)]
-          ["textDocument/prepareRename"
-           (text-document/prepareRename id params)]
-          ["textDocument/formatting"
-           (text-document/formatting! id params)]
-          ["textDocument/rangeFormatting"
-           (text-document/range-formatting! id params)]
-          ["textDocument/onTypeFormatting"
-           (text-document/on-type-formatting! id params)]
-          ["textDocument/semanticTokens/full"
-           (text-document/full-semantic-tokens id params)]
-          ["textDocument/semanticTokens/range"
-           (text-document/range-semantic-tokens id params)]
-          [_
-           (log-racket-langserver-error "invalid request for method ~v" method)
-           (define err (format "The method ~v was not found" method))
-           (error-response id ErrorCode-MethodNotFound err)])))
+        (define uri
+          (match params
+            [(hash-table ['textDocument (hash-table ['uri (? string? uri)])]) uri]
+            [_ #f]))
+        (cond
+          [(and uri (ignored-document-uri? uri))
+           (error-response id ErrorCode-RequestFailed "Document URI is excluded")]
+          [(and uri (not (file-uri? uri)) (not (lsp-get-doc uri #f)))
+           (error-response id ErrorCode-RequestFailed "Virtual document is not open")]
+          [else
+           (match method
+             ["initialize"
+              (set! document-exclusions
+                    (initialization-options->document-exclusions
+                      (hash-ref params 'initializationOptions (hasheq))))
+              (initialize id params)]
+             ["shutdown"
+              (source-controller-shutdown! source-controller)
+              (shutdown id)]
+             ["textDocument/hover"
+              (text-document/hover id params)]
+             ["textDocument/codeAction"
+              (text-document/code-action id params)]
+             ["textDocument/completion"
+              (text-document/completion id params)]
+             ["textDocument/signatureHelp"
+              (text-document/signatureHelp id params)]
+             ["textDocument/definition"
+              (text-document/definition id params)]
+             ["textDocument/documentHighlight"
+              (text-document/document-highlight id params)]
+             ["textDocument/references"
+              (text-document/references id params)]
+             ["textDocument/documentSymbol"
+              (text-document/document-symbol id params)]
+             ["textDocument/inlayHint"
+              (text-document/inlay-hint id params)]
+             ["textDocument/rename"
+              (text-document/rename id params)]
+             ["textDocument/prepareRename"
+              (text-document/prepareRename id params)]
+             ["textDocument/formatting"
+              (text-document/formatting! id params)]
+             ["textDocument/rangeFormatting"
+              (text-document/range-formatting! id params)]
+             ["textDocument/onTypeFormatting"
+              (text-document/on-type-formatting! id params)]
+             ["textDocument/semanticTokens/full"
+              (text-document/full-semantic-tokens id params)]
+             ["textDocument/semanticTokens/range"
+              (text-document/range-semantic-tokens id params)]
+             [_
+              (log-racket-langserver-error "invalid request for method ~v" method)
+              (define err (format "The method ~v was not found" method))
+              (error-response id ErrorCode-MethodNotFound err)])])))
 
     ;; Handle a notification. Because notifications do not require
     ;; a response, this procedure always returns void.

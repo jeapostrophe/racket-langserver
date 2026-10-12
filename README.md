@@ -159,6 +159,40 @@ environment. Debug messages include document text received from the client.
 See [Racket's logging documentation](https://docs.racket-lang.org/reference/logging.html)
 for details.
 
+## Virtual documents and exclusions
+
+Non-file URIs (including untitled buffers, notebook cells, and Git snapshots)
+are analyzed from client-supplied text. Each complete URI has independent state,
+including its query and fragment. Local expansion-based features, diagnostics,
+formatting, and edits use the original URI. Virtual documents do not contribute
+to workspace indexes or merge workspace references. Definitions requiring
+another file's analysis return no location. Closing a virtual document releases
+its buffer and cancels pending analysis without reading a disk fallback.
+
+Virtual expansion uses a synthetic absolute filename without creating a file.
+Collection imports such as `racket/list` work; a project directory is not inferred
+from the URI or workspace, so relative project imports may be unavailable.
+Readers and macros can still load files during expansion. Notebook cells need
+the same language headers as other documents; the server does not inject headers
+or share definitions between cells.
+
+To exclude documents, configure the client's LSP `initialize` request with:
+
+```json
+{
+  "initializationOptions": {
+    "ignoredUriSchemes": ["git"],
+    "ignoredUris": ["untitled:Scratch"]
+  }
+}
+```
+
+Both lists default to empty. Schemes match case-insensitively; exact URIs match
+the complete string, including query and fragment. Ignored open/change/close
+notifications do nothing, and feature requests return LSP `RequestFailed`.
+These options are captured at startup; restart the server to change them.
+They are separate from the live `racket-langserver` configuration section above.
+
 ## Development
 
 See [CONTRIBUTING.md](CONTRIBUTING.md).

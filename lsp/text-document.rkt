@@ -34,37 +34,40 @@
 
 (define (did-open! request-client params)
   (match-define (hash-table ['textDocument (^DocItem #:uri uri #:version version #:text text)]) params)
-  (fetch-configuration request-client uri)
-  (lsp-open-doc! uri text version)
-  (source-controller-analyze! (current-source-controller) (uri->source-id uri)))
+  (unless (ignored-document-uri? uri)
+    (fetch-configuration request-client uri)
+    (lsp-open-doc! uri text version)
+    (source-controller-analyze! (current-source-controller) (uri->source-id uri))))
 
 (define (did-close! params)
   (match-define (hash-table ['textDocument (DocItem-js #:uri uri)]) params)
-  (lsp-close-doc! uri))
+  (unless (ignored-document-uri? uri)
+    (lsp-close-doc! uri)))
 
 (define (did-change! params)
   (match-define (hash-table ['textDocument (^DocIdentifier #:version version #:uri uri)]
                             ['contentChanges content-changes]) params)
-  (define safe-doc (lsp-get-doc uri))
-  (define content-changes*
-    (cond [(eq? (json-null) content-changes) empty]
-          [(list? content-changes) content-changes]
-          [else (list content-changes)]))
+  (unless (ignored-document-uri? uri)
+    (define safe-doc (lsp-get-doc uri))
+    (define content-changes*
+      (cond [(eq? (json-null) content-changes) empty]
+            [(list? content-changes) content-changes]
+            [else (list content-changes)]))
 
-  (with-write-safedoc safe-doc
-    (λ (sd)
-      (define doc (SafeDoc-doc sd))
-      (for ([change (in-list content-changes*)])
-        (match change
-          [(^ContentChangeEvent-Incremental #:range range #:text text)
-           (doc-apply-edit! doc range text)]
-          [(^ContentChangeEvent-Full #:text text)
-           (doc-reset! doc text)]))
+    (with-write-safedoc safe-doc
+      (λ (sd)
+        (define doc (SafeDoc-doc sd))
+        (for ([change (in-list content-changes*)])
+          (match change
+            [(^ContentChangeEvent-Incremental #:range range #:text text)
+             (doc-apply-edit! doc range text)]
+            [(^ContentChangeEvent-Full #:text text)
+             (doc-reset! doc text)]))
 
-      (doc-update-version! doc version)
-      (source-controller-edited! (current-source-controller) (uri->source-id uri) sd)))
+        (doc-update-version! doc version)
+        (source-controller-edited! (current-source-controller) (uri->source-id uri) sd)))
 
-  (source-controller-analyze! (current-source-controller) (uri->source-id uri)))
+    (source-controller-analyze! (current-source-controller) (uri->source-id uri))))
 
 ;; Hover request
 ;; Returns an object conforming to the Hover interface, to
