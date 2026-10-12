@@ -9,7 +9,11 @@
          "../doclib/external/resyntax.rkt")
 
 ;; Runs resyntax in one reusable place so callers avoid extra startup cost and
-;; degrade to empty results if the worker is unavailable or interrupted.
+;; return empty results if Resyntax is unavailable. Executor failures propagate
+;; to the coordinator, which discards them without publishing a candidate.
+
+;; Prefab so the place can send the failure value.
+(struct Resyntax-Failure (message) #:prefab)
 
 (define resyntax-worker-lock (make-semaphore 1))
 (define resyntax-worker #f)
@@ -32,7 +36,9 @@
   (let loop ()
     (match-define (list text uri) (place-channel-get ch))
     (define result
-      (with-handlers ([exn:fail? (lambda (_exn) '())])
+      (with-handlers ([(lambda (_) #t)
+                       (lambda (reason)
+                         (Resyntax-Failure (if (exn? reason) (exn-message reason) (format "~v" reason))))])
         (map ->jsexpr (run-resyntax text uri))))
     (place-channel-put ch result)
     (loop)))
@@ -51,14 +57,15 @@
       (spawn-worker!)))
 
 (define (run-resyntax/safely text uri)
-  (with-handlers ([exn:break? (lambda (exn) (kill-worker!) (raise exn))]
-                  [exn:fail? (lambda (_exn) (kill-worker-and-return-empty-results!))])
+  (with-handlers ([(lambda (_) #t) (lambda (reason) (kill-worker!) (raise reason))])
     (define worker (ensure-worker!))
     (place-channel-put worker (list text uri))
     (define result
       (sync worker
             (handle-evt (place-dead-evt worker)
-                        (lambda (_event) (kill-worker-and-return-empty-results!)))))
+                        (lambda (_event) (error 'run-resyntax/in-place "worker exited")))))
+    (when (Resyntax-Failure? result)
+      (error 'run-resyntax/in-place "~a" (Resyntax-Failure-message result)))
     (map jsexpr->Resyntax-Result result)))
 
 (define (run-resyntax/in-place text uri)

@@ -121,7 +121,7 @@
           (case mode
             [(break) (check-eq? (await results) 'cancelled)]
             [(timeout) (check-eq? (await results) 'timed-out)]
-            [(death) (check-equal? (await results) '())])
+            [(death) (check-pred exn:fail? (await results))])
           (define-values (next next-results) (start "replacement"))
           (define fresh (await created))
           (check-not-eq? (Controlled-Worker-place fresh) (Controlled-Worker-place old))

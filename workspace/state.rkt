@@ -18,8 +18,8 @@
          workspace-definition-location)
 
 ;; Workspace owns folders and immutable accepted contributions.
-;; Folder and contribution paths are path? and assumed already simple-form;
-;; this layer does not convert them.
+;; Contribution paths are exact source identities; this layer does not convert
+;; them. Folder containment simplifies paths without changing contribution keys.
 ;; Keep this lock as a leaf: operations under it must not call document services.
 (struct/contract Workspace
   ([lock semaphore?]

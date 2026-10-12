@@ -16,7 +16,23 @@
 
 (define/contract (path->uri path)
   (-> path? string?)
-  (url->string (path->url path)))
+  (define base-url (path->url path))
+  (define elements (explode-path path))
+  (define-values (_base name directory?) (split-path path))
+  ;; path->url simplifies dot segments. Keep those segments because paths are
+  ;; exact source identities, including the key close must remove.
+  (define root-segments
+    (if (absolute-path? path)
+        (drop-right (url-path (path->url (car elements))) 1)
+        '()))
+  (define segments
+    (append root-segments
+            (for/list ([element (in-list (if (absolute-path? path) (cdr elements) elements))])
+              (path/param (if (symbol? element) element (path-element->string element)) '()))
+            ;; A final same/up already marks a directory. A trailing slash
+            ;; would append another same segment when the URI is decoded.
+            (if (and directory? (path? name)) (list (path/param "" '())) '())))
+  (url->string (struct-copy url base-url [path segments])))
 
 (define/contract (uri->path uri)
   (-> string? path?)

@@ -160,9 +160,8 @@
         (start
           (lambda ()
             (semaphore-post edit-started)
-            ;; Isolate did-change!'s editor mutation and write lock. Calling
-            ;; safedoc-run-check-syntax! afterward would expand dependencies
-            ;; and change the count.
+            ;; Isolate did-change!'s editor mutation and write lock. Scheduling
+            ;; Check Syntax here would expand dependencies and change the count.
             (with-write-doc safe-a
               (lambda (doc)
                 (doc-apply-edit! doc (Range (Pos 2 20) (Pos 2 21)) "2")

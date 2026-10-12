@@ -6,7 +6,7 @@
          "../../doclib/doc.rkt"
          "../../lsp/lsp.rkt"
          "../../lsp/safedoc.rkt"
-         "../../lsp/scheduler.rkt"
+         "../../workspace/source-store.rkt"
          "../../lsp/workspace.rkt"
          "../../workspace/api.rkt"
          "../../workspace/current.rkt"
@@ -73,9 +73,9 @@
         (didChangeWorkspaceFolders (folder-change (list root) '()))
         (check-contribution-paths module-binding (list source-path))
 
-        ;; Closing a document does not remove its accepted contribution.
+        ;; Closing removes the live instance's contribution.
         (lsp-close-doc! uri)
-        (check-contribution-paths module-binding (list source-path))
+        (check-contribution-paths module-binding '())
 
         ;; Removing the last covering folder purges it.
         (didChangeWorkspaceFolders (folder-change '() (list root)))
@@ -120,15 +120,15 @@
         ;; Rename preserves editor ownership until client close/open notifications.
         (define-values (_rename-uri _rename-doc _rename-contribution _rename-binding)
           (open-expanded-doc source-path))
-        (define query-signal #f)
-        (async-query-wait (SafeDoc-token _rename-doc)
-                          (lambda (signal) (set! query-signal signal)))
+        (define query-signal
+          (with-read-safedoc _rename-doc
+            (lambda (sd) (Source-View-changed (SafeDoc-source-view sd)))))
         (didChangeWorkspaceFolders (folder-change (list root) '()))
         (check-contribution-paths module-binding (list source-path))
         (didRenameFiles (rename-files source-path renamed-path))
         (check-contribution-paths module-binding '())
         (check-eq? (lsp-get-doc uri #f) _rename-doc)
-        (check-false query-signal "a rename does not finish or cancel the buffer's queries")
+        (check-not-false (sync/timeout 0 query-signal) "rename invalidates captured revision")
         (check-false (lsp-get-doc (path->uri renamed-path) #f))
 
         ;; A destination that is already open also keeps its text and version.

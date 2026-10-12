@@ -1,8 +1,8 @@
 #lang racket
 
-;; A hint goes when the text it was read from is rewritten, including the two
-;; rewrites the document's length does not show: one that keeps the length, and
-;; one that grows it at the end of the form it rewrote.
+;; Inlay requests require successful analysis of the current revision. Edits
+;; that leave the source incomplete report failure; a repaired source recovers.
+;; Edit-aware adjustment itself is covered by tests/lib/inlay-hint-edit-test.rkt.
 
 (define uri "file:///test.rkt")
 
@@ -20,7 +20,9 @@ END
 
 (module+ test
   (require rackunit
-           "with-document.rkt")
+           "with-document.rkt"
+           "../../common/interfaces.rkt"
+           "../../common/json-util.rkt")
 
   (define (hint->triple hint)
     (define position (hash-ref hint 'position))
@@ -46,11 +48,10 @@ END
                                                      (hasheq 'line end-line
                                                              'character end-char))
                                              'text text)))))
-        ;; the diagnostics of the failed analysis, so the next request is
-        ;; answered by an edited document rather than a running one
+        ;; Await the current failure before querying its settled outcome.
         (client-wait-notification lsp))
 
-      (define (hints)
+      (define (hints-response)
         (define req
           (make-request lsp
                         "textDocument/inlayHint"
@@ -60,7 +61,14 @@ END
                                 (hasheq 'start (hasheq 'line 0 'character 0)
                                         'end (hasheq 'line 30 'character 0)))))
         (client-send lsp req)
-        (map hint->triple (hash-ref (client-wait-response req) 'result)))
+        (client-wait-response req))
+
+      (define (hints)
+        (map hint->triple (hash-ref (hints-response) 'result)))
+
+      (define (check-failed)
+        (check-equal? (jsexpr-ref (hints-response) '(error code))
+                      (->jsexpr ErrorCode-RequestFailed)))
 
       (check-equal? (hints)
                     (list '(5 7 "x ")
@@ -68,26 +76,26 @@ END
                           '(6 6 "w ")
                           '(6 8 "h ")))
 
-      ;; An unfinished form: nothing expands from here on, so every hint from
-      ;; now on is one that was read before this edit. It also pushes the rest
-      ;; of the document down a line.
+      ;; Each incomplete revision must fail independently.
       (replace! 1 1 0 1 0 "(define\n")
-      (check-equal? (hints)
-                    (list '(6 7 "x ")
-                          '(6 9 "y ")
-                          '(7 6 "w ")
-                          '(7 8 "h ")))
+      (check-failed)
 
       ;; Rename a field of `point`, one character for one. The document is the
       ;; same length as before, so it neither expands nor contracts, but the
       ;; call no longer fills the fields the hints name.
       (replace! 2 3 15 3 16 "z")
-      (check-equal? (hints)
-                    (list '(7 6 "w ")
-                          '(7 8 "h ")))
+      (check-failed)
 
       ;; Rewrite the whole declaration of `size` with a longer one. The
       ;; characters it gains arrive at the end of the form, which is where
       ;; typing after the form would put them too.
       (replace! 3 4 0 4 19 "(struct size (a b c))")
-      (check-equal? (hints) '()))))
+      (check-failed)
+
+      (client-send lsp
+                   (make-notification "textDocument/didChange"
+                                      (hasheq 'textDocument (hasheq 'uri uri 'version 4)
+                                              'contentChanges (list (hasheq 'text code)))))
+      (client-wait-notification lsp)
+      (check-equal? (hints)
+                    (list '(5 7 "x ") '(5 9 "y ") '(6 6 "w ") '(6 8 "h "))))))

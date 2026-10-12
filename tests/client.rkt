@@ -17,7 +17,8 @@
          racket/runtime-path
          json
          "../common/json-util.rkt"
-         "../lsp/methods.rkt")
+         "../lsp/methods.rkt"
+         "../main.rkt")
 
 (define id 0)
 (define (genid)
@@ -27,6 +28,8 @@
 (define request-channel (make-parameter #f))
 (define response-channel (make-parameter #f))
 (define notification-channel (make-parameter #f))
+(define client-channel (make-parameter #f))
+(define pending-responses (make-parameter #f))
 
 (define-runtime-path rootFolder "./")
 
@@ -34,11 +37,20 @@
   (->* ((-> any/c any/c)) (#:capabilities jsexpr?) void?)
   (parameterize ([response-channel (make-async-channel)]
                  [request-channel (make-async-channel)]
-                 [notification-channel (make-async-channel)])
-    (define lsp (new server%
-                  [response-channel (response-channel)]
-                  [request-channel (request-channel)]
-                  [notification-channel (notification-channel)]))
+                 [notification-channel (make-async-channel)]
+                 [client-channel (make-async-channel)]
+                 [pending-responses (make-hash)])
+    (define custodian (make-custodian))
+    (define exited (make-async-channel))
+    (define lsp
+      (parameterize ([current-custodian custodian]
+                     [exit-handler (lambda (code) (async-channel-put exited code))])
+        (define server (new server%
+                         [response-channel (response-channel)]
+                         [request-channel (request-channel)]
+                         [notification-channel (notification-channel)]))
+        (start-consumer server (client-channel))
+        server))
 
     (define (handle-request)
       ;; Server request - handle immediately and send response
@@ -58,7 +70,7 @@
          (client-send lsp response)]
         [_ (error "Not a request from server")])
       (handle-request))
-    (define request-thread (thread handle-request))
+    (parameterize ([current-custodian custodian]) (thread handle-request))
 
     (define init-req
       (make-request lsp "initialize"
@@ -69,54 +81,49 @@
     (client-send lsp init-req)
     (client-wait-response init-req)
 
-    (proc lsp)
+    (dynamic-wind
+      void
+      (lambda ()
+        (proc lsp)
 
-    (define shutdown-req
-      (make-request lsp "shutdown" #f))
-    (client-send lsp shutdown-req)
-    (client-wait-response shutdown-req)
+        (define shutdown-req
+          (make-request lsp "shutdown" #f))
+        (client-send lsp shutdown-req)
+        (client-wait-response shutdown-req)
 
-    ;; The server exits the process on this notification, and the tests share
-    ;; one process, so take the code it exits with instead of the exit.
-    (define exit-code #f)
-    (define exit-notf (make-notification "exit" #f))
-    (parameterize ([exit-handler (λ (code) (set! exit-code code))])
-      (client-send lsp exit-notf))
-    (unless (eqv? exit-code 0)
-      (error 'with-racket-lsp
-             "server exited with ~v after a shutdown request"
-             exit-code))
-
-    (kill-thread request-thread)
+        ;; The server exits the process on this notification, and the tests share
+        ;; one process, so take the code it exits with instead of the exit.
+        (define exit-notf (make-notification "exit" #f))
+        (client-send lsp exit-notf)
+        (define exit-code (sync/timeout 5 exited))
+        (unless (eqv? exit-code 0)
+          (error 'with-racket-lsp "server exited with ~v after shutdown" exit-code)))
+      (lambda () (custodian-shutdown-all custodian)))
 
     (void)))
 
 (define/contract (client-send lsp req)
   (-> any/c jsexpr? void?)
 
-  (send lsp process-message req))
+  (async-channel-put (client-channel) req))
 
 (define/contract (client-wait-response req)
   (-> any/c jsexpr?)
-
-  (define msg (async-channel-get (response-channel)))
-
-  (match msg
-    ;; successful response of the request
-    [(hash-table ['id (? (or/c number? string?) id)]
-                 ['result _result])
-     (cond
-       [(equal? (hash-ref req 'id) id) msg]
-       ; not the response of this request, wait next
-       [else (async-channel-put (response-channel) msg)])]
-    ;; error response of the request
-    [(hash-table ['id (? (or/c number? string?) id)]
-                 ['error _err])
-     (cond
-       [(equal? (hash-ref req 'id) id) msg]
-       ; not the response of this request, wait next
-       [else (async-channel-put (response-channel) msg)])]
-    [_ (error "Not a response from server")]))
+  (define id (hash-ref req 'id))
+  (define pending (pending-responses))
+  (define result
+    (or (hash-ref pending id #f)
+        (let loop ()
+          (define msg (async-channel-get (response-channel)))
+          (match msg
+            [(or (hash-table ['id (? (or/c number? string?) received-id)] ['result _])
+                 (hash-table ['id (? (or/c number? string?) received-id)] ['error _]))
+             (cond
+               [(equal? received-id id) msg]
+               [else (hash-set! pending received-id msg) (loop)])]
+            [_ (error "Not a response from server")]))))
+  (hash-remove! pending id)
+  result)
 
 (define (client-wait-notification lsp)
   (async-channel-get (notification-channel)))
@@ -154,3 +161,17 @@
             'method method))
   (cond [(not params) req]
         [else (hash-set req 'params params)]))
+
+
+(module+ test
+  (require rackunit)
+  (test-case "response waits preserve replies that arrive in reverse request order"
+    (parameterize ([response-channel (make-async-channel)]
+                   [pending-responses (make-hash)])
+      (define first (hasheq 'id 1 'result '()))
+      (define second (hasheq 'id 2 'error (hasheq 'code -32803 'message "failed")))
+      (async-channel-put (response-channel) second)
+      (async-channel-put (response-channel) first)
+      (check-equal? (client-wait-response (hasheq 'id 1)) first)
+      (check-equal? (client-wait-response (hasheq 'id 2)) second)
+      (check-true (hash-empty? (pending-responses))))))

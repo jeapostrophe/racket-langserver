@@ -1,8 +1,8 @@
 #lang racket
 
-;; Hints are read from the last analysis, so what editing does to them matters:
-;; they follow the text they name, and they go when that text changes, even
-;; while the document does not expand at all.
+;; Inlay requests require successful analysis of the current revision. Edits
+;; that leave the source incomplete report failure; a repaired source recovers.
+;; Edit-aware adjustment itself is covered by tests/lib/inlay-hint-edit-test.rkt.
 
 (define uri "file:///test.rkt")
 
@@ -18,7 +18,9 @@ END
 
 (module+ test
   (require rackunit
-           "with-document.rkt")
+           "with-document.rkt"
+           "../../common/interfaces.rkt"
+           "../../common/json-util.rkt")
 
   (define (hint->triple hint)
     (define position (hash-ref hint 'position))
@@ -45,11 +47,10 @@ END
                                                              'character character))
                                              'rangeLength 0
                                              'text text)))))
-        ;; the diagnostics of the failed analysis, so the next request is
-        ;; answered by an edited document rather than a running one
+        ;; Await the current failure before querying its settled outcome.
         (client-wait-notification lsp))
 
-      (define (hints)
+      (define (hints-response)
         (define req
           (make-request lsp
                         "textDocument/inlayHint"
@@ -59,20 +60,31 @@ END
                                 (hasheq 'start (hasheq 'line 0 'character 0)
                                         'end (hasheq 'line 30 'character 0)))))
         (client-send lsp req)
-        (map hint->triple (hash-ref (client-wait-response req) 'result)))
+        (client-wait-response req))
+
+      (define (hints)
+        (map hint->triple (hash-ref (hints-response) 'result)))
+
+      (define (check-failed)
+        (check-equal? (jsexpr-ref (hints-response) '(error code))
+                      (->jsexpr ErrorCode-RequestFailed)))
 
       (check-equal? (hints)
                     (list '(4 7 "x ")
                           '(4 9 "y ")))
 
-      ;; An unfinished form: nothing expands from here on, so every hint from
-      ;; now on is one that was read before this edit.
+      ;; The incomplete source cannot supply exact-analysis hints.
       (insert! 1 1 0 "(define\n")
-      (check-equal? (hints)
-                    (list '(5 7 "x ")
-                          '(5 9 "y ")))
+      (check-failed)
 
-      ;; A new argument in the call. Which field each argument fills is no
-      ;; longer what the hints say, so the call has none until it expands again.
+      ;; Further edits must not revive the prior successful result.
       (insert! 2 5 7 "0 ")
-      (check-equal? (hints) '()))))
+      (check-failed)
+
+      (client-send lsp
+                   (make-notification "textDocument/didChange"
+                                      (hasheq 'textDocument (hasheq 'uri uri 'version 4)
+                                              'contentChanges (list (hasheq 'text code)))))
+      (client-wait-notification lsp)
+      (check-equal? (hints)
+                    (list '(4 7 "x ") '(4 9 "y "))))))

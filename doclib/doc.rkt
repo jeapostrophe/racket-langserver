@@ -246,12 +246,17 @@
   (-> Doc? boolean?)
   (equal? (Doc-version doc) (Doc-trace-version doc)))
 
+;; Extract while the worker exclusively owns an unedited, completed Doc.
+;; Shared queries retain ranges, never the mutable declaration service.
+(define/contract (doc-definition-ranges doc)
+  (-> Doc? (hash/c Module-Binding? Range? #:immutable #t))
+  (for/hash ([(binding location) (in-hash (Doc-Contribution-definitions
+                                            (Doc-contribution doc)))])
+    (values binding (Location-range location))))
+
 (define/contract (doc-expand! doc)
   (-> Doc? boolean?)
-  (define result
-    (doc-expand (Doc-uri doc)
-                (Doc-text doc)
-                (doc-lexer-state doc)))
+  (define result (doc-check-syntax doc))
   (define new-trace (CSResult-trace result))
   (cond [(CSResult-succeed? result)
          (define new-contribution (send new-trace get-contribution))
@@ -261,6 +266,10 @@
                             (Doc-version doc))
          #t]
         [else #f]))
+
+(define/contract (doc-check-syntax doc)
+  (-> Doc? CSResult?)
+  (doc-expand (Doc-uri doc) (Doc-text doc) (doc-lexer-state doc)))
 
 (define/contract (doc-pos->abs-pos doc pos)
   (-> Doc? Pos? exact-nonnegative-integer?)
@@ -1244,6 +1253,8 @@
          doc-update-trace!
          doc-trace-latest?
          doc-expand!
+         doc-check-syntax
+         doc-definition-ranges
          doc-resyntax
          doc-resyntax!
          doc-resyntax-available?

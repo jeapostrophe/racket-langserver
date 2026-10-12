@@ -1,0 +1,624 @@
+#lang racket/base
+
+(require rackunit
+         racket/async-channel
+         racket/class
+         racket/match
+         racket/logging
+         racket/place
+         "../../common/debug.rkt"
+         "../../common/interfaces.rkt"
+         "../../common/json-util.rkt"
+         "../../common/path-util.rkt"
+         "../../common/settings.rkt"
+         "../../doclib/doc.rkt"
+         "../../doclib/internal-types.rkt"
+         "../../lsp/analysis.rkt"
+         "../../lsp/analysis-query.rkt"
+         "../../lsp/lsp.rkt"
+         "../../lsp/resyntax-place.rkt"
+         "../../lsp/safedoc.rkt"
+         "../../lsp/source-controller.rkt"
+         "../../workspace/api.rkt"
+         "../../workspace/current.rkt"
+         "../../workspace/source-store.rkt"
+         (submod "../../lsp/source-controller.rkt" test-support)
+         (submod "source-controller-test.rkt" test-support)
+         "../lib/resyntax-place-test-support.rkt")
+
+(struct Probe (snapshot release) #:transparent)
+
+(define text "#lang racket/base\n(define value 1)\nvalue\n")
+
+(define (controlled-analyzer probes)
+  (lambda (snapshot)
+    (define release (make-async-channel))
+    (async-channel-put probes (Probe snapshot release))
+    (match (async-channel-get release)
+      ['raise (raise 'arbitrary-analysis-failure)]
+      ['die (kill-thread (current-thread))]
+      [_ (analyze-source snapshot)])))
+
+(define (release! probe [value 'go])
+  (async-channel-put (Probe-release probe) value))
+
+(define (acquire session path)
+  (owner session
+         (lambda (controller)
+           (source-controller-acquire-analysis!
+             controller (source-controller-snapshot controller path)))))
+
+(define (request session method id path)
+  (async-channel-put (Session-clients session)
+                     (hasheq 'id id 'method method
+                             'params (hasheq 'textDocument (hasheq 'uri (path->uri path))
+                                             'range (hasheq 'start (hasheq 'line 0 'character 0)
+                                                            'end (hasheq 'line 3 'character 0))))))
+
+(define (edit! session path version [new-text text])
+  (notify session "textDocument/didChange"
+          (hasheq 'textDocument (hasheq 'uri (path->uri path) 'version version)
+                  'contentChanges (list (hasheq 'text new-text)))))
+
+(define (check-error response code)
+  (check-equal? (hash-ref (hash-ref response 'error) 'code) (->jsexpr code)))
+
+(define (notifications session)
+  (let loop ([messages '()])
+    (define msg (sync/timeout 0 (Session-notifications session)))
+    (if msg (loop (cons msg messages)) (reverse messages))))
+
+(module+ test
+  (define canonical-uri (path->uri (build-path scratch "uri-identity.rkt")))
+  (define localhost-uri (regexp-replace #rx"^file://" canonical-uri "file://localhost"))
+
+  (for ([uri (in-list (list canonical-uri
+                            (regexp-replace #rx"uri-identity[.]rkt$" canonical-uri "./uri-identity.rkt")
+                            (regexp-replace #rx"uri-identity[.]rkt$" canonical-uri "child/../uri-identity.rkt")
+                            (string-append canonical-uri "/.")
+                            (string-append canonical-uri "/..")
+                            (string-append canonical-uri "/")
+                            localhost-uri
+                            (regexp-replace #rx"uri-identity[.]rkt$" localhost-uri "./uri-identity.rkt")))])
+    (test-case (format "close removes the exact contribution and clears diagnostics for ~a" uri)
+      (define path (uri->path uri))
+      (define binding (Module-Binding path '() 0 'value))
+      (dynamic-wind
+        (lambda () (workspace-add-folder! current-workspace scratch))
+        (lambda ()
+          (with-session (make-source-controller #:resyntax #f)
+                        (lambda (session)
+                          (notify session "textDocument/didOpen"
+                                  (hasheq 'textDocument (hasheq 'uri uri 'languageId "racket"
+                                                                'version 0 'text text)))
+                          (barrier session)
+                          (define result (await (acquire session path)))
+                          (check-eq? 'succeeded (Analysis-Outcome-state result))
+                          (check-equal? (hash-ref (Analysis-Facts-definitions (Analysis-Outcome-value result)) binding)
+                                        (Range (Pos 1 8) (Pos 1 13)))
+                          (check-not-false (workspace-definition-location current-workspace binding))
+                          (check-equal? (hash-ref (hash-ref (await (Session-notifications session)) 'params) 'uri) uri)
+                          (notify session "textDocument/didClose" (hasheq 'textDocument (hasheq 'uri uri)))
+                          (barrier session)
+                          (check-false (workspace-definition-location current-workspace binding))
+                          (check-equal? (hash-ref (await (Session-notifications session)) 'params)
+                                        (hasheq 'uri uri 'diagnostics '()))
+                          (check-false (owner session (lambda (_) (lsp-get-doc uri #f)))))))
+        (lambda () (workspace-remove-folder! current-workspace scratch)))))
+
+  (test-case "opening another URI for the same exact path retires the old buffer and waiters"
+    (define probes (make-async-channel))
+    (with-session (make-source-controller #:analyze (controlled-analyzer probes) #:resyntax #f)
+                  (lambda (session)
+                    (notify session "textDocument/didOpen"
+                            (hasheq 'textDocument (hasheq 'uri localhost-uri 'languageId "racket"
+                                                          'version 7 'text text)))
+                    (await probes)
+                    (barrier session)
+                    (define path (uri->path canonical-uri))
+                    (define old-job (acquire session path))
+                    (define old-doc (owner session (lambda (_) (lsp-get-doc localhost-uri))))
+                    (async-channel-put (Session-clients session)
+                                       (hasheq 'id 14 'method "textDocument/semanticTokens/full"
+                                               'params (hasheq 'textDocument (hasheq 'uri localhost-uri))))
+                    (open! session path text 7)
+                    (define replacement-probe (await probes))
+                    (barrier session)
+                    (check-error (response session 14) ErrorCode-RequestCancelled)
+                    (check-eq? 'stopped (Analysis-Outcome-state (await old-job)))
+                    (check-false (with-read-safedoc old-doc SafeDoc-source-view))
+                    (check-false (with-read-safedoc old-doc SafeDoc-analysis))
+                    (check-false (owner session (lambda (_) (lsp-get-doc localhost-uri #f))))
+                    (define replacement (view session path))
+                    (notify session "textDocument/didClose" (hasheq 'textDocument (hasheq 'uri localhost-uri)))
+                    (barrier session)
+                    (check-eq? replacement (view session path))
+                    (define next (acquire session path))
+                    (release! replacement-probe)
+                    (check-eq? 'succeeded (Analysis-Outcome-state (await next)))
+                    (check-equal? (map (lambda (msg) (hash-ref (hash-ref msg 'params) 'uri))
+                                       (notifications session))
+                                  (list localhost-uri canonical-uri))
+                    (close! session path)
+                    (barrier session))))
+
+  (test-case "unsuccessful analysis publishes to the opened localhost URI"
+    (with-session (make-source-controller #:resyntax #f)
+                  (lambda (session)
+                    (notify session "textDocument/didOpen"
+                            (hasheq 'textDocument (hasheq 'uri localhost-uri 'languageId "racket"
+                                                          'version 0 'text "#lang racket/base\n(")))
+                    (barrier session)
+                    (define diagnostic (hash-ref (await (Session-notifications session)) 'params))
+                    (check-equal? (hash-ref diagnostic 'uri) localhost-uri)
+                    (check-not-equal? (hash-ref diagnostic 'diagnostics) '())
+                    (notify session "textDocument/didClose"
+                            (hasheq 'textDocument (hasheq 'uri localhost-uri)))
+                    (barrier session))))
+
+  (test-case "Resyntax diagnostics keep the opened localhost URI"
+    (define old-enabled (get-resyntax-enabled))
+    (dynamic-wind
+      (lambda () (set-resyntax-enabled! #t))
+      (lambda ()
+        (with-session
+          (make-source-controller #:resyntax (lambda (_text _uri)
+                                               (list (Resyntax-Result 0 5 "finding" 'test "new"))))
+          (lambda (session)
+            (notify session "textDocument/didOpen"
+                    (hasheq 'textDocument (hasheq 'uri localhost-uri 'languageId "racket"
+                                                  'version 0 'text text)))
+            (define analysis (hash-ref (await (Session-notifications session)) 'params))
+            (define resyntax (hash-ref (await (Session-notifications session)) 'params))
+            (check-equal? (hash-ref analysis 'uri) localhost-uri)
+            (check-equal? (hash-ref resyntax 'uri) localhost-uri)
+            (check-not-equal? (hash-ref resyntax 'diagnostics) '())
+            (notify session "textDocument/didClose"
+                    (hasheq 'textDocument (hasheq 'uri localhost-uri)))
+            (barrier session))))
+      (lambda () (set-resyntax-enabled! old-enabled))))
+
+  (test-case "open event and target acquisitions share one accepted analysis and immutable facts"
+    (define probes (make-async-channel))
+    (with-session (make-source-controller #:analyze (controlled-analyzer probes))
+                  (lambda (session)
+                    (define path (build-path scratch "shared-analysis.rkt"))
+                    (open! session path text)
+                    (define probe (await probes))
+                    (barrier session)
+                    (define first (acquire session path))
+                    (define second (acquire session path))
+                    (request session "textDocument/inlayHint" 1 path)
+                    (request session "textDocument/semanticTokens/full" 2 path)
+                    (barrier session)
+                    (check-false (sync/timeout 0 first))
+                    (check-false (sync/timeout 0 (Session-responses session)))
+                    (release! probe)
+                    (define result (await first))
+                    (check-eq? result (await second))
+                    (check-eq? 'succeeded (Analysis-Outcome-state result))
+                    (define facts (Analysis-Outcome-value result))
+                    (define binding (Module-Binding path '() 0 'value))
+                    (check-equal? (hash-ref (Analysis-Facts-definitions facts) binding)
+                                  (Range (Pos 1 8) (Pos 1 13)))
+                    (check-true (immutable? (Analysis-Facts-definitions facts)))
+                    (check-not-false (hash-ref (response session 1) 'result #f))
+                    (check-not-false (hash-ref (response session 2) 'result #f))
+                    (check-true (owner session
+                                       (lambda (_)
+                                         (with-read-doc (lsp-get-doc (path->uri path)) doc-trace-latest?))))
+                    (check-eq? result (await (acquire session path)))
+                    (check-false (sync/timeout 0 probes))
+                    (check-equal? (length (notifications session)) 1)
+                    (close! session path)
+                    (barrier session))))
+
+  (test-case "edit and close cancel captured feature requests while analysis is held"
+    (define probes (make-async-channel))
+    (with-session (make-source-controller #:analyze (controlled-analyzer probes))
+                  (lambda (session)
+                    (define path (build-path scratch "cancel-analysis.rkt"))
+                    (open! session path text 7)
+                    (await probes)
+                    (barrier session)
+                    (define first-view (view session path))
+                    (define first (acquire session path))
+                    (request session "textDocument/inlayHint" 3 path)
+                    (request session "textDocument/semanticTokens/full" 4 path)
+                    (edit! session path 8)
+                    (barrier session)
+                    (check-error (response session 3) ErrorCode-RequestCancelled)
+                    (check-error (response session 4) ErrorCode-RequestCancelled)
+                    (check-eq? 'stopped (Analysis-Outcome-state (await first)))
+                    (check-not-false (sync/timeout 0 (Source-View-changed first-view)))
+                    (await probes)
+                    (request session "textDocument/inlayHint" 5 path)
+                    (request session "textDocument/semanticTokens/full" 6 path)
+                    (close! session path)
+                    (barrier session)
+                    (check-error (response session 5) ErrorCode-RequestCancelled)
+                    (check-error (response session 6) ErrorCode-RequestCancelled)
+                    (open! session path text 7)
+                    (release! (await probes))
+                    (barrier session)
+                    (check-eq? 'succeeded (Analysis-Outcome-state (await (acquire session path))))
+                    (check-equal? (length (notifications session)) 2
+                                  "only close's empty diagnostics and the new instance publish")
+                    (close! session path)
+                    (barrier session))))
+
+  (test-case "unsuccessful analysis publishes diagnostics, fails waiters and allows retry"
+    (define probes (make-async-channel))
+    (with-session (make-source-controller #:analyze (controlled-analyzer probes))
+                  (lambda (session)
+                    (define path (build-path scratch "unsuccessful-analysis.rkt"))
+                    (open! session path "#lang racket/base\n(")
+                    (define probe (await probes))
+                    (barrier session)
+                    (define first (acquire session path))
+                    (request session "textDocument/inlayHint" 7 path)
+                    (request session "textDocument/semanticTokens/full" 8 path)
+                    (barrier session)
+                    (release! probe)
+                    (check-eq? 'unsuccessful (Analysis-Outcome-state (await first)))
+                    (check-error (response session 7) ErrorCode-RequestFailed)
+                    (check-error (response session 8) ErrorCode-RequestFailed)
+                    (check-false (owner session
+                                        (lambda (_)
+                                          (with-read-doc (lsp-get-doc (path->uri path)) doc-trace-latest?))))
+                    (check-true (pair? (hash-ref (hash-ref (await (Session-notifications session)) 'params)
+                                                 'diagnostics)))
+                    (define retry (acquire session path))
+                    (release! (await probes))
+                    (check-eq? 'unsuccessful (Analysis-Outcome-state (await retry)))
+                    (close! session path)
+                    (barrier session))))
+
+  (test-case "arbitrary raise, premature death and timeout settle shared waiters and permit retry"
+    (define probes (make-async-channel))
+    (with-session (make-source-controller #:analyze (controlled-analyzer probes)
+                                          #:analysis-timeout 0.3)
+                  (lambda (session)
+                    (define path (build-path scratch "failed-analysis.rkt"))
+                    (open! session path text)
+                    (define initial (await probes))
+                    (barrier session)
+                    (define first (acquire session path))
+                    (release! initial 'raise)
+                    (check-equal? (await first) (Analysis-Outcome 'failed 'arbitrary-analysis-failure))
+                    (define dead (acquire session path))
+                    (release! (await probes) 'die)
+                    (check-equal? (await dead) (Analysis-Outcome 'failed 'worker-exited))
+                    (define timed-out (acquire session path))
+                    (await probes)
+                    (define peer (acquire session path))
+                    (check-equal? (await timed-out) (Analysis-Outcome 'failed 'analysis-timeout))
+                    (check-eq? (await timed-out) (await peer))
+                    (check-equal? (notifications session) '())
+                    (close! session path)
+                    (barrier session))))
+
+  (test-case "two slots bound execution; queued obsolete sources never start"
+    (define probes (make-async-channel))
+    (with-session (make-source-controller #:analyze (controlled-analyzer probes)
+                                          #:analysis-slots 2)
+                  (lambda (session)
+                    (define paths (for/list ([i (in-range 4)]) (build-path scratch (format "queue-~a.rkt" i))))
+                    (for ([path (in-list paths)]) (open! session path text))
+                    (await probes)
+                    (define second-probe (await probes))
+                    (barrier session)
+                    (check-false (sync/timeout 0 probes))
+                    (define queued (acquire session (list-ref paths 2)))
+                    (close! session (list-ref paths 2))
+                    (barrier session)
+                    (check-eq? 'stopped (Analysis-Outcome-state (await queued)))
+                    (release! second-probe)
+                    (define last-probe (await probes))
+                    (check-equal? (Source-Snapshot-source-id (Probe-snapshot last-probe)) (list-ref paths 3))
+                    (release! last-probe)
+                    (check-eq? 'succeeded (Analysis-Outcome-state (await (acquire session (list-ref paths 3)))))
+                    (for ([path (in-list paths)]) (close! session path))
+                    (barrier session))))
+
+  (test-case "request deadline includes queue time and one expiry leaves shared work alive"
+    (define probes (make-async-channel))
+    (with-session (make-source-controller #:analyze (controlled-analyzer probes)
+                                          #:analysis-slots 1)
+                  (lambda (session)
+                    (define a (build-path scratch "deadline-a.rkt"))
+                    (define b (build-path scratch "deadline-b.rkt"))
+                    (open! session a text)
+                    (define held (await probes))
+                    (open! session b text)
+                    (barrier session)
+                    (define expired-request
+                      (owner session
+                             (lambda (_)
+                               (parameterize ([current-analysis-request-timeout 0])
+                                 (analysis-query (lsp-get-doc (path->uri b)) 9 (lambda (_) '()))))))
+                    (check-error (expired-request) ErrorCode-RequestFailed)
+                    (define peer (acquire session b))
+                    (check-false (sync/timeout 0 probes))
+                    (release! held)
+                    (release! (await probes))
+                    (check-eq? 'succeeded (Analysis-Outcome-state (await peer)))
+                    (close! session a)
+                    (close! session b)
+                    (barrier session))))
+
+  (test-case "closed analyses use the same facts and never publish or register a buffer"
+    (with-session (make-source-controller #:read (lambda (_) text))
+                  (lambda (session)
+                    (define path (build-path scratch "closed-analysis.rkt"))
+                    (await (refresh session path))
+                    (define result (await (acquire session path)))
+                    (check-eq? 'succeeded (Analysis-Outcome-state result))
+                    (check-true (Analysis-Facts? (Analysis-Outcome-value result)))
+                    (check-false (owner session (lambda (_) (lsp-get-doc (path->uri path) #f))))
+                    (check-false (workspace-definition-location current-workspace (Module-Binding path '() 0 'value)))
+                    (check-equal? (notifications session) '())
+                    (check-eq? result (await (acquire session path))))))
+
+  (test-case "shutdown settles running and queued jobs and waiting features"
+    (define probes (make-async-channel))
+    (with-session (make-source-controller #:analyze (controlled-analyzer probes) #:analysis-slots 1)
+                  (lambda (session)
+                    (define a (build-path scratch "shutdown-analysis-a.rkt"))
+                    (define b (build-path scratch "shutdown-analysis-b.rkt"))
+                    (open! session a text)
+                    (await probes)
+                    (open! session b text)
+                    (barrier session)
+                    (define first (acquire session a))
+                    (define queued (acquire session b))
+                    (request session "textDocument/inlayHint" 10 a)
+                    (request session "textDocument/semanticTokens/full" 11 b)
+                    (barrier session)
+                    (owner session source-controller-shutdown!)
+                    (check-eq? 'stopped (Analysis-Outcome-state (await first)))
+                    (check-eq? 'stopped (Analysis-Outcome-state (await queued)))
+                    (check-error (response session 10) ErrorCode-RequestFailed)
+                    (check-error (response session 11) ErrorCode-RequestFailed)
+                    (check-false (sync/timeout 0 probes)))))
+
+  (test-case "terminal same-revision attempt cannot publish after retry, even with its original product"
+    ;; Replay runner messages at the owner boundary. No production response
+    ;; thread or worker can mutate the attempt registry.
+    (define controller (make-source-controller #:resyntax #f))
+    (define path (build-path scratch "late-attempt.rkt"))
+    (define sd (new-safedoc (path->uri path) text 0))
+    (define published '())
+    (source-controller-set-notifier! controller
+                                     (lambda (_method params) (set! published (cons params published))))
+    (source-controller-open! controller path sd)
+    (define snapshot (source-controller-snapshot controller path))
+    (define first (source-controller-acquire-analysis! controller snapshot))
+    (define old-message (await (source-controller-events controller)))
+    (source-controller-handle! controller
+                               (Job-Done (Job-Done-job old-message)
+                                         (Analysis-Outcome 'failed 'analysis-timeout)))
+    (check-equal? (await first) (Analysis-Outcome 'failed 'analysis-timeout))
+    (define retry (source-controller-acquire-analysis! controller snapshot))
+    (source-controller-handle! controller (await (source-controller-events controller)))
+    (define accepted (await retry))
+    (check-eq? 'succeeded (Analysis-Outcome-state accepted))
+    (check-equal? (length published) 1)
+    (source-controller-handle! controller old-message)
+    (check-equal? (length published) 1)
+    (check-eq? accepted (await (source-controller-acquire-analysis! controller snapshot)))
+    (source-controller-close! controller path sd)
+    (source-controller-shutdown! controller))
+
+  (test-case "Resyntax shares bounded lifetime, accepts current findings and discards after edit"
+    (define probes (make-async-channel))
+    (define resyntax-starts (make-async-channel))
+    (define releases (make-async-channel))
+    (define old-enabled (get-resyntax-enabled))
+    (dynamic-wind
+      (lambda () (set-resyntax-enabled! #t))
+      (lambda ()
+        (with-session
+          (make-source-controller
+            #:analyze (controlled-analyzer probes)
+            #:resyntax (lambda (_text uri)
+                         (async-channel-put resyntax-starts uri)
+                         (async-channel-get releases)))
+          (lambda (session)
+            (define path (build-path scratch "resyntax-analysis.rkt"))
+            (open! session path text)
+            (release! (await probes))
+            (barrier session)
+            (define accepted (await (acquire session path)))
+            (await resyntax-starts)
+            (async-channel-put releases (list (Resyntax-Result 0 5 "message" 'test "new")))
+            (await (Session-notifications session)) ; analysis
+            (await (Session-notifications session)) ; Resyntax
+            (check-equal? (owner session
+                                 (lambda (_)
+                                   (with-read-doc (lsp-get-doc (path->uri path))
+                                     doc-get-resyntax-results)))
+                          (list (Resyntax-Result 0 5 "message" 'test "new")))
+            (check-eq? accepted (await (acquire session path)))
+            (edit! session path 1)
+            (release! (await probes))
+            (barrier session)
+            (await (acquire session path))
+            (await resyntax-starts)
+            (edit! session path 2)
+            (barrier session)
+            (await probes)
+            (async-channel-put releases (list (Resyntax-Result 0 5 "obsolete" 'test "bad")))
+            (check-equal? (owner session
+                                 (lambda (_)
+                                   (with-read-doc (lsp-get-doc (path->uri path))
+                                     doc-get-resyntax-results)))
+                          '())
+            (close! session path)
+            (barrier session))))
+      (lambda () (set-resyntax-enabled! old-enabled)))))
+
+(module+ test
+  (test-case "delayed completion across edit/close/reopen cannot install or publish"
+    (define controller (make-source-controller #:resyntax #f))
+    (define path (build-path scratch "late-incarnation.rkt"))
+    (define published '())
+    (source-controller-set-notifier! controller
+                                     (lambda (_method params) (set! published (cons params published))))
+    (define sd (new-safedoc (path->uri path) text 7))
+    (source-controller-open! controller path sd)
+    (define first (source-controller-acquire-analysis!
+                    controller (source-controller-snapshot controller path)))
+    (define old-message (await (source-controller-events controller)))
+    (with-write-safedoc sd
+      (lambda (sd)
+        (doc-update-version! (SafeDoc-doc sd) 8)
+        (source-controller-edited! controller path sd)))
+    (source-controller-handle! controller old-message)
+    (check-eq? 'stopped (Analysis-Outcome-state (await first)))
+    (check-equal? published '())
+    (source-controller-close! controller path sd)
+    (define reopened (new-safedoc (path->uri path) text 7))
+    (source-controller-open! controller path reopened)
+    (define next (source-controller-acquire-analysis!
+                   controller (source-controller-snapshot controller path)))
+    (source-controller-handle! controller (await (source-controller-events controller)))
+    (check-eq? 'succeeded (Analysis-Outcome-state (await next)))
+    (check-equal? (length published) 2) ; close clear and new acceptance
+    (source-controller-handle! controller old-message)
+    (check-equal? (length published) 2)
+    (check-true (with-read-doc reopened doc-trace-latest?))
+    (check-false (with-read-safedoc sd SafeDoc-source-view))
+    (source-controller-close! controller path reopened)
+    (source-controller-shutdown! controller)))
+
+(module+ test
+  (test-case "revision invalidation with unchanged client version waits for the new attempt"
+    (define probes (make-async-channel))
+    (define fail-next? #f)
+    (with-session
+      (make-source-controller
+        #:analyze (lambda (snapshot)
+                    (define product ((controlled-analyzer probes) snapshot))
+                    (if fail-next?
+                        (Analysis-Product #f #f '() (Analysis-Product-trace product) #f)
+                        product)))
+      (lambda (session)
+        (define path (build-path scratch "unchanged-client-version.rkt"))
+        (open! session path text 7)
+        (release! (await probes))
+        (barrier session)
+        (await (acquire session path))
+        (set! fail-next? #t)
+        (owner session (lambda (controller) (source-controller-invalidate! controller path)))
+        (define probe (await probes))
+        (request session "textDocument/inlayHint" 12 path)
+        (request session "textDocument/semanticTokens/full" 13 path)
+        (barrier session)
+        (check-false (sync/timeout 0 (Session-responses session)))
+        (check-false (hash-has-key? (Session-pending session) 12))
+        (check-false (hash-has-key? (Session-pending session) 13))
+        (release! probe)
+        (check-error (response session 12) ErrorCode-RequestFailed)
+        (check-error (response session 13) ErrorCode-RequestFailed)
+        (check-equal? (owner session (lambda (_)
+                                       (with-read-doc (lsp-get-doc (path->uri path)) Doc-version)))
+                      7)
+        (close! session path)
+        (barrier session))))
+
+  (test-case "close releases the last occupied slot and starts unrelated queued work"
+    (define probes (make-async-channel))
+    (with-session (make-source-controller #:analyze (controlled-analyzer probes) #:analysis-slots 1)
+                  (lambda (session)
+                    (define a (build-path scratch "close-pump-a.rkt"))
+                    (define b (build-path scratch "close-pump-b.rkt"))
+                    (open! session a text)
+                    (await probes)
+                    (open! session b text)
+                    (barrier session)
+                    (define queued (acquire session b))
+                    (close! session a)
+                    (barrier session)
+                    (release! (await probes))
+                    (check-eq? 'succeeded (Analysis-Outcome-state (await queued)))
+                    (close! session b)
+                    (barrier session))))
+
+  (test-case "malformed acceptance is terminal and releases a slot for queued work"
+    (define probes (make-async-channel))
+    (with-session
+      (make-source-controller
+        #:analysis-slots 1
+        #:analyze (lambda (snapshot)
+                    (define product ((controlled-analyzer probes) snapshot))
+                    (if (regexp-match? #rx"bad-product" (path->string (Source-Snapshot-source-id snapshot)))
+                        (Analysis-Product #t (Analysis-Product-facts product) '()
+                                          (Analysis-Product-trace product) #f)
+                        product)))
+      (lambda (session)
+        (define a (build-path scratch "bad-product.rkt"))
+        (define b (build-path scratch "good-product.rkt"))
+        (open! session a text)
+        (define first-probe (await probes))
+        (open! session b text)
+        (barrier session)
+        (define first (acquire session a))
+        (define queued (acquire session b))
+        (release! first-probe)
+        (check-eq? 'failed (Analysis-Outcome-state (await first)))
+        (check-equal? (notifications session) '())
+        (release! (await probes))
+        (check-eq? 'succeeded (Analysis-Outcome-state (await queued)))
+        (close! session a)
+        (close! session b)
+        (barrier session)))))
+
+(module+ test
+  (test-case "actual Resyntax place death is discarded and a later revision uses a fresh place"
+    (define old-enabled (get-resyntax-enabled))
+    (dynamic-wind
+      (lambda () (set-resyntax-enabled! #t))
+      (lambda ()
+        (call-with-controlled-workers
+          (lambda (created)
+            (define probes (make-async-channel))
+            (define logs (make-log-receiver racket-langserver-logger 'info))
+            (with-session (make-source-controller #:analyze (controlled-analyzer probes))
+                          (lambda (session)
+                            (define path (build-path scratch "actual-resyntax-death.rkt"))
+                            (open! session path text)
+                            (release! (await probes))
+                            (barrier session)
+                            (define accepted (await (acquire session path)))
+                            (define old (await created))
+                            (check-equal? (await (Controlled-Worker-notice old)) (list text (path->uri path)))
+                            (place-channel-put (Controlled-Worker-control old) 'die)
+                            (let loop ()
+                              (define log (await logs))
+                              (unless (regexp-match? #rx"Resyntax discarded" (vector-ref log 1)) (loop)))
+                            (check-eq? accepted (await (acquire session path)))
+                            (check-equal? (length (notifications session)) 1 "only Check Syntax publishes")
+                            (check-equal? (owner session (lambda (_)
+                                                           (with-read-doc (lsp-get-doc (path->uri path))
+                                                             doc-get-resyntax-results)))
+                                          '())
+                            (check-false (get-resyntax-worker))
+                            (edit! session path 1)
+                            (release! (await probes))
+                            (barrier session)
+                            (await (acquire session path))
+                            (define fresh (await created))
+                            (check-not-eq? (Controlled-Worker-place fresh) (Controlled-Worker-place old))
+                            (await (Controlled-Worker-notice fresh))
+                            (define finding (Resyntax-Result 0 5 "accepted" 'test "new"))
+                            (place-channel-put (Controlled-Worker-control fresh) (list (->jsexpr finding)))
+                            (await (Session-notifications session)) ; Check Syntax
+                            (await (Session-notifications session)) ; Resyntax
+                            (check-equal? (owner session (lambda (_)
+                                                           (with-read-doc (lsp-get-doc (path->uri path))
+                                                             doc-get-resyntax-results)))
+                                          (list finding))
+                            (close! session path)
+                            (barrier session))))))
+      (lambda () (set-resyntax-enabled! old-enabled)))))

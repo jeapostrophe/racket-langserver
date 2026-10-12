@@ -39,15 +39,9 @@
 ;; to update the build-trace%, which can be very slow and sometimes failed, but it
 ;; is correct.
 ;;
-;; For a query, if it's not important to use the latest data, we just run it synchronously
-;; and use the fast adjusted build-trace%. Otherwise, it would be an async task. We choose
-;; to run it right before the next text change event or after the current text corresponding
-;; check syntax task completes.
-;;
-;; One important point is that check syntax task is computationally intensive, so don't run
-;; too much. The current strategy is an newer check syntax task always replace
-;; the old running task. So for any document, at most one check syntax task is running
-;; at any time.
+;; Fast queries read the adjusted projection under its lock. Features needing
+;; current analysis defer to a revision-bound job event. The consumer owns
+;; acceptance and shares one analysis per revision, with two execution slots.
 
 ;; TextDocumentSynKind enumeration
 (define TextDocSync-None 0)
@@ -76,6 +70,8 @@
       [response-handlers (make-hash)]
       [server-request-id 0])
     (define open-documents (make-hasheq))
+    (source-controller-set-notifier! source-controller
+                                     (lambda (method params) (send-notification method params)))
 
     (define/public (get-source-controller) source-controller)
 
@@ -214,15 +210,11 @@
         ["textDocument/didOpen"
          (text-document/did-open! (λ (method params handler)
                                     (send-request method params handler))
-                                  (λ (method params)
-                                    (send-notification method params))
                                   params)]
         ["textDocument/didClose"
          (text-document/did-close! params)]
         ["textDocument/didChange"
-         (text-document/did-change! (λ (method params)
-                                      (send-notification method params))
-                                    params)]
+         (text-document/did-change! params)]
         [_ (void)]))
     ))
 

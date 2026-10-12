@@ -18,7 +18,6 @@
          "../../lsp/lsp.rkt"
          "../../lsp/methods.rkt"
          "../../lsp/safedoc.rkt"
-         "../../lsp/scheduler.rkt"
          "../../lsp/source-controller.rkt"
          "../../workspace/source-store.rkt")
 
@@ -32,13 +31,14 @@
   ([controller Source-Controller?]
    [clients async-channel?]
    [responses async-channel?]
-   [notifications async-channel?])
+   [notifications async-channel?]
+   [pending hash?])
   #:transparent)
 
 (define (await event)
-  (define value (sync/timeout 5 event))
+  (define value (sync/timeout 5 (wrap-evt event list)))
   (unless value (error 'await "event did not complete within 5 seconds"))
-  value)
+  (car value))
 
 (define (owner session proc)
   (await (source-controller-call-evt (Session-controller session) proc)))
@@ -70,20 +70,28 @@
   (response session 100))
 
 (define (response session id)
+  (define pending (Session-pending session))
   (define deadline (+ (current-inexact-monotonic-milliseconds) 5000))
-  (let loop ()
-    (define msg
-      (sync/timeout (max 0 (/ (- deadline (current-inexact-monotonic-milliseconds)) 1000))
-                    (Session-responses session)))
-    (unless msg (error 'response "no response for id ~a within 5 seconds" id))
-    (if (equal? (hash-ref msg 'id #f) id) msg (loop))))
+  (define result
+    (or (hash-ref pending id #f)
+        (let loop ()
+          (define msg
+            (sync/timeout (max 0 (/ (- deadline (current-inexact-monotonic-milliseconds)) 1000))
+                          (Session-responses session)))
+          (unless msg (error 'response "no response for id ~a within 5 seconds" id))
+          (define received-id (hash-ref msg 'id #f))
+          (cond
+            [(equal? received-id id) msg]
+            [else (hash-set! pending received-id msg) (loop)]))))
+  (hash-remove! pending id)
+  result)
 
 (define (with-session controller proc)
   (define custodian (make-custodian))
   (define clients (make-async-channel))
   (define responses (make-async-channel))
   (define notifications (make-async-channel))
-  (define session (Session controller clients responses notifications))
+  (define session (Session controller clients responses notifications (make-hash)))
   (parameterize ([current-custodian custodian])
     (define server
       (new server%
@@ -120,6 +128,10 @@
   (make-directory* scratch)
   (define root (make-temporary-file "source-controller~a" 'directory scratch))
   (dynamic-wind void (lambda () (proc root)) (lambda () (delete-directory/files root))))
+
+(module+ test-support
+  (provide await owner view refresh notify open! close! barrier response with-session
+           scratch (struct-out Session)))
 
 (module+ test
   (test-case "controller contracts reject invalid readers, timeouts, and results"
@@ -368,7 +380,7 @@
                     (release! (await probes) "renamed")
                     (check-equal? "renamed" (result-text (await next))))))
 
-  (test-case "captured SafeDoc view changes under edit/close and old query cleanup remains"
+  (test-case "captured SafeDoc view changes under edit/close and close signals every waiter"
     (with-session (make-source-controller)
                   (lambda (session)
                     (define path (build-path scratch "captured.rkt"))
@@ -402,8 +414,6 @@
                     (barrier session)
                     (check-not-false (sync/timeout 0 (Source-View-changed edited)))
                     (check-false (with-read-safedoc old-doc SafeDoc-source-view))
-                    ;; This open skips Check Syntax, so nothing completes the legacy query
-                    ;; before didClose. Close is what settles it.
                     (define query-path (build-path scratch "close-query.rkt"))
                     (define pending
                       (owner session
@@ -411,12 +421,12 @@
                                (define doc
                                  (lsp-open-doc! (path->uri query-path) "#lang racket/base\n" 0))
                                (with-read-safedoc doc
-                                 (lambda (sd) (async-query-wait (SafeDoc-token sd) values))))))
+                                 (lambda (sd) (Source-View-changed (SafeDoc-source-view sd)))))))
                     (close! session query-path)
                     (barrier session)
-                    (define result (make-async-channel))
-                    (thread (lambda () (async-channel-put result (pending))))
-                    (check-true (signal-doc-close? (await result))))))
+                    (check-not-false (await pending))
+                    ;; The broadcast stays ready for a second waiter after close.
+                    (check-not-false (await pending)))))
 
   (test-case "shutdown settles held, queued, and subsequent owner operations"
     (define probes (make-async-channel))

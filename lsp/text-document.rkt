@@ -17,7 +17,7 @@
          "../workspace/current.rkt"
          "compose/references.rkt"
          "semantic-token-lsp.rkt"
-         "scheduler.rkt"
+         "analysis-query.rkt"
          "source-controller.rkt"
          "../common/path-util.rkt"
          "lsp.rkt"
@@ -32,27 +32,24 @@
 ;; Methods
 ;;;;;;;;;;;;
 
-(define (did-open! request-client notify-client params)
+(define (did-open! request-client params)
   (match-define (hash-table ['textDocument (^DocItem #:uri uri #:version version #:text text)]) params)
   (fetch-configuration request-client uri)
-  (define safe-doc (lsp-open-doc! uri text version))
-  (safedoc-run-check-syntax! notify-client safe-doc))
+  (lsp-open-doc! uri text version)
+  (source-controller-analyze! (current-source-controller) (uri->path uri)))
 
 (define (did-close! params)
   (match-define (hash-table ['textDocument (DocItem-js #:uri uri)]) params)
   (lsp-close-doc! uri))
 
-(define (did-change! notify-client params)
+(define (did-change! params)
   (match-define (hash-table ['textDocument (^DocIdentifier #:version version #:uri uri)]
                             ['contentChanges content-changes]) params)
   (define safe-doc (lsp-get-doc uri))
-  (define token (SafeDoc-token safe-doc))
   (define content-changes*
     (cond [(eq? (json-null) content-changes) empty]
           [(list? content-changes) content-changes]
           [else (list content-changes)]))
-
-  (clear-old-queries/doc-change token)
 
   (with-write-safedoc safe-doc
     (λ (sd)
@@ -67,7 +64,7 @@
       (doc-update-version! doc version)
       (source-controller-edited! (current-source-controller) (uri->path uri) sd)))
 
-  (safedoc-run-check-syntax! notify-client safe-doc))
+  (source-controller-analyze! (current-source-controller) (uri->path uri)))
 
 ;; Hover request
 ;; Returns an object conforming to the Hover interface, to
@@ -239,24 +236,7 @@
      (define (get-hints doc)
        (doc-inlay-hints doc range))
 
-     (define (current-hints sd)
-       (define doc (SafeDoc-doc sd))
-       (if (or (doc-trace-latest? doc)
-               (not (safedoc-check-syntax-running? sd)))
-           (get-hints doc)
-           #f))
-
-     (define (respond-to-signal signal)
-       (cond
-         [(signal-doc-close? signal) (success/enc id '())]
-         [else (success/enc id (with-read-doc safe-doc get-hints))]))
-
-     (define hints
-       (with-read-safedoc safe-doc current-hints))
-
-     (if hints
-         (success/enc id hints)
-         (async-query-wait (SafeDoc-token safe-doc) respond-to-signal))]
+     (analysis-query safe-doc id get-hints)]
     [_ (error-response id ErrorCode-InvalidParams "textDocument/inlayHint failed")]))
 
 ;; Full document formatting request
@@ -358,28 +338,8 @@
       (λ (pos) (doc-abs-pos->pos doc pos))
       (doc-range-tokens doc range)))
 
-  (define (current-tokens sd)
-    (define doc (SafeDoc-doc sd))
-    (if (or (doc-trace-latest? doc)
-            (not (safedoc-check-syntax-running? sd)))
-        (get-tokens-encoding doc)
-        #f))
-
-  (define (respond-to-signal signal)
-    (cond
-      [(signal-doc-close? signal)
-       (success/enc id (hash 'data '()))]
-      [else
-       (define tokens
-         (with-read-doc safe-doc get-tokens-encoding))
-       (success/enc id (hash 'data tokens))]))
-
-  (define tokens
-    (with-read-safedoc safe-doc current-tokens))
-
-  (if tokens
-      (success/enc id (hash 'data tokens))
-      (async-query-wait (SafeDoc-token safe-doc) respond-to-signal)))
+  (analysis-query safe-doc id
+                  (lambda (doc) (hash 'data (get-tokens-encoding doc)))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
