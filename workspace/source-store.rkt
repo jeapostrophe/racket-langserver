@@ -3,7 +3,8 @@
 ;; The session consumer owns this store. Views are immutable lifetime handles;
 ;; their change events broadcast invalidation without consuming the signal.
 ;; Buffer text stays in SafeDoc. This module retains only observed disk text
-;; and does not read files. Close leaves a disk view unobserved.
+;; and does not read files. Close leaves files unobserved and virtual sources
+;; closed. A virtual record can never acquire disk text.
 (require racket/contract
          racket/match
          "../common/path-util.rkt")
@@ -24,7 +25,7 @@
 (struct/contract Source-View
   ([source-id source-id?]
    [revision symbol?]
-   [origin (or/c 'buffer 'disk)]
+   [origin (or/c 'buffer 'disk 'closed)]
    [state (or/c 'present 'unobserved 'missing 'unavailable)]
    [changed evt?])
   #:transparent)
@@ -56,7 +57,9 @@
           (Source-View source-id (gensym 'revision) origin state (semaphore-peek-evt signal))))
 
 (define (new-record source-id)
-  (define-values (signal view) (fresh-signal-view source-id 'disk 'unobserved))
+  (define-values (signal view) (fresh-signal-view source-id
+                                                  (if (Virtual-Id? source-id) 'closed 'disk)
+                                                  (if (Virtual-Id? source-id) 'missing 'unobserved)))
   (File-Record view signal #f #f))
 
 (define (record-for store source-id)
@@ -88,15 +91,18 @@
   (replace-view! record 'buffer 'present (File-Record-buffer record) #f))
 
 (define (source-store-close! store source-id)
-  (replace-view! (record-for store source-id) 'disk 'unobserved #f #f))
+  (replace-view! (record-for store source-id)
+                 (if (Virtual-Id? source-id) 'closed 'disk)
+                 (if (Virtual-Id? source-id) 'missing 'unobserved) #f #f))
 
 ;; An open file keeps its buffer and gets a new revision. A closed file
 ;; returns to an unobserved disk view. Invalidation does not read either one.
 (define (source-store-invalidate! store source-id)
   (define record (record-for store source-id))
-  (if (File-Record-buffer record)
-      (source-store-edit! store source-id)
-      (source-store-close! store source-id)))
+  (cond
+    [(Virtual-Id? source-id) (File-Record-view record)]
+    [(File-Record-buffer record) (source-store-edit! store source-id)]
+    [else (source-store-close! store source-id)]))
 
 ;; A read ticket is the view captured when that read starts. Authority changes
 ;; replace it, so even identical text cannot revive a closed buffer incarnation.

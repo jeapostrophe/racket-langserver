@@ -4,8 +4,8 @@
 ;; jobs, bounded execution and result acceptance. The session consumer applies
 ;; every mutation and table read. Other threads submit commands and wait on
 ;; reply or change events; disk reads and analysis run on private workers.
-;; Source ids are exact filepaths from the URI boundary. Callers must preserve
-;; that path through the URI round trip rather than add an alias map.
+;; Source ids are exact filepaths or tagged complete virtual URIs. Backend
+;; virtual backend locations belong to snapshots, never to the source registry.
 (require racket/async-channel
          racket/contract
          racket/file
@@ -234,8 +234,8 @@
   (set-SafeDoc-analysis! sd #f)
   (invalidate-jobs! controller source-id))
 
-;; Drop buffer authority immediately and leave disk unobserved. Close does
-;; not start a read; the next refresh acquires saved text.
+;; Close drops buffer authority without a read. Files become unobserved;
+;; virtual sources become closed and have no disk fallback.
 (define (source-controller-close! controller source-id safe-doc)
   (define uri
     (with-write-safedoc safe-doc
@@ -245,24 +245,26 @@
         (set-SafeDoc-analysis! sd #f)
         (Doc-uri (SafeDoc-doc sd)))))
   (invalidate-jobs! controller source-id)
-  (workspace-remove-path! current-workspace source-id)
+  (when (path? source-id)
+    (workspace-remove-path! current-workspace source-id))
   (publish-diagnostics! controller uri '())
   (invalidate-reads! controller source-id)
   (pump-jobs! controller))
 
 (define (source-controller-invalidate! controller source-id)
-  (define store (Source-Controller-store controller))
-  (define buffer (source-store-buffer store source-id))
-  (if buffer
-      (with-write-safedoc buffer
-        (lambda (sd)
-          (set-SafeDoc-source-view! sd (source-store-invalidate! store source-id))
-          (set-SafeDoc-analysis! sd #f)))
-      (source-store-invalidate! store source-id))
-  (invalidate-jobs! controller source-id)
-  (invalidate-reads! controller source-id)
-  (when buffer (source-controller-analyze! controller source-id))
-  (pump-jobs! controller))
+  (when (path? source-id)
+    (define store (Source-Controller-store controller))
+    (define buffer (source-store-buffer store source-id))
+    (if buffer
+        (with-write-safedoc buffer
+          (lambda (sd)
+            (set-SafeDoc-source-view! sd (source-store-invalidate! store source-id))
+            (set-SafeDoc-analysis! sd #f)))
+        (source-store-invalidate! store source-id))
+    (invalidate-jobs! controller source-id)
+    (invalidate-reads! controller source-id)
+    (when buffer (source-controller-analyze! controller source-id))
+    (pump-jobs! controller)))
 
 (define (start-read! controller source-id batch)
   (define deadline (+ (current-inexact-monotonic-milliseconds)
@@ -302,6 +304,10 @@
 (define (refresh! controller source-id reply)
   (define view (source-controller-view controller source-id))
   (cond
+    [(Virtual-Id? source-id)
+     (complete! reply (current-result controller source-id
+                                      (and (eq? 'closed (Source-View-origin view))
+                                           (Source-Failure 'closed))))]
     ;; An open buffer is the source text. Do not read disk over it.
     [(eq? 'buffer (Source-View-origin view))
      (complete! reply (current-result controller source-id))]
@@ -470,7 +476,7 @@
                 [(analysis) ((Source-Controller-analyze controller) snapshot)]
                 [(resyntax) ((Source-Controller-resyntax controller)
                              (Source-Snapshot-text snapshot)
-                             (path->uri (Source-Snapshot-source-id snapshot)))])))
+                             (source-uri (Source-Snapshot-source snapshot)))])))
           (async-channel-put result-ch result))))
     (thread
       (lambda ()

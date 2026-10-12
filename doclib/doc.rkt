@@ -231,9 +231,9 @@
                                 (text-edit-end doc edit)
                                 (TextEdit-newText edit)))))
 
-(define/contract (doc-expand uri doc-text lexer-state)
-  (-> string? (is-a?/c lsp-editor%) LexerState? CSResult?)
-  (check-syntax uri doc-text lexer-state))
+(define/contract (doc-expand uri doc-text lexer-state #:source [source (make-source uri)])
+  (->* (string? (is-a?/c lsp-editor%) LexerState?) (#:source source?) CSResult?)
+  (check-syntax uri doc-text lexer-state #:source source))
 
 (define/contract (doc-update-trace! doc new-trace new-contribution new-version)
   (-> Doc?
@@ -272,7 +272,7 @@
 
 (define/contract (doc-check-syntax doc)
   (-> Doc? CSResult?)
-  (doc-expand (Doc-uri doc) (Doc-text doc) (doc-lexer-state doc)))
+  (doc-expand (Doc-uri doc) (Doc-text doc) (doc-lexer-state doc) #:source (Doc-source doc)))
 
 (define/contract (doc-pos->abs-pos doc pos)
   (-> Doc? Pos? exact-nonnegative-integer?)

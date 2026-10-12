@@ -58,8 +58,8 @@
    [succeed? boolean?])
   #:transparent)
 
-(define (check-syntax uri doc-text lexer-state)
-  (define path (uri->path uri))
+(define (check-syntax uri doc-text lexer-state #:source [source (make-source uri)])
+  (define path (source-backend-path source))
   (define text (send doc-text get-text))
   (define active-policy (LexerState-language-policy lexer-state))
   (define expand? (Language-Policy-expand? active-policy))
@@ -85,4 +85,5 @@
     [expand-source (->* (path? input-port? (is-a?/c syncheck-annotations<%>))
                         (#:expand? boolean?)
                         ExpandResult?)]
-    [check-syntax (-> string? (is-a?/c lsp-editor%) LexerState? CSResult?)]))
+    [check-syntax (->* (string? (is-a?/c lsp-editor%) LexerState?)
+                       (#:source source?) CSResult?)]))
