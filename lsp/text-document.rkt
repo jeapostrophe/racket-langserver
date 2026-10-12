@@ -49,6 +49,7 @@
                             ['contentChanges content-changes]) params)
   (unless (ignored-document-uri? uri)
     (define safe-doc (lsp-get-doc uri))
+    (define source-id (uri->source-id uri))
     (define content-changes*
       (cond [(eq? (json-null) content-changes) empty]
             [(list? content-changes) content-changes]
@@ -65,9 +66,9 @@
              (doc-reset! doc text)]))
 
         (doc-update-version! doc version)
-        (source-controller-edited! (current-source-controller) (uri->source-id uri) sd)))
+        (source-controller-edited! (current-source-controller) source-id sd)))
 
-    (source-controller-analyze! (current-source-controller) (uri->source-id uri))))
+    (source-controller-analyze! (current-source-controller) source-id)))
 
 ;; Hover request
 ;; Returns an object conforming to the Hover interface, to
@@ -236,10 +237,7 @@
                  ['range (as-Range range)])
      (define safe-doc (lsp-get-doc uri))
 
-     (define (get-hints doc)
-       (doc-inlay-hints doc range))
-
-     (analysis-query safe-doc id get-hints)]
+     (analysis-query safe-doc id (lambda (doc) (doc-inlay-hints doc range)) '())]
     [_ (error-response id ErrorCode-InvalidParams "textDocument/inlayHint failed")]))
 
 ;; Full document formatting request
@@ -342,7 +340,8 @@
       (doc-range-tokens doc range)))
 
   (analysis-query safe-doc id
-                  (lambda (doc) (hash 'data (get-tokens-encoding doc)))))
+                  (lambda (doc) (hash 'data (get-tokens-encoding doc)))
+                  (hash 'data '())))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 

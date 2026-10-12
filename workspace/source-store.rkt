@@ -37,7 +37,7 @@
    [text (and/c string? immutable?)])
   #:transparent)
 
-(struct/contract File-Record
+(struct/contract Source-Record
   ([view Source-View?]
    [signal semaphore?]
    ;; The adapter owns the buffer type; the store retains an opaque handle.
@@ -56,29 +56,33 @@
   (values signal
           (Source-View source-id (gensym 'revision) origin state (semaphore-peek-evt signal))))
 
+(define (reset-origin-state source-id)
+  (if (Virtual-Id? source-id)
+      (values 'closed 'missing)
+      (values 'disk 'unobserved)))
+
 (define (new-record source-id)
-  (define-values (signal view) (fresh-signal-view source-id
-                                                  (if (Virtual-Id? source-id) 'closed 'disk)
-                                                  (if (Virtual-Id? source-id) 'missing 'unobserved)))
-  (File-Record view signal #f #f))
+  (define-values (origin state) (reset-origin-state source-id))
+  (define-values (signal view) (fresh-signal-view source-id origin state))
+  (Source-Record view signal #f #f))
 
 (define (record-for store source-id)
   (hash-ref! store source-id (lambda () (new-record source-id))))
 
 (define (source-store-view store source-id)
-  (File-Record-view (record-for store source-id)))
+  (Source-Record-view (record-for store source-id)))
 
 (define (source-store-buffer store source-id)
-  (File-Record-buffer (record-for store source-id)))
+  (Source-Record-buffer (record-for store source-id)))
 
 (define (replace-view! record origin state buffer text)
-  (semaphore-post (File-Record-signal record))
+  (semaphore-post (Source-Record-signal record))
   (define-values (signal view)
-    (fresh-signal-view (Source-View-source-id (File-Record-view record)) origin state))
-  (set-File-Record-view! record view)
-  (set-File-Record-signal! record signal)
-  (set-File-Record-buffer! record buffer)
-  (set-File-Record-disk-text! record text)
+    (fresh-signal-view (Source-View-source-id (Source-Record-view record)) origin state))
+  (set-Source-Record-view! record view)
+  (set-Source-Record-signal! record signal)
+  (set-Source-Record-buffer! record buffer)
+  (set-Source-Record-disk-text! record text)
   view)
 
 (define (source-store-open! store source-id buffer)
@@ -86,29 +90,28 @@
 
 (define (source-store-edit! store source-id)
   (define record (record-for store source-id))
-  (unless (File-Record-buffer record)
+  (unless (Source-Record-buffer record)
     (error 'source-store-edit! "source is not open: ~a" source-id))
-  (replace-view! record 'buffer 'present (File-Record-buffer record) #f))
+  (replace-view! record 'buffer 'present (Source-Record-buffer record) #f))
 
 (define (source-store-close! store source-id)
-  (replace-view! (record-for store source-id)
-                 (if (Virtual-Id? source-id) 'closed 'disk)
-                 (if (Virtual-Id? source-id) 'missing 'unobserved) #f #f))
+  (define-values (origin state) (reset-origin-state source-id))
+  (replace-view! (record-for store source-id) origin state #f #f))
 
 ;; An open file keeps its buffer and gets a new revision. A closed file
 ;; returns to an unobserved disk view. Invalidation does not read either one.
 (define (source-store-invalidate! store source-id)
   (define record (record-for store source-id))
   (cond
-    [(Virtual-Id? source-id) (File-Record-view record)]
-    [(File-Record-buffer record) (source-store-edit! store source-id)]
+    [(Virtual-Id? source-id) (Source-Record-view record)]
+    [(Source-Record-buffer record) (source-store-edit! store source-id)]
     [else (source-store-close! store source-id)]))
 
 ;; A read ticket is the view captured when that read starts. Authority changes
 ;; replace it, so even identical text cannot revive a closed buffer incarnation.
 (define (source-store-observe! store ticket state [text #f])
   (define record (record-for store (Source-View-source-id ticket)))
-  (define current (File-Record-view record))
+  (define current (Source-Record-view record))
   (match current
     [(struct* Source-View ([origin 'disk] [state current-state]))
      #:when (eq? ticket current)
@@ -116,14 +119,16 @@
      ;; so unavailable always replaces the view, including a repeated failure.
      (if (and (eq? state current-state)
               (not (eq? state 'unavailable))
-              (equal? text (File-Record-disk-text record)))
+              (equal? text (Source-Record-disk-text record)))
          current
          (replace-view! record 'disk state #f (and text (string->immutable-string text))))]
     [_ #f]))
 
 (define (source-store-disk-snapshot store source-id)
   (define record (record-for store source-id))
-  (match (File-Record-view record)
+  (match (Source-Record-view record)
     [(struct* Source-View ([revision revision] [origin 'disk] [state 'present]))
-     (Source-Snapshot (File-Source (path->uri source-id) source-id) revision 'disk (File-Record-disk-text record))]
+     (Source-Snapshot (File-Source (path->uri source-id) source-id)
+                      revision 'disk
+                      (Source-Record-disk-text record))]
     [_ #f]))

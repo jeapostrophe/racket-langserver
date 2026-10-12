@@ -38,7 +38,8 @@
     (define result
       (with-handlers ([(lambda (_) #t)
                        (lambda (reason)
-                         (Resyntax-Failure (if (exn? reason) (exn-message reason) (format "~v" reason))))])
+                         (Resyntax-Failure
+                           (if (exn? reason) (exn-message reason) (format "~v" reason))))])
         (map ->jsexpr (run-resyntax text uri))))
     (place-channel-put ch result)
     (loop)))

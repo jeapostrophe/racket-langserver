@@ -412,7 +412,8 @@
 
 (define (doc-src-dir doc)
   (and (File-Source? (Doc-source doc))
-       (let-values ([(base _name _must-be-dir?) (split-path (source-backend-path (Doc-source doc)))])
+       (let-values ([(base _name _must-be-dir?)
+                     (split-path (source-backend-path (Doc-source doc)))])
          base)))
 
 (define (formatting-range->lines doc-text fmt-range)

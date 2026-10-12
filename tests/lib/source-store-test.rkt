@@ -21,7 +21,9 @@
     (check-exn exn:fail:contract?
                (lambda () (Source-View path revision 'disk 'present #f)))
     (check-exn exn:fail:contract?
-               (lambda () (Source-Snapshot (File-Source (path->uri path) path) revision 'disk (string-copy "text"))))
+               (lambda ()
+                 (Source-Snapshot (File-Source (path->uri path) path)
+                                  revision 'disk (string-copy "text"))))
     (check-exn exn:fail:contract?
                (lambda () (Source-Snapshot "source.rkt" revision 'disk "text"))))
 

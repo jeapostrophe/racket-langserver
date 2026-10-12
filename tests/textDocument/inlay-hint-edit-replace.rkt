@@ -1,7 +1,7 @@
 #lang racket
 
-;; Inlay requests require successful analysis of the current revision. Edits
-;; that leave the source incomplete report failure; a repaired source recovers.
+;; Nonempty inlay hints require successful analysis of the current revision.
+;; Incomplete source returns empty hints; a repaired source recovers.
 ;; Edit-aware adjustment itself is covered by tests/lib/inlay-hint-edit-test.rkt.
 
 (define uri "file:///test.rkt")
@@ -20,9 +20,7 @@ END
 
 (module+ test
   (require rackunit
-           "with-document.rkt"
-           "../../common/interfaces.rkt"
-           "../../common/json-util.rkt")
+           "with-document.rkt")
 
   (define (hint->triple hint)
     (define position (hash-ref hint 'position))
@@ -66,9 +64,8 @@ END
       (define (hints)
         (map hint->triple (hash-ref (hints-response) 'result)))
 
-      (define (check-failed)
-        (check-equal? (jsexpr-ref (hints-response) '(error code))
-                      (->jsexpr ErrorCode-RequestFailed)))
+      (define (check-empty)
+        (check-equal? (hash-ref (hints-response) 'result) '()))
 
       (check-equal? (hints)
                     (list '(5 7 "x ")
@@ -76,21 +73,21 @@ END
                           '(6 6 "w ")
                           '(6 8 "h ")))
 
-      ;; Each incomplete revision must fail independently.
+      ;; Each incomplete revision must return empty hints independently.
       (replace! 1 1 0 1 0 "(define\n")
-      (check-failed)
+      (check-empty)
 
       ;; Rename a field of `point`, one character for one. The document is the
       ;; same length as before, so it neither expands nor contracts, but the
       ;; call no longer fills the fields the hints name.
       (replace! 2 3 15 3 16 "z")
-      (check-failed)
+      (check-empty)
 
       ;; Rewrite the whole declaration of `size` with a longer one. The
       ;; characters it gains arrive at the end of the form, which is where
       ;; typing after the form would put them too.
       (replace! 3 4 0 4 19 "(struct size (a b c))")
-      (check-failed)
+      (check-empty)
 
       (client-send lsp
                    (make-notification "textDocument/didChange"

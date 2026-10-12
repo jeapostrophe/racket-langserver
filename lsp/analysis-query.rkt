@@ -2,6 +2,7 @@
 
 ;; Revision-bound waits for features that need the installed Check Syntax
 ;; projection. The deadline is captured before returning the deferred thunk.
+;; Unsuccessful expansion returns the feature's empty result, never an old trace.
 (require "../common/interfaces.rkt"
          "../common/json-util.rkt"
          "../doclib/doc.rkt"
@@ -15,7 +16,7 @@
 
 (define current-analysis-request-timeout (make-parameter 90))
 
-(define (analysis-query safe-doc id read-result)
+(define (analysis-query safe-doc id read-result empty-result)
   (define deadline (+ (current-inexact-monotonic-milliseconds)
                       (* 1000 (current-analysis-request-timeout))))
   (define controller (current-source-controller))
@@ -50,12 +51,18 @@
            [(expired?) (failed "Analysis request deadline expired")]
            [(sync/timeout 0 shutdown) (failed "Server shut down")]
            [(and (Analysis-Outcome? outcome)
-                 (eq? 'succeeded (Analysis-Outcome-state outcome)))
+                 (memq (Analysis-Outcome-state outcome) '(succeeded unsuccessful)))
             (with-read-safedoc safe-doc
               (lambda (sd)
                 (cond
                   [(not (eq? view (SafeDoc-source-view sd))) (cancelled)]
                   [(expired?) (failed "Analysis request deadline expired")]
                   [(sync/timeout 0 shutdown) (failed "Server shut down")]
-                  [else (success-response id (->jsexpr (read-result (SafeDoc-doc sd))))])))]
+                  [else
+                   (success-response
+                     id
+                     (->jsexpr
+                       (if (eq? 'unsuccessful (Analysis-Outcome-state outcome))
+                           empty-result
+                           (read-result (SafeDoc-doc sd)))))])))]
            [else (failed "Check Syntax did not succeed")])))]))

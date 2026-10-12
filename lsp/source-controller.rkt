@@ -128,7 +128,8 @@
                                 #:analyze [analyze analyze-source]
                                 #:analysis-slots [slots 2]
                                 #:analysis-timeout [analysis-timeout 90]
-                                #:resyntax [resyntax (and (resyntax-available?) run-resyntax/in-place)])
+                                #:resyntax [resyntax (and (resyntax-available?)
+                                                          run-resyntax/in-place)])
   (Source-Controller (make-source-store) (make-async-channel) (make-hash)
                      read timeout (make-semaphore 0) (make-hash) '() 0
                      slots analyze resyntax analysis-timeout (lambda (_method _params) (void))))

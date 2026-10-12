@@ -1,7 +1,7 @@
 #lang racket
 
-;; Inlay requests require successful analysis of the current revision. Edits
-;; that leave the source incomplete report failure; a repaired source recovers.
+;; Nonempty inlay hints require successful analysis of the current revision.
+;; Incomplete source returns empty hints; a repaired source recovers.
 ;; Edit-aware adjustment itself is covered by tests/lib/inlay-hint-edit-test.rkt.
 
 (define uri "file:///test.rkt")
@@ -18,9 +18,7 @@ END
 
 (module+ test
   (require rackunit
-           "with-document.rkt"
-           "../../common/interfaces.rkt"
-           "../../common/json-util.rkt")
+           "with-document.rkt")
 
   (define (hint->triple hint)
     (define position (hash-ref hint 'position))
@@ -65,9 +63,8 @@ END
       (define (hints)
         (map hint->triple (hash-ref (hints-response) 'result)))
 
-      (define (check-failed)
-        (check-equal? (jsexpr-ref (hints-response) '(error code))
-                      (->jsexpr ErrorCode-RequestFailed)))
+      (define (check-empty)
+        (check-equal? (hash-ref (hints-response) 'result) '()))
 
       (check-equal? (hints)
                     (list '(4 7 "x ")
@@ -75,11 +72,11 @@ END
 
       ;; The incomplete source cannot supply exact-analysis hints.
       (insert! 1 1 0 "(define\n")
-      (check-failed)
+      (check-empty)
 
       ;; Further edits must not revive the prior successful result.
       (insert! 2 5 7 "0 ")
-      (check-failed)
+      (check-empty)
 
       (client-send lsp
                    (make-notification "textDocument/didChange"
