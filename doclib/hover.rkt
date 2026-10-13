@@ -48,8 +48,8 @@
    [documentation (or/c Hover-Documentation? #f)])
   #:transparent)
 
-;; Map hover inputs onto the fixed renderer slots. Same-file source wins over a
-;; documentation signature. `link` is the final online URL.
+;; Map hover inputs onto the fixed renderer slots. Documentation excludes
+;; source snippets. `link` is the final online URL.
 (define (build-hover-card #:type-text type-text
                           #:type-stale? type-stale?
                           #:annotation annotation
@@ -62,7 +62,7 @@
          (Hover-Code-Summary type-text "racket")))
   (define definition
     (cond
-      [source-summary
+      [(and source-summary (not link))
        (Hover-Definition 'source source-summary)]
       [signature
        (Hover-Definition 'signature

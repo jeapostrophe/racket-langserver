@@ -751,10 +751,10 @@
     (if detail
         (values detail-start detail-end detail)
         (hover-detail-via-declaration hover-service declaration-service pos*)))
-  (define source-summary
-    (and resolved-detail (hover-detail->summary doc resolved-detail)))
   (match-define (list link tag)
     (interval-map-ref (send doc-trace get-docs) pos* (list #f #f)))
+  (define source-summary
+    (and (not link) resolved-detail (hover-detail->summary doc resolved-detail)))
   (define signature (hover-tag->signature tag))
   (define card
     (build-hover-card #:type-text type-text

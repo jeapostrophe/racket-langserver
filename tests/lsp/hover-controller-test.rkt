@@ -35,6 +35,46 @@
   result)
 
 (module+ test
+  (test-case "documented imported hover skips target reads and analysis"
+    (make-directory* scratch)
+    (define a (make-temporary-file "documented-hover~a.rkt" #f scratch))
+    (define starts (make-async-channel))
+    (define reads (make-async-channel))
+    (define text "#lang racket/base\n(list 1)\n")
+    (dynamic-wind
+      (lambda () (display-to-file text a #:exists 'truncate))
+      (lambda ()
+        (with-session
+          (make-source-controller
+            #:resyntax #f
+            #:read (lambda (path)
+                     (async-channel-put reads path)
+                     (file->string path))
+            #:analyze (lambda (snapshot)
+                        (async-channel-put starts (Source-Snapshot-source-id snapshot))
+                        (analyze-source snapshot)))
+          (lambda (session)
+            (open! session a text)
+            (barrier session)
+            (await (owner session (lambda (c)
+                                    (source-controller-acquire-analysis!
+                                      c (source-controller-snapshot c a)))))
+            (check-equal? (await starts) a)
+            (request session 1 a "textDocument/hover" (Pos 1 2))
+            (define result (hash-ref (response session 1) 'result))
+            (define contents (hash-ref result 'contents))
+            (check-true (string-contains? contents "**Documentation**"))
+            (check-true (string-contains? contents "**Signature**"))
+            (check-true (string-contains? contents "imported from"))
+            (check-false (string-contains? contents "**Source**"))
+            (check-equal? (hash-ref result 'range)
+                          (->jsexpr (Range (Pos 1 1) (Pos 1 5))))
+            (check-false (sync/timeout 0 reads))
+            (check-false (sync/timeout 0 starts))
+            (close! session a)
+            (barrier session))))
+      (lambda () (delete-file a))))
+
   (test-case "definition and hover share held analysis and alternating cached reads"
     (define gates (make-async-channel))
     (with-example

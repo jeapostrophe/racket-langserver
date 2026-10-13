@@ -682,6 +682,8 @@ Exceptions are noted in individual entries.
   analysis for supported direct phase-zero imports, keeping this document's
   type, annotation, documentation, and occurrence range. Open targets use their
   unsaved buffer; closed targets refresh disk text before answering.
+  When documentation is available, source snippets are omitted and the LSP
+  handler skips target acquisition, disk reads, and background analysis.
 
   Source forms are read from the current buffer through kept trace ranges while an
   old trace refreshes. Retained Typed Racket types remain visible as

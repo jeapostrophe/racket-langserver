@@ -1928,6 +1928,23 @@ END
         "```racket\n(define count 1)\n```")))
 
   (test-case
+    "build-hover-card excludes source when documentation is available"
+    (for ([signature (in-list '(#f "(count) -> integer?"))])
+      (define card
+        (build-hover-card #:type-text "Integer"
+                          #:type-stale? #f
+                          #:annotation #f
+                          #:link "https://example.com/count"
+                          #:signature signature
+                          #:source-summary (Hover-Code-Summary "(define count 1)" "racket")
+                          #:documentation-text "Returns the count."))
+      (check-not-false (Hover-Card-documentation card))
+      (check-equal? (and (Hover-Card-definition card)
+                         (Hover-Definition-kind (Hover-Card-definition card)))
+                    (and signature 'signature))
+      (check-false (string-contains? (render-hover-card card) "**Source**"))))
+
+  (test-case
     "build-hover-card labels a lone signature"
     (define card
       (build-hover-card #:type-text #f

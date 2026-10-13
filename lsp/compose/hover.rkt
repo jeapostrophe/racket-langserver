@@ -23,7 +23,9 @@
       (lambda (sd)
         (define doc (SafeDoc-doc sd))
         (define-values (card range) (doc-hover-data doc pos))
-        (values (SafeDoc-source-view sd) (doc-definition doc (Doc-uri doc) pos)
+        (values (SafeDoc-source-view sd)
+                (and (not (Hover-Card-documentation card))
+                     (doc-definition doc (Doc-uri doc) pos))
                 card range))))
   (define (compose summary)
     (define joined
