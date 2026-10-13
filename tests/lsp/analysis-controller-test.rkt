@@ -37,7 +37,12 @@
     (async-channel-put probes (Probe snapshot release))
     (match (async-channel-get release)
       ['raise (raise 'arbitrary-analysis-failure)]
-      ['die (kill-thread (current-thread))]
+      ['die
+       ;; Use an external killer so parallel self-kill scheduling cannot
+       ;; turn the intended worker-exited outcome into a timeout.
+       (define worker (current-thread))
+       (thread (lambda () (kill-thread worker)))
+       (sync never-evt)]
       [_ (analyze-source snapshot)])))
 
 (define (release! probe [value 'go])

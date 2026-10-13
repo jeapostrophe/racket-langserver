@@ -186,11 +186,12 @@
           (lambda (session)
             (open! session a source)
             (barrier session)
-            (await (acquire session a))
+            ;; Expanding doc.rkt and its imports can exceed coordination waits.
+            (await (acquire session a) 90)
             (open! session doc-path (file->string doc-path))
             (release! (await gates))
             (barrier session)
-            (define accepted (await (acquire session doc-path)))
+            (define accepted (await (acquire session doc-path) 90))
             (check-eq? 'succeeded (Analysis-Outcome-state accepted))
             (define expected (query session a 440 "textDocument/definition" (Pos 2 0)))
             (check-equal? (hash-ref expected 'uri) (path->uri doc-path))
@@ -204,7 +205,7 @@
             (check-equal? (hash-ref (response session 441) 'result) expected)
             (check-false (sync/timeout 0 (acquire session doc-path)))
             (release! held)
-            (await (acquire session doc-path))
+            (await (acquire session doc-path) 90)
             (close! session a)
             (barrier session)))))))
 

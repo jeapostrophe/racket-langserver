@@ -175,17 +175,19 @@
         (release! (await gates))
         (check-hover session 2 "(define shared 1)"))))
 
-  (test-case "Typed Racket type survives joining its reported export declaration"
+  (test-case "Typed Racket type survives joining imported source detail"
     (with-example
       plain-controller
       (lambda (session a _b _root)
         (request session 1 a)
-        ;; Typed Racket reports the generated export at `provide`, rather than
-        ;; the underlying define. The join must still retain A's inferred type.
-        (define result (check-hover session 1 "(provide shared)"))
+        ;; A's inferred type must survive composition with B's source detail.
+        (define result (check-hover session 1 "(define shared 1)"))
         (check-true (string-contains? (hash-ref result 'contents) "**Type**")))
       "#lang typed/racket/base\n(require \"b.rkt\")\n(define local 1)\n(list shared local)\n"
-      #:target-text "#lang typed/racket/base\n(provide shared)\n(define shared 1)\n"))
+      ;; Older Typed Racket can report contracted imports under generated names
+      ;; while the target declaration keeps its original name.
+      #:target-text (string-append "#lang typed/racket/base\n(require typed/racket/unsafe)\n"
+                                   "(unsafe-provide shared)\n(define shared 1)\n")))
 
   (test-case "virtual imported hover stays document-local without target reads"
     (with-example

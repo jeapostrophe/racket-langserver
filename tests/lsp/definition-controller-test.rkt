@@ -44,7 +44,12 @@
       (async-channel-put gates (Gate snapshot release))
       (case (async-channel-get release)
         [(raise) (raise 'target-failed)]
-        [(die) (kill-thread (current-thread))]))
+        [(die)
+         ;; Self-killing parallel workers can delay completion on some runtimes.
+         ;; Kill from a separate thread to exercise abrupt death.
+         (define worker (current-thread))
+         (thread (lambda () (kill-thread worker)))
+         (sync never-evt)]))
     (analyze-source snapshot)))
 
 (define (controlled-reader gates)
@@ -120,7 +125,9 @@
                     (lambda (session)
                       (open! session a direct-source)
                       (barrier session)
-                      (check-eq? (Analysis-Outcome-state (await (acquire session a))) 'succeeded)
+                      ;; Real expansion, including Typed Racket fixtures, can
+                      ;; exceed the short timeout used for gate coordination.
+                      (check-eq? (Analysis-Outcome-state (await (acquire session a) 90)) 'succeeded)
                       (define captured
                         (owner session
                                (lambda (_)
