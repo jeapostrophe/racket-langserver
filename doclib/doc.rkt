@@ -731,8 +731,8 @@
     [else
      (values #f #f #f)]))
 
-(define/contract (doc-hover doc pos)
-  (-> Doc? Pos? (or/c Hover? #f))
+(define/contract (doc-hover-data doc pos)
+  (-> Doc? Pos? (values Hover-Card? (or/c Range? #f)))
   (define doc-trace (Doc-trace doc))
   (define hover-service (send doc-trace get-hover))
   (define declaration-service (send doc-trace get-declaration))
@@ -753,33 +753,48 @@
         (hover-detail-via-declaration hover-service declaration-service pos*)))
   (define source-summary
     (and resolved-detail (hover-detail->summary doc resolved-detail)))
-  (cond
-    ;; Docs alone do not open a card. Type text, an annotation, or
-    ;; same-file source summary each can. Stored source detail may still
-    ;; supply summary and range when check-syntax produced no hover text.
-    [(and (not type-text) (not annotation) (not source-summary)) #f]
-    [else
-     (match-define (list link tag)
-       (interval-map-ref (send doc-trace get-docs) pos* (list #f #f)))
-     (define signature (hover-tag->signature tag))
-     (define documentation-text
-       (hover-documentation-text link signature))
-     (define hover-card
-       (build-hover-card #:type-text type-text
-                         #:type-stale? (not (doc-trace-latest? doc))
-                         #:annotation annotation
-                         #:link (and link
-                                     (make-proper-url-for-online-documentation link))
-                         #:signature signature
-                         #:source-summary source-summary
-                         #:documentation-text documentation-text))
-     (Hover #:contents (render-hover-card hover-card)
-            ;; Prefer inferred-type intervals, including literal and expression
-            ;; delimiter spans Typed Racket can publish without an annotation.
-            ;; Fall back to the winning annotation or kept source-detail range.
-            #:range (abs-range->range doc
-                                      (or type-start start use-start)
-                                      (or type-end end use-end)))]))
+  (match-define (list link tag)
+    (interval-map-ref (send doc-trace get-docs) pos* (list #f #f)))
+  (define signature (hover-tag->signature tag))
+  (define card
+    (build-hover-card #:type-text type-text
+                      #:type-stale? (not (doc-trace-latest? doc))
+                      #:annotation annotation
+                      #:link (and link (make-proper-url-for-online-documentation link))
+                      #:signature signature
+                      #:source-summary source-summary
+                      #:documentation-text (hover-documentation-text link signature)))
+  (define occurrence (send declaration-service occurrence-at pos*))
+  (define range-start (or type-start start use-start
+                          (and occurrence (CharRange-start occurrence))))
+  (define range-end (or type-end end use-end
+                        (and occurrence (CharRange-end occurrence))))
+  (values card (and range-start (abs-range->range doc range-start range-end))))
+
+(define/contract (doc-hover doc pos)
+  (-> Doc? Pos? (or/c Hover? #f))
+  (define-values (card range) (doc-hover-data doc pos))
+  (and (hover-card-opens? card)
+       (Hover #:contents (render-hover-card card) #:range range)))
+
+;; Extract bounded declaration summaries while the worker owns the completed
+;; Doc. Freeze text; response threads never consult its mutable services/buffer.
+(define/contract (doc-hover-summaries doc)
+  (-> Doc? (hash/c Module-Binding? Hover-Code-Summary? #:immutable #t))
+  (define service (send (Doc-trace doc) get-hover))
+  (for/fold ([summaries (hash)])
+            ([(binding location) (in-hash (Doc-Contribution-definitions
+                                            (Doc-contribution doc)))])
+    (define-values (_start _end detail)
+      (send service source-detail-at
+            (doc-pos->abs-pos doc (Range-start (Location-range location)))))
+    (define summary (and detail (hover-detail->summary doc detail)))
+    (if summary
+        (hash-set summaries binding
+                  (Hover-Code-Summary
+                    (string->immutable-string (Hover-Code-Summary-text summary))
+                    (string->immutable-string (Hover-Code-Summary-fence-language summary))))
+        summaries)))
 
 ;; Some clients spell a viewport end as a line past the last one. The range is
 ;; only a filter bound here, so clamp instead of failing the request.
@@ -1263,6 +1278,8 @@
          resyntax-result->diag
          resyntax-result->code-action
          doc-hover
+         doc-hover-data
+         doc-hover-summaries
          doc-inlay-hints
          doc-code-action
          doc-signature-help

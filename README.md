@@ -159,6 +159,20 @@ environment. Debug messages include document text received from the client.
 See [Racket's logging documentation](https://docs.racket-lang.org/reference/logging.html)
 for details.
 
+## Imported definition and hover
+
+Direct phase-zero imports use shared background analysis for definition locations
+and hover source/comment detail. Open targets use their current unsaved buffer;
+closed targets refresh saved text before answering. These queries also work
+outside workspace folders. Hover keeps the importing document's type,
+annotation, documentation, and occurrence range. Unchanged target revisions
+reuse the same analysis across both features.
+
+This freshness guarantee covers the target's own source text. Changes to its
+imported dependencies or macro environment do not yet invalidate cached analysis.
+Submodules and other phases retain the legacy definition lookup and local hover
+information.
+
 ## Virtual documents and exclusions
 
 Non-file URIs (including untitled buffers, notebook cells, and Git snapshots)

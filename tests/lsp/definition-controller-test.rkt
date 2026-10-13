@@ -101,7 +101,7 @@
   (thread (lambda () (async-channel-put (Session-responses session) (thunk)))))
 
 (define (with-example make-controller proc [source a-text] [binding-pos (Pos 3 7)]
-                      #:relative? [relative? #f])
+                      #:relative? [relative? #f] #:target-text [target-text saved])
   (make-directory* scratch)
   (define root (make-temporary-file "definition-controller~a" 'directory scratch))
   (define a (build-path root "a.rkt"))
@@ -114,7 +114,7 @@
         source
         (string-replace source "\"b.rkt\"" (format "(file ~s)" (path->string b)))))
   (dynamic-wind
-    (lambda () (write-text a direct-source) (write-text b saved))
+    (lambda () (write-text a direct-source) (write-text b target-text))
     (lambda ()
       (with-session (make-controller b)
                     (lambda (session)
@@ -142,6 +142,11 @@
 (define (gated-reader reads)
   (lambda (_b)
     (make-source-controller #:read (controlled-reader reads) #:resyntax #f)))
+
+(module+ test-support
+  (provide with-example plain-controller gated-analyzer gated-reader
+           release! edit! check-error check-location saved unsaved
+           (struct-out Gate)))
 
 (module+ test
   (test-case "closed targets share/reuse outside folders and publish nothing"

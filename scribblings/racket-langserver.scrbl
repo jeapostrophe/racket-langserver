@@ -671,15 +671,17 @@ Exceptions are noted in individual entries.
 
   When present, @tt{contents} follows the fixed @tt{Hover-Card} stack:
   @itemlist[
-    @item{Optional Typed Racket type fence, labeled @tt{Type} or
-          @tt{Type (stale)}}
-    @item{Optional fenced definition (same-file source, else docs signature).
-          Labeled @tt{Source}/@tt{Signature} only when a type precedes it}
-    @item{Optional documentation link and/or excerpt after at most one
-          @tt{---}}
-    @item{Optional check-syntax mouse-over text only when it is the sole
-          content. The text is unchanged and unlabeled}
+    @item{Optional Typed Racket type fence, labeled @tt{Type} or @tt{Type (stale)}}
+    @item{Optional fenced definition, labeled @tt{Source} or @tt{Signature}}
+    @item{The winning annotation, labeled @tt{Mouse-over status} or @tt{Log tooltip}}
+    @item{Optional documentation excerpt/link, labeled @tt{Documentation}}
   ]
+
+  This document-local read does not acquire imported files. The LSP handler
+  additionally composes source/comment summaries from a shared background
+  analysis for supported direct phase-zero imports, keeping this document's
+  type, annotation, documentation, and occurrence range. Open targets use their
+  unsaved buffer; closed targets refresh disk text before answering.
 
   Source forms are read from the current buffer through kept trace ranges while an
   old trace refreshes. Retained Typed Racket types remain visible as

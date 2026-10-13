@@ -15,6 +15,7 @@
          "../workspace/current.rkt"
          "compose/references.rkt"
          "compose/definition.rkt"
+         "compose/hover.rkt"
          "semantic-token-lsp.rkt"
          "analysis-query.rkt"
          "source-controller.rkt"
@@ -74,11 +75,7 @@
     [(hash-table ['textDocument (DocIdentifier-js #:uri uri)]
                  ['position (as-Pos pos)])
      (define safe-doc (lsp-get-doc uri))
-     (define result
-       (with-read-doc safe-doc
-         (λ (doc)
-           (doc-hover doc pos))))
-     (success/enc id result)]
+     (hover-query safe-doc id pos)]
     [_
      (error-response id ErrorCode-InvalidParams "textDocument/hover failed")]))
 
@@ -343,7 +340,7 @@
   did-change!
   (contract-out
     [did-close! (jsexpr? . -> . void?)]
-    [hover (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]
+    [hover (exact-nonnegative-integer? jsexpr? . -> . (or/c jsexpr? (-> jsexpr?)))]
     [code-action (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]
     [completion (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]
     [signatureHelp (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]

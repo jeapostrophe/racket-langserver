@@ -22,7 +22,8 @@
          (struct-out Hover-Documentation)
          build-hover-card
          render-hover-card
-         hover-card-has-content?)
+         hover-card-has-content?
+         hover-card-opens?)
 
 (struct/contract Hover-Code-Summary
   ([text string?]
@@ -149,6 +150,13 @@
           (if body-present?
               (format "~a\n\n~a" heading body)
               heading))]))
+
+;; Documentation/signature alone does not open a card.
+(define (hover-card-opens? card)
+  (or (Hover-Card-type card)
+      (Hover-Card-annotation card)
+      (and (Hover-Card-definition card)
+           (eq? (Hover-Definition-kind (Hover-Card-definition card)) 'source))))
 
 (define (hover-card-has-content? card)
   (or (Hover-Card-type card)

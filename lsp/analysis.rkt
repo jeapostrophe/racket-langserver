@@ -10,6 +10,7 @@
          "../common/interfaces.rkt"
          "../common/path-util.rkt"
          "../doclib/doc.rkt"
+         "../doclib/hover.rkt"
          "../doclib/check-syntax.rkt"
          "../doclib/doc-trace.rkt"
          "../doclib/internal-types.rkt"
@@ -21,7 +22,8 @@
          (struct-out Analysis-Outcome))
 
 (struct/contract Analysis-Facts
-  ([definitions (hash/c Module-Binding? Range? #:immutable #t)])
+  ([definitions (hash/c Module-Binding? Range? #:immutable #t)]
+   [hover-summaries (hash/c Module-Binding? Hover-Code-Summary? #:immutable #t)])
   #:transparent)
 
 (struct/contract Analysis-Product
@@ -56,6 +58,7 @@
   (when succeeded?
     (doc-update-trace! doc trace contribution 0))
   (Analysis-Product succeeded?
-                    (and succeeded? (Analysis-Facts (doc-definition-ranges doc)))
+                    (and succeeded? (Analysis-Facts (doc-definition-ranges doc)
+                                                    (doc-hover-summaries doc)))
                     (freeze-json (->jsexpr (set->list (send trace get-warn-diags))))
                     trace contribution))
