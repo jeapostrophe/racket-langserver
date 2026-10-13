@@ -224,7 +224,9 @@
                         (open! session path source)
                         (release! (await gates))
                         (barrier session)
-                        (check-eq? 'succeeded (Analysis-Outcome-state (await (acquire session path))))
+                        ;; Expanding a Typed Racket dependency can exceed the
+                        ;; short coordination timeout on older runtimes.
+                        (check-eq? 'succeeded (Analysis-Outcome-state (await (acquire session path) 90)))
                         (define original (query session path 450 "textDocument/hover"))
                         (check-true (string-contains? (hash-ref original 'contents) "**Type**"))
                         (close! session path)
@@ -237,7 +239,7 @@
                         (check-equal? (query session path 451 "textDocument/hover") original)
                         (check-false (sync/timeout 0 fresh))
                         (release! held)
-                        (check-eq? 'succeeded (Analysis-Outcome-state (await fresh)))
+                        (check-eq? 'succeeded (Analysis-Outcome-state (await fresh 90)))
                         (define replacement (query session path 452 "textDocument/hover"))
                         (check-true (string-contains? (hash-ref replacement 'contents) "String"))
                         (check-not-equal? replacement original)

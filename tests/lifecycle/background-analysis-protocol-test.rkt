@@ -8,6 +8,7 @@
          "../../common/path-util.rkt"
          "../../common/interfaces.rkt"
          "../../common/json-util.rkt"
+         "../../common/time.rkt"
          "../../lsp/msg-io.rkt")
 
 (define-runtime-path main-path "../../main.rkt")
@@ -52,10 +53,10 @@
 
 (define (wait-entered root)
   (define marker (build-path root "entered"))
-  (define deadline (+ (current-inexact-monotonic-milliseconds) 20000))
+  (define deadline (+ (current-deadline-milliseconds) 20000))
   (let loop ()
     (unless (file-exists? marker)
-      (when (>= (current-inexact-monotonic-milliseconds) deadline)
+      (when (>= (current-deadline-milliseconds) deadline)
         (error 'wait-entered "target did not reach expansion gate"))
       (sleep 0.01)
       (loop))))
@@ -106,14 +107,14 @@
               (define msg (hasheq 'jsonrpc "2.0" 'method method 'params params))
               (display-message/flush (if id (hash-set msg 'id id) msg) stdin))
             (define (response id)
-              (define deadline (+ (current-inexact-monotonic-milliseconds) 20000))
+              (define deadline (+ (current-deadline-milliseconds) 20000))
               (define result
                 (or (hash-ref pending id #f)
                     (let loop ()
-                      (when (>= (current-inexact-monotonic-milliseconds) deadline)
+                      (when (>= (current-deadline-milliseconds) deadline)
                         (error 'response "response deadline expired for ~a" id))
                       (define msg
-                        (sync/timeout (max 0 (/ (- deadline (current-inexact-monotonic-milliseconds)) 1000))
+                        (sync/timeout (max 0 (/ (- deadline (current-deadline-milliseconds)) 1000))
                                       messages))
                       (unless msg (error 'response "no response for ~a" id))
                       (when (exn? msg) (raise msg))

@@ -36,9 +36,9 @@
    [pending hash?])
   #:transparent)
 
-(define (await event)
-  (define value (sync/timeout 5 (wrap-evt event list)))
-  (unless value (error 'await "event did not complete within 5 seconds"))
+(define (await event [timeout 5])
+  (define value (sync/timeout timeout (wrap-evt event list)))
+  (unless value (error 'await "event did not complete within ~a seconds" timeout))
   (car value))
 
 (define (owner session proc)
