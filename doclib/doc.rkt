@@ -246,6 +246,21 @@
   (set-Doc-contribution! doc new-contribution)
   (set-Doc-trace-version! doc new-version))
 
+;; Release a trace before transferring it to retained storage. Old SafeDoc
+;; holders must never mutate the trace subsequently installed in a new buffer.
+(define/contract (doc-detach-analysis! doc)
+  (-> Doc? void?)
+  (define source (Doc-source doc))
+  (set-Doc-trace! doc
+                  (new build-trace%
+                    [src (source-backend-path source)]
+                    [source source]
+                    [doc-text (Doc-text doc)]
+                    [lexer-state (doc-lexer-state doc)]))
+  (set-Doc-contribution! doc #f)
+  (set-Doc-trace-version! doc #f)
+  (invalidate-resyntax-results! doc))
+
 (define/contract (doc-trace-latest? doc)
   (-> Doc? boolean?)
   (equal? (Doc-version doc) (Doc-trace-version doc)))
@@ -1265,6 +1280,7 @@
          doc-language-policy
          doc-body-forest
          doc-expand
+         doc-detach-analysis!
          doc-update-trace!
          doc-trace-latest?
          doc-expand!

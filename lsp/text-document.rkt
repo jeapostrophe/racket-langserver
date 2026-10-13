@@ -55,6 +55,7 @@
     (with-write-safedoc safe-doc
       (λ (sd)
         (define doc (SafeDoc-doc sd))
+        (source-controller-edited! (current-source-controller) source-id sd)
         (for ([change (in-list content-changes*)])
           (match change
             [(^ContentChangeEvent-Incremental #:range range #:text text)
@@ -62,8 +63,7 @@
             [(^ContentChangeEvent-Full #:text text)
              (doc-reset! doc text)]))
 
-        (doc-update-version! doc version)
-        (source-controller-edited! (current-source-controller) source-id sd)))
+        (doc-update-version! doc version)))
 
     (source-controller-analyze! (current-source-controller) source-id)))
 

@@ -5,6 +5,7 @@
          racket/class
          racket/match
          racket/logging
+         racket/list
          racket/place
          "../../common/debug.rkt"
          "../../common/interfaces.rkt"
@@ -655,5 +656,89 @@
                     (check-false (sync/timeout 0 fresh))
                     (release! held)
                     (check-eq? 'succeeded (Analysis-Outcome-state (await fresh)))
+                    (close! session path)
+                    (barrier session)))))
+
+(module+ test
+  (test-case "unchanged close/reopen transfers analysis through new lifetimes and original URIs"
+    (define probes (make-async-channel))
+    (with-session (make-source-controller #:analyze (controlled-analyzer probes) #:resyntax #f)
+                  (lambda (session)
+                    (define path (uri->path canonical-uri))
+                    (open! session path text 7)
+                    (release! (await probes))
+                    (barrier session)
+                    (await (acquire session path))
+                    (request session "textDocument/semanticTokens/full" 210 path)
+                    (define expected (hash-ref (response session 210) 'result))
+                    (for ([cycle (in-range 3)])
+                      (define old (owner session (lambda (_) (lsp-get-doc canonical-uri))))
+                      (define old-view (view session path))
+                      (close! session path)
+                      (barrier session)
+                      (notify session "textDocument/didOpen"
+                              (hasheq 'textDocument (hasheq 'uri localhost-uri 'languageId "racket"
+                                                            'version 7 'text text)))
+                      (define held (await probes))
+                      (barrier session)
+                      (define fresh (acquire session path))
+                      (check-false (sync/timeout 0 fresh))
+                      (check-not-eq? old-view (view session path))
+                      (check-false (with-read-safedoc old SafeDoc-available))
+                      ;; Even mutation through a captured old buffer cannot damage the restored trace.
+                      (with-write-doc old (lambda (doc) (doc-reset! doc "")))
+                      (async-channel-put (Session-clients session)
+                                         (hasheq 'id 211 'method "textDocument/semanticTokens/full"
+                                                 'params (hasheq 'textDocument (hasheq 'uri localhost-uri))))
+                      (check-equal? (hash-ref (response session 211) 'result) expected)
+                      (check-true (owner session (lambda (_)
+                                                   (with-read-doc (lsp-get-doc localhost-uri) doc-trace-latest?))))
+                      (check-equal? (hash-ref (hash-ref (last (notifications session)) 'params) 'uri)
+                                    localhost-uri)
+                      (release! held)
+                      (check-eq? 'succeeded (Analysis-Outcome-state (await fresh)))
+                      ;; Switch back to the canonical spelling for the next iteration.
+                      (notify session "textDocument/didClose" (hasheq 'textDocument (hasheq 'uri localhost-uri)))
+                      (barrier session)
+                      (open! session path text 7)
+                      (release! (await probes))
+                      (barrier session)
+                      (await (acquire session path)))
+                    (close! session path)
+                    (barrier session))))
+
+  (test-case "different reopened text and unfinished edits never restore completed analysis"
+    (define probes (make-async-channel))
+    (with-session (make-source-controller #:analyze (controlled-analyzer probes) #:resyntax #f)
+                  (lambda (session)
+                    (define path (build-path scratch "retention-mismatch.rkt"))
+                    (open! session path text 7)
+                    (release! (await probes))
+                    (barrier session)
+                    (await (acquire session path))
+                    (close! session path)
+                    (barrier session)
+                    (define changed (string-append text "; changed\n"))
+                    (open! session path changed 7)
+                    (define held (await probes))
+                    (barrier session)
+                    (check-false (owner session (lambda (_) (with-read-safedoc
+                                                              (lsp-get-doc (path->uri path)) SafeDoc-available))))
+                    (release! held)
+                    (await (acquire session path))
+                    (edit! session path 7 text)
+                    (await probes)
+                    (close! session path)
+                    (barrier session)
+                    ;; The edited trace must not be mistaken for a completed result for text.
+                    (open! session path text 7)
+                    (define cold (await probes))
+                    (barrier session)
+                    (request session "textDocument/semanticTokens/full" 212 path)
+                    (barrier session)
+                    (check-false (sync/timeout 0 (Session-responses session)))
+                    (check-false (hash-has-key? (Session-pending session) 212))
+                    (release! cold)
+                    (check-not-false (hash-ref (response session 212) 'result #f))
                     (close! session path)
                     (barrier session)))))

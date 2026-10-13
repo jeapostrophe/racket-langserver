@@ -9,6 +9,7 @@
 (require racket/async-channel
          racket/contract
          racket/file
+         racket/list
          racket/match
          racket/port
          "../common/debug.rkt"
@@ -90,7 +91,10 @@
    [analyze (-> Source-Snapshot? Analysis-Product?)]
    [resyntax (or/c #f (-> string? string? list?))]
    [analysis-timeout (and/c real? (>=/c 0))]
-   [notify (-> string? any/c any/c)])
+   [notify (-> string? any/c any/c)]
+   [retained (and/c hash? (not/c immutable?))]
+   [retained-order list?]
+   [retained-limit exact-nonnegative-integer?])
   #:mutable
   #:transparent)
 
@@ -130,11 +134,13 @@
                                 #:analyze [analyze analyze-source]
                                 #:analysis-slots [slots 2]
                                 #:analysis-timeout [analysis-timeout 90]
+                                #:retained-limit [retained-limit 32]
                                 #:resyntax [resyntax (and (resyntax-available?)
                                                           run-resyntax/in-place)])
   (Source-Controller (make-source-store) (make-async-channel) (make-hash)
                      read timeout (make-semaphore 0) (make-hash) '() 0
-                     slots analyze resyntax analysis-timeout (lambda (_method _params) (void))))
+                     slots analyze resyntax analysis-timeout (lambda (_method _params) (void))
+                     (make-hash) '() retained-limit))
 
 (define (source-controller-set-notifier! controller notify)
   (set-Source-Controller-notify! controller notify))
@@ -220,6 +226,39 @@
     (complete-lane! lane result)
     (hash-remove! lanes source-id)))
 
+(define (remove-retained! controller source-id)
+  (hash-remove! (Source-Controller-retained controller) source-id)
+  (set-Source-Controller-retained-order!
+    controller (remove source-id (Source-Controller-retained-order controller))))
+
+;; Only closed sources occupy the bounded cache. Live traces belong to SafeDoc;
+;; eviction never removes active projections or changes source authority.
+(define (retain! controller source-id available)
+  (remove-retained! controller source-id)
+  (hash-set! (Source-Controller-retained controller) source-id available)
+  (set-Source-Controller-retained-order!
+    controller (append (Source-Controller-retained-order controller) (list source-id)))
+  (when (> (hash-count (Source-Controller-retained controller))
+           (Source-Controller-retained-limit controller))
+    (remove-retained! controller (car (Source-Controller-retained-order controller)))))
+
+(define (matching-retained controller snapshot)
+  (define source-id (Source-Snapshot-source-id snapshot))
+  (define available (hash-ref (Source-Controller-retained controller) source-id #f))
+  (and available
+       (equal? (Source-Snapshot-text snapshot)
+               (Source-Snapshot-text (Available-Analysis-snapshot available)))
+       available))
+
+(define (install-available! controller sd available snapshot)
+  (define product (Available-Analysis-product available))
+  (define doc (SafeDoc-doc sd))
+  (doc-update-trace! doc (Analysis-Product-trace product)
+                     (Analysis-Product-contribution product) (Doc-version doc))
+  (set-SafeDoc-available! sd (Available-Analysis snapshot product))
+  (workspace-set-contribution! current-workspace (Analysis-Product-contribution product))
+  (publish-diagnostics! controller (Doc-uri doc) (Analysis-Product-diagnostics product)))
+
 (define (source-controller-open! controller source-id safe-doc)
   (with-write-safedoc safe-doc
     (lambda (sd)
@@ -227,7 +266,16 @@
                                 (source-store-open! (Source-Controller-store controller)
                                                     source-id sd))))
   (invalidate-jobs! controller source-id)
-  (invalidate-reads! controller source-id))
+  (invalidate-reads! controller source-id)
+  (when (path? source-id)
+    (define snapshot (source-controller-snapshot controller source-id))
+    (define available (matching-retained controller snapshot))
+    ;; Take ownership even on a mismatch: an older text must not remain eligible
+    ;; after this buffer starts adjusting its trace.
+    (remove-retained! controller source-id)
+    (when available
+      (with-write-safedoc safe-doc
+        (lambda (sd) (install-available! controller sd available snapshot))))))
 
 ;; Called within the edit's existing write-lock section. This updates the
 ;; authoritative record and its SafeDoc projection before another reader enters.
@@ -236,6 +284,7 @@
                             (source-store-edit! (Source-Controller-store controller) source-id))
   (set-SafeDoc-analysis! sd #f)
   (set-SafeDoc-available! sd #f)
+  (remove-retained! controller source-id)
   (invalidate-jobs! controller source-id))
 
 ;; Close drops buffer authority without a read. Files become unobserved;
@@ -244,6 +293,12 @@
   (define uri
     (with-write-safedoc safe-doc
       (lambda (sd)
+        (define available (SafeDoc-available sd))
+        (when (and (path? source-id) available
+                   (eq? (Source-Snapshot-revision (Available-Analysis-snapshot available))
+                        (Source-View-revision (SafeDoc-source-view sd))))
+          (doc-detach-analysis! (SafeDoc-doc sd))
+          (retain! controller source-id available))
         (source-store-close! (Source-Controller-store controller) source-id)
         (set-SafeDoc-source-view! sd #f)
         (set-SafeDoc-analysis! sd #f)
@@ -258,6 +313,7 @@
 
 (define (source-controller-invalidate! controller source-id)
   (when (path? source-id)
+    (remove-retained! controller source-id)
     (define store (Source-Controller-store controller))
     (define buffer (source-store-buffer store source-id))
     (if buffer
@@ -390,7 +446,9 @@
       (define active (Read-Lane-active lane))
       (custodian-shutdown-all (Read-Attempt-custodian active))
       (complete-lane! lane (Source-Failure 'shutdown)))
-    (hash-clear! (Source-Controller-lanes controller))))
+    (hash-clear! (Source-Controller-lanes controller))
+    (hash-clear! (Source-Controller-retained controller))
+    (set-Source-Controller-retained-order! controller '())))
 
 (define (job-key job)
   (cons (Source-Snapshot-source-id (Job-snapshot job)) (Job-kind job)))
@@ -544,6 +602,8 @@
           (when (path? source-id)
             (workspace-set-contribution! current-workspace contribution)))
         (publish-diagnostics! controller (Doc-uri doc) (Analysis-Product-diagnostics product)))))
+  (when (and (not buffer) (path? source-id) (Analysis-Product-succeeded? product))
+    (retain! controller source-id (Available-Analysis (Job-snapshot job) product)))
   (Analysis-Outcome (if (Analysis-Product-succeeded? product) 'succeeded 'unsuccessful)
                     (Analysis-Product-facts product)))
 
