@@ -16,6 +16,7 @@
          "../common/path-util.rkt"
          "../common/settings.rkt"
          "../common/time.rkt"
+         "../common/version.rkt"
          "../doclib/doc.rkt"
          "../doclib/external/resyntax.rkt"
          "../workspace/current.rkt"
@@ -469,8 +470,14 @@
   ;; Reading, lexing, expansion and extraction all inherit this output scope.
   (parameterize ([current-custodian custodian]
                  [current-output-port (open-output-nowhere)])
+    ;; Keep each expansion pool under its attempt custodian so cancellation
+    ;; releases its processor resources along with the worker.
+    (define launch-worker
+      (if (and (eq? (Job-kind job) 'analysis) support/parallel-threads?)
+          (lambda (thunk) (thread thunk #:pool 'own))
+          thread))
     (define worker
-      (thread
+      (launch-worker
         (lambda ()
           (define result
             (with-handlers ([(lambda (_) #t) (lambda (reason) (Analysis-Outcome 'failed reason))])
