@@ -41,6 +41,7 @@
          source-controller-close!
          source-controller-invalidate!
          source-controller-analyze!
+         source-controller-query-analysis!
          source-controller-acquire-analysis!
          source-controller-set-notifier!
          source-controller-shutdown-evt
@@ -227,6 +228,13 @@
     (hash-remove! lanes source-id)))
 
 (define (remove-retained! controller source-id)
+  ;; Eviction drops closed completed jobs too, so immutable facts cannot bypass
+  ;; the cache bound. Existing waiters still own their broadcast outcome.
+  (define key (cons source-id 'analysis))
+  (define job (hash-ref (Source-Controller-jobs controller) key #f))
+  (when (and job (eq? 'terminal (Job-state job))
+             (not (source-store-buffer (Source-Controller-store controller) source-id)))
+    (hash-remove! (Source-Controller-jobs controller) key))
   (hash-remove! (Source-Controller-retained controller) source-id)
   (set-Source-Controller-retained-order!
     controller (remove source-id (Source-Controller-retained-order controller))))
@@ -514,6 +522,29 @@
      (pump-jobs! controller)
      event]))
 
+;; Query availability without treating restoration as fresh completion. Always
+;; start/join the revision's job first; only pending work can use retained facts.
+(define (source-controller-query-analysis! controller snapshot)
+  (define event (source-controller-acquire-analysis! controller snapshot))
+  (define source-id (Source-Snapshot-source-id snapshot))
+  (define buffer (source-store-buffer (Source-Controller-store controller) source-id))
+  (define available
+    (if buffer
+        (with-read-safedoc buffer SafeDoc-available)
+        (matching-retained controller snapshot)))
+  (cond
+    [(or (stopped? controller)
+         (not (eq? (Source-Snapshot-revision snapshot)
+                   (Source-View-revision (source-controller-view controller source-id))))
+         (sync/timeout 0 event)
+         (not available))
+     event]
+    [else
+     (wrap-evt always-evt
+               (lambda (_)
+                 (Analysis-Outcome 'succeeded
+                                   (Analysis-Product-facts (Available-Analysis-product available)))))]))
+
 (define (source-controller-analyze! controller source-id)
   (define snapshot (source-controller-snapshot controller source-id))
   (when snapshot
@@ -628,8 +659,21 @@
           [(Analysis-Outcome? result) result]
           [(eq? 'analysis (Job-kind job)) (accept-analysis! controller job result)]
           [else (accept-resyntax! controller job result)])))
+    (when (and (eq? 'analysis (Job-kind job))
+               (not (eq? 'succeeded (Analysis-Outcome-state outcome))))
+      (define source-id (Source-Snapshot-source-id (Job-snapshot job)))
+      (remove-retained! controller source-id)
+      (define buffer (source-store-buffer (Source-Controller-store controller) source-id))
+      (when buffer
+        (with-write-safedoc buffer (lambda (sd) (set-SafeDoc-available! sd #f)))))
     ;; Acceptance installs the trace before broadcasting success to queries.
     (settle-job! controller job outcome)
+    (when (and (eq? 'analysis (Job-kind job))
+               (not (source-store-buffer (Source-Controller-store controller)
+                                         (Source-Snapshot-source-id (Job-snapshot job))))
+               (not (hash-has-key? (Source-Controller-retained controller)
+                                   (Source-Snapshot-source-id (Job-snapshot job)))))
+      (hash-remove! (Source-Controller-jobs controller) (job-key job)))
     (when (and (eq? 'analysis (Job-kind job))
                (eq? 'succeeded (Analysis-Outcome-state outcome))
                (source-store-buffer (Source-Controller-store controller)

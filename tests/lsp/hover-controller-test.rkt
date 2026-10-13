@@ -226,3 +226,25 @@
         (for ([summary (in-hash-values summaries)])
           (check-true (immutable? (Hover-Code-Summary-text summary)))
           (check-true (immutable? (Hover-Code-Summary-fence-language summary))))))))
+
+(module+ test
+  (test-case "closed target hover returns retained source detail before refresh completes"
+    (define gates (make-async-channel))
+    (with-example
+      (gated-analyzer gates)
+      (lambda (session a b _root)
+        (open! session b saved 7)
+        (release! (await gates))
+        (barrier session)
+        (await (owner session (lambda (c)
+                                (source-controller-acquire-analysis!
+                                  c (source-controller-snapshot c b)))))
+        (close! session b)
+        (barrier session)
+        (request session 301 a)
+        (define held (await gates))
+        (check-hover session 301 "(define shared 1)")
+        (request session 302 a)
+        (check-hover session 302 "(define shared 1)")
+        (check-false (sync/timeout 0 gates))
+        (release! held)))))

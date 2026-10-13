@@ -59,7 +59,7 @@
         (define outcome
           (if shared?
               (target-wait
-                (owner (lambda (c) (source-controller-acquire-analysis! c snapshot))))
+                (owner (lambda (c) (source-controller-query-analysis! c snapshot))))
               (legacy target target-wait)))
         ;; Validate every shared outcome, including cached success and
         ;; failed/stopped attempts. A save can make that outcome obsolete.
