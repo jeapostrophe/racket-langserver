@@ -15,7 +15,6 @@
          "../../doclib/internal-types.rkt"
          "../../lsp/lsp.rkt"
          "../../lsp/safedoc.rkt"
-         (prefix-in text-document/ "../../lsp/text-document.rkt")
          "../../workspace/api.rkt"
          "../../workspace/current.rkt"
          racket/async-channel
@@ -132,7 +131,10 @@
       (displayln "Two repeated definitions: 2 target expansions; no B contribution")
 
       (define before-hover (expansion-count root))
-      (define hover-result (hash-ref (text-document/hover 3 import-params) 'result))
+      ;; Preserve the historical document-local hover after Step 5 adds
+      ;; imported detail through deferred LSP composition.
+      (define hover-result
+        (->jsexpr (with-read-doc safe-a (lambda (doc) (doc-hover doc (Pos 3 7))))))
       (define contents (hash-ref hover-result 'contents))
       (check-true (string-contains? contents "imported from"))
       (check-false (string-contains? contents "**Source**"))
