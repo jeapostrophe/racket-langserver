@@ -533,12 +533,7 @@
         (with-read-safedoc buffer SafeDoc-available)
         (matching-retained controller snapshot)))
   (cond
-    [(or (stopped? controller)
-         (not (eq? (Source-Snapshot-revision snapshot)
-                   (Source-View-revision (source-controller-view controller source-id))))
-         (sync/timeout 0 event)
-         (not available))
-     event]
+    [(or (sync/timeout 0 event) (not available)) event]
     [else
      (wrap-evt always-evt
                (lambda (_)
