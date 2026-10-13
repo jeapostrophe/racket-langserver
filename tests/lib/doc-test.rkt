@@ -683,7 +683,7 @@
     (delete-file tmp-file))
 
   (test-case
-    "doc-definition follows a for-syntax import by submodule and id"
+    "doc-definition captures a for-syntax import without resolving the target"
     (define temp-dir (make-temporary-file "import-shift~a" 'directory))
     (dynamic-wind
       void
@@ -707,10 +707,8 @@
         (define use-uri (path->uri use-path))
         (define d (make-doc use-uri use-text))
         (check-true (doc-expand! d))
-        (define loc (doc-definition d use-uri (Pos 3 12)))
-        (check-equal? loc
-                      (Location (path->uri lib-path)
-                                (Range (Pos 2 8) (Pos 2 11)))))
+        (check-equal? (doc-definition d use-uri (Pos 3 12))
+                      (Module-Binding lib-path '() 1 'foo)))
       (lambda ()
         (delete-directory/files temp-dir))))
 
@@ -1326,10 +1324,9 @@ END
   (test-case
     "doc-definition for imported define"
     (define-values (d uri) (make-expanded-doc))
-    ;; "define" at line 1 → jumps to external file
     (define result (doc-definition d uri (Pos 1 1)))
-    ;; URI should point to the racket source file, not our test file
-    (check-not-equal? (Location-uri result) uri
+    (check-true (Module-Binding? result))
+    (check-not-equal? (Module-Binding-filepath result) (uri->path uri)
                       "imported define should point to external file"))
 
   (test-case

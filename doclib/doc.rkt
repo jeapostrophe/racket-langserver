@@ -957,23 +957,17 @@
   (CompletionList #:isIncomplete #t
                   #:items result))
 
-;; Definition: returns a Location or #f.
+;; Document-local capture only. Imported bindings are resolved by LSP composition
+;; after releasing this document's lock.
 (define/contract (doc-definition doc uri pos)
-  (-> Doc? string? Pos? (or/c Location? #f))
+  (-> Doc? string? Pos? (or/c Location? Module-Binding? #f))
   (define definition-range (doc-definition-at doc pos))
   (cond
     [definition-range
      (Location #:uri uri
                #:range definition-range)]
     [(Virtual-Source? (Doc-source doc)) #f]
-    [else
-     (match (doc-module-binding-at doc pos)
-       [(Module-Binding path submods _phase+space id)
-        (define def-range (doc-get-definition-by-id path submods id))
-        (and def-range
-             (Location #:uri (source-location->uri (Doc-source doc) path)
-                       #:range def-range))]
-       [#f #f])]))
+    [else (doc-module-binding-at doc pos)]))
 
 ;; References: live locations for this document, plus an optional Module-Binding
 ;; for workspace lookup when the identifier is module-backed.

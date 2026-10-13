@@ -5,10 +5,8 @@
 (require json
          racket/match
          racket/list
-         racket/bool
          racket/contract
          "../common/interfaces.rkt"
-         "../common/json-util.rkt"
          "responses.rkt"
          "safedoc.rkt"
          "../common/settings.rkt"
@@ -16,15 +14,13 @@
          (only-in "../doclib/formatting.rkt" exn:fail:fmt?)
          "../workspace/current.rkt"
          "compose/references.rkt"
+         "compose/definition.rkt"
          "semantic-token-lsp.rkt"
          "analysis-query.rkt"
          "source-controller.rkt"
          "../common/path-util.rkt"
          "lsp.rkt"
          "workspace.rkt")
-
-(define (success/enc id result)
-  (success-response id (if (false? result) (json-null) (->jsexpr result))))
 
 (define client-capability-hierarchical-document-symbol? (make-parameter #f))
 
@@ -142,10 +138,7 @@
     [(hash-table ['textDocument (DocIdentifier-js #:uri uri)]
                  ['position (as-Pos pos)])
      (define safe-doc (lsp-get-doc uri))
-     (define result
-       (with-read-doc safe-doc
-         (λ (doc) (doc-definition doc uri pos))))
-     (success/enc id result)]
+     (definition-query safe-doc id uri pos)]
     [_
      (error-response id ErrorCode-InvalidParams "textDocument/definition failed")]))
 
@@ -354,7 +347,7 @@
     [code-action (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]
     [completion (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]
     [signatureHelp (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]
-    [definition (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]
+    [definition (exact-nonnegative-integer? jsexpr? . -> . (or/c jsexpr? (-> jsexpr?)))]
     [document-highlight (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]
     [references (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]
     [document-symbol (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]

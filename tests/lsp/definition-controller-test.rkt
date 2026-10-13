@@ -1,0 +1,546 @@
+#lang racket/base
+
+;; Cross-file definition requests use the production serial consumer. Gates
+;; mark actual reads and target analysis starts; no sleep establishes ordering.
+(require json
+         rackunit
+         racket/async-channel
+         racket/file
+         racket/path
+         racket/string
+         "../../common/debug.rkt"
+         "../../common/interfaces.rkt"
+         "../../common/json-util.rkt"
+         "../../common/path-util.rkt"
+         "../../doclib/doc.rkt"
+         "../../doclib/internal-types.rkt"
+         "../../lsp/analysis.rkt"
+         "../../lsp/analysis-query.rkt"
+         (prefix-in text-document/ "../../lsp/text-document.rkt")
+         "../../lsp/lsp.rkt"
+         "../../lsp/safedoc.rkt"
+         "../../lsp/source-controller.rkt"
+         "../../workspace/api.rkt"
+         "../../workspace/current.rkt"
+         "../../workspace/source-store.rkt"
+         (submod "source-controller-test.rkt" test-support))
+
+(struct Gate (input release) #:transparent)
+
+(define saved "#lang racket/base\n(provide shared)\n(define shared 1)\n")
+(define unsaved "#lang racket/base\n(provide shared)\n\n;; Unsaved\n(define shared 2)\n")
+(define a-text "#lang racket/base\n(require \"b.rkt\")\n(define local 1)\n(list shared local)\n")
+
+(define (write-text path text)
+  (call-with-output-file path #:exists 'truncate (lambda (out) (display text out))))
+
+(define (release! gate [value 'go])
+  (async-channel-put (Gate-release gate) value))
+
+(define (controlled-analyzer path gates)
+  (lambda (snapshot)
+    (when (equal? path (Source-Snapshot-source-id snapshot))
+      (define release (make-async-channel))
+      (async-channel-put gates (Gate snapshot release))
+      (case (async-channel-get release)
+        [(raise) (raise 'target-failed)]
+        [(die) (kill-thread (current-thread))]))
+    (analyze-source snapshot)))
+
+(define (controlled-reader gates)
+  (lambda (path)
+    (define release (make-async-channel))
+    (async-channel-put gates (Gate path release))
+    (case (async-channel-get release)
+      [(raise) (raise 'read-failed)]
+      [(missing) (Disk-Missing)]
+      [else (file->string path)])))
+
+(define (acquire session path)
+  (owner session
+         (lambda (c) (source-controller-acquire-analysis!
+                       c (source-controller-snapshot c path)))))
+
+(define (request session id path [pos (Pos 3 7)])
+  (async-channel-put (Session-clients session)
+                     (hasheq 'id id 'method "textDocument/definition"
+                             'params (hasheq 'textDocument (hasheq 'uri (path->uri path))
+                                             'position (->jsexpr pos)))))
+
+(define (edit! session path text)
+  (notify session "textDocument/didChange"
+          (hasheq 'textDocument (hasheq 'uri (path->uri path) 'version 1)
+                  'contentChanges (list (hasheq 'text text)))))
+
+;; Columns 8 through 14 span the shared identifier in the target fixtures.
+(define (check-location session id b [line 2])
+  (check-equal? (hash-ref (response session id) 'result)
+                (->jsexpr (Location (path->uri b) (Range (Pos line 8) (Pos line 14))))))
+
+(define (check-error session id code [message #f])
+  (define error (hash-ref (response session id) 'error))
+  (check-equal? (hash-ref error 'code) (->jsexpr code))
+  (when message (check-equal? (hash-ref error 'message) message)))
+
+(define (check-failure-log logs path detail)
+  (define message (vector-ref (await logs) 1))
+  (check-true (string-contains? message (path->string path)))
+  (check-true (string-contains? message detail)))
+
+;; Capture the production handler on its owner with a per-request budget.
+;; Invoke the returned thunk separately, as the dispatcher does.
+(define (capture-request session id path timeout)
+  (owner session
+         (lambda (_)
+           (parameterize ([current-analysis-request-timeout timeout])
+             (text-document/definition
+               id (hasheq 'textDocument (hasheq 'uri (path->uri path))
+                          'position (->jsexpr (Pos 3 7))))))))
+
+(define (dispatch-thunk session thunk)
+  (thread (lambda () (async-channel-put (Session-responses session) (thunk)))))
+
+(define (with-example make-controller proc [source a-text] [binding-pos (Pos 3 7)]
+                      #:relative? [relative? #f])
+  (make-directory* scratch)
+  (define root (make-temporary-file "definition-controller~a" 'directory scratch))
+  (define a (build-path root "a.rkt"))
+  (define b (build-path root "b.rkt"))
+  ;; Relative import resolution in sequential expansions of identical text
+  ;; across directories currently retains the first target (see plan evidence).
+  ;; Give each fixture an explicit direct import; target freshness is the scope.
+  (define direct-source
+    (if relative?
+        source
+        (string-replace source "\"b.rkt\"" (format "(file ~s)" (path->string b)))))
+  (dynamic-wind
+    (lambda () (write-text a direct-source) (write-text b saved))
+    (lambda ()
+      (with-session (make-controller b)
+                    (lambda (session)
+                      (open! session a direct-source)
+                      (barrier session)
+                      (check-eq? (Analysis-Outcome-state (await (acquire session a))) 'succeeded)
+                      (define captured
+                        (owner session
+                               (lambda (_)
+                                 (with-read-doc (lsp-get-doc (path->uri a))
+                                   (lambda (doc)
+                                     (doc-module-binding-at doc binding-pos))))))
+                      (check-equal? (Module-Binding-filepath captured) b)
+                      (proc session a b root)
+                      (close! session a)
+                      (barrier session))))
+    (lambda () (delete-directory/files root))))
+
+(define (plain-controller _b) (make-source-controller #:resyntax #f))
+
+(define (gated-analyzer gates)
+  (lambda (b)
+    (make-source-controller #:analyze (controlled-analyzer b gates) #:resyntax #f)))
+
+(define (gated-reader reads)
+  (lambda (_b)
+    (make-source-controller #:read (controlled-reader reads) #:resyntax #f)))
+
+(module+ test
+  (test-case "closed targets share/reuse outside folders and publish nothing"
+    (define gates (make-async-channel))
+    (with-example
+      (gated-analyzer gates)
+      (lambda (session a b _root)
+        (request session 1 a)
+        (define gate (await gates))
+        (request session 2 a)
+        (barrier session)
+        ;; A's local definition and the real consumer progress during held B.
+        (request session 3 a (Pos 3 14))
+        (check-equal? (hash-ref (response session 3) 'result)
+                      (->jsexpr (Location (path->uri a) (Range (Pos 2 8) (Pos 2 13)))))
+        (release! gate)
+        (check-location session 1 b)
+        (check-location session 2 b)
+        (request session 4 a)
+        (check-location session 4 b)
+        (check-false (sync/timeout 0 gates))
+        (check-false (owner session (lambda (_) (lsp-get-doc (path->uri b) #f))))
+        (check-false
+          (workspace-definition-location current-workspace (Module-Binding b '() 0 'shared)))
+        (let loop ()
+          (define notification (sync/timeout 0 (Session-notifications session)))
+          (when notification
+            (check-not-equal? (hash-ref (hash-ref notification 'params) 'uri) (path->uri b))
+            (loop))))))
+
+  (test-case "queries need no folder; folder removal preserves held queries"
+    (define gates (make-async-channel))
+    (with-example
+      (gated-analyzer gates)
+      (lambda (session a b root)
+        (check-false (workspace-contains? current-workspace b))
+        (request session 1 a)
+        (define gate (await gates))
+        (define before (view session b))
+        (workspace-add-folder! current-workspace root)
+        (notify session "workspace/didChangeWorkspaceFolders"
+                (hasheq 'event (hasheq 'added '() 'removed
+                                       (list (hasheq 'uri (path->uri root) 'name "example")))))
+        (barrier session)
+        (check-eq? before (view session b))
+        (release! gate)
+        (check-location session 1 b)
+        (check-false (sync/timeout 0 gates)))))
+
+  (test-case "same-size save with restored mtime invalidates completed facts"
+    (with-example plain-controller
+                  (lambda (session a b _root)
+                    (request session 1 a)
+                    (check-location session 1 b)
+                    (define before (view session b))
+                    (define mtime (file-or-directory-modify-seconds b))
+                    (define shifted "#lang racket/base\n(provide shared) (define shared 2)\n")
+                    (check-equal? (string-length saved) (string-length shifted))
+                    (write-text b shifted)
+                    (file-or-directory-modify-seconds b mtime)
+                    (request session 2 a)
+                    (check-equal? (hash-ref (response session 2) 'result)
+                                  (->jsexpr (Location (path->uri b) (Range (Pos 1 25) (Pos 1 31)))))
+                    (check-not-eq? before (view session b)))))
+
+  (test-case "save during analysis is detected by final refresh and reacquired"
+    (define gates (make-async-channel))
+    (with-example
+      (gated-analyzer gates)
+      (lambda (session a b _root)
+        (request session 1 a)
+        (define old (await gates))
+        (write-text b unsaved)
+        (release! old)
+        (define next (await gates))
+        (check-equal? (Source-Snapshot-text (Gate-input next)) unsaved)
+        (release! next)
+        (check-location session 1 b 4)
+        (check-false (sync/timeout 0 gates)))))
+
+  (test-case "completed cache hit still refreshes at validation and rejects a save in between"
+    (define reads (make-async-channel))
+    (with-example
+      (gated-reader reads)
+      (lambda (session a b _root)
+        (request session 1 a)
+        (release! (await reads))
+        (release! (await reads))
+        (check-location session 1 b)
+        (define before (view session b))
+        (request session 2 a)
+        (release! (await reads))
+        (define validation (await reads))
+        (write-text b unsaved)
+        (release! validation)
+        (release! (await reads))
+        (release! (await reads))
+        (check-location session 2 b 4)
+        (check-not-eq? before (view session b)))))
+
+  (test-case "peer discovery wakes an old analysis waiter before the old worker is released"
+    (define gates (make-async-channel))
+    (with-example
+      (gated-analyzer gates)
+      (lambda (session a b _root)
+        (request session 1 a)
+        (await gates)
+        (write-text b unsaved)
+        (request session 2 a)
+        (define next (await gates))
+        (release! next)
+        (check-location session 1 b 4)
+        (check-location session 2 b 4)
+        (check-false (sync/timeout 0 gates)))))
+
+  (for ([operation (in-list '(edit close))])
+    (for ([stage (in-list '(read analysis))])
+      (test-case (format "A ~a cancels during held target ~a" operation stage)
+        (define gates (make-async-channel))
+        (with-example
+          (if (eq? stage 'read) (gated-reader gates) (gated-analyzer gates))
+          (lambda (session a _b _root)
+            (request session 1 a)
+            (define held (await gates))
+            (if (eq? operation 'edit) (edit! session a (file->string a)) (close! session a))
+            (barrier session)
+            (check-error session 1 ErrorCode-RequestCancelled)
+            (release! held))))))
+
+  (test-case "opening B uses unsaved analysis; close returns to lazy disk authority"
+    (define gates (make-async-channel))
+    (define read-count 0)
+    (with-example
+      (lambda (b)
+        (make-source-controller #:analyze (controlled-analyzer b gates) #:resyntax #f
+                                #:read (lambda (path)
+                                         (set! read-count (add1 read-count))
+                                         (file->string path))))
+      (lambda (session a b _root)
+        (request session 1 a)
+        (await gates)
+        (open! session b unsaved 7)
+        (define buffer-gate (await gates))
+        (barrier session)
+        (check-eq? (Source-Snapshot-origin (Gate-input buffer-gate)) 'buffer)
+        (define count-at-open read-count)
+        (release! buffer-gate)
+        (check-location session 1 b 4)
+        (request session 2 a)
+        (check-location session 2 b 4)
+        (check-equal? read-count count-at-open)
+        (close! session b)
+        (barrier session)
+        (check-equal? read-count count-at-open)
+        (check-eq? (Source-View-state (view session b)) 'unobserved)
+        (request session 3 a)
+        (define disk-gate (await gates))
+        (check-eq? (Source-Snapshot-origin (Gate-input disk-gate)) 'disk)
+        (release! disk-gate)
+        (check-location session 3 b))))
+
+  (test-case "reopening B with reused version rejects old facts"
+    (define gates (make-async-channel))
+    (with-example
+      (gated-analyzer gates)
+      (lambda (session a b _root)
+        (open! session b unsaved 7)
+        (await gates)
+        (request session 1 a)
+        (barrier session)
+        (close! session b)
+        (open! session b (string-append "\n" unsaved) 7)
+        (define reopened (await gates))
+        (release! reopened)
+        (check-location session 1 b 5)
+        (close! session b)
+        (barrier session))))
+
+  (test-case "closing held B reacquires disk without accepting discarded edits"
+    (define gates (make-async-channel))
+    (with-example
+      (gated-analyzer gates)
+      (lambda (session a b _root)
+        (open! session b unsaved)
+        (await gates)
+        (request session 1 a)
+        (barrier session)
+        (close! session b)
+        (define disk (await gates))
+        (check-equal? (Source-Snapshot-text (Gate-input disk)) saved)
+        (release! disk)
+        (check-location session 1 b))))
+
+  (for ([failure (in-list '(raise die))])
+    (test-case (format "runner ~a fails; later requests retry" failure)
+      (define logs (make-log-receiver racket-langserver-logger 'error))
+      (define gates (make-async-channel))
+      (with-example
+        (gated-analyzer gates)
+        (lambda (session a b _root)
+          (request session 1 a)
+          (release! (await gates) failure)
+          (check-error session 1 ErrorCode-RequestFailed "Definition analysis did not succeed")
+          (check-failure-log logs b (if (eq? failure 'raise) "target-failed" "worker-exited"))
+          (request session 2 a)
+          (release! (await gates))
+          (check-location session 2 b)))))
+
+  (test-case "unsuccessful/missing definitions return null; later requests retry"
+    (with-example plain-controller
+                  (lambda (session a b _root)
+                    (define logs (make-log-receiver racket-langserver-logger 'info))
+                    (write-text b "#lang racket/base\n(")
+                    (request session 1 a)
+                    (check-equal? (hash-ref (response session 1) 'result) (json-null))
+                    (check-failure-log logs b "Definition analysis unsuccessful")
+                    (check-false (sync/timeout 0 logs))
+                    (write-text b "#lang racket/base\n(define other 1)\n")
+                    (request session 2 a)
+                    (check-equal? (hash-ref (response session 2) 'result) (json-null))
+                    (delete-file b)
+                    (request session 3 a)
+                    (check-equal? (hash-ref (response session 3) 'result) (json-null))
+                    (write-text b saved)
+                    (request session 4 a)
+                    (check-location session 4 b))))
+
+  (test-case "read failure rejects cached facts and later refresh remains possible"
+    (define logs (make-log-receiver racket-langserver-logger 'error))
+    (define reads (make-async-channel))
+    (with-example
+      (gated-reader reads)
+      (lambda (session a b _root)
+        (request session 1 a)
+        (release! (await reads))
+        (release! (await reads))
+        (check-location session 1 b)
+        (request session 2 a)
+        (release! (await reads) 'raise)
+        (check-error session 2 ErrorCode-RequestFailed "Definition source read failed")
+        (check-failure-log logs b "read-failed")
+        (request session 3 a)
+        (release! (await reads))
+        (release! (await reads))
+        (check-location session 3 b))))
+
+  (test-case "for-syntax excluded binding resolves through deferred legacy lookup"
+    (with-example plain-controller
+                  (lambda (session a b _root)
+                    (request session 1 a (Pos 3 12))
+                    (check-location session 1 b))
+                  (string-append
+                    "#lang racket/base\n"
+                    "(require (for-syntax racket/base \"b.rkt\"))\n"
+                    "(begin-for-syntax\n  (define y shared))\n")
+                  (Pos 3 12)))
+
+  (test-case "request deadline covers held reads"
+    (define reads (make-async-channel))
+    (parameterize ([current-analysis-request-timeout 0.1])
+      (with-example
+        (gated-reader reads)
+        (lambda (session a _b _root)
+          (request session 1 a)
+          (define held (await reads))
+          (check-error session 1 ErrorCode-RequestFailed)
+          (release! held)))))
+
+  (test-case "expired before thunk invocation starts no target work"
+    (define gates (make-async-channel))
+    (with-example
+      (gated-analyzer gates)
+      (lambda (session a _b _root)
+        (define deferred (capture-request session 1 a 0))
+        (dispatch-thunk session deferred)
+        (check-error session 1 ErrorCode-RequestFailed)
+        (check-false (sync/timeout 0 gates)))))
+
+  (test-case "one waiter expiring leaves the shared job available to its peer"
+    (define gates (make-async-channel))
+    (with-example
+      (gated-analyzer gates)
+      (lambda (session a b _root)
+        (dispatch-thunk session (capture-request session 1 a 0.2))
+        (define held (await gates))
+        (request session 2 a)
+        (check-error session 1 ErrorCode-RequestFailed)
+        (release! held)
+        (check-location session 2 b)
+        (check-false (sync/timeout 0 gates)))))
+
+  (test-case "shutdown settles a deferred definition without waiting for its deadline"
+    (define gates (make-async-channel))
+    (with-example
+      (gated-analyzer gates)
+      (lambda (session a _b _root)
+        (request session 1 a)
+        (await gates)
+        (owner session (lambda (c) (source-controller-shutdown! c)))
+        (check-error session 1 ErrorCode-RequestFailed))))
+
+  (test-case "opening B abandons a held disk read"
+    (define reads (make-async-channel))
+    (with-example
+      (gated-reader reads)
+      (lambda (session a b _root)
+        (request session 1 a)
+        (await reads)
+        (open! session b unsaved)
+        (check-location session 1 b 4)
+        (check-false (sync/timeout 0 reads))
+        (close! session b)
+        (barrier session))))
+
+  (test-case "cancelling one A leaves another A's shared target request alive"
+    (define gates (make-async-channel))
+    (with-example
+      (gated-analyzer gates)
+      (lambda (session a b root)
+        (define c (build-path root "c.rkt"))
+        (open! session c (file->string a))
+        (barrier session)
+        (check-eq? (Analysis-Outcome-state (await (acquire session c))) 'succeeded)
+        (request session 1 a)
+        (define held (await gates))
+        (request session 2 c)
+        (edit! session a (file->string a))
+        (barrier session)
+        (check-error session 1 ErrorCode-RequestCancelled)
+        (release! held)
+        (check-location session 2 b)
+        (check-false (sync/timeout 0 gates))
+        (close! session c)
+        (barrier session))))
+
+  (test-case "cancellation wins over ready deadline and cache"
+    (with-example plain-controller
+                  (lambda (session a b _root)
+                    (request session 1 a)
+                    (check-location session 1 b)
+                    (define deferred (capture-request session 2 a 0))
+                    (close! session a)
+                    (barrier session)
+                    (dispatch-thunk session deferred)
+                    (check-error session 2 ErrorCode-RequestCancelled))))
+
+  (test-case "deadline covers queueing without cancelling shared work"
+    (define gates (make-async-channel))
+    (with-example
+      (lambda (b)
+        (define target-analyzer (controlled-analyzer b gates))
+        (make-source-controller
+          #:analysis-slots 1 #:resyntax #f
+          #:analyze (lambda (snapshot)
+                      (if (equal? (Source-Snapshot-source-id snapshot)
+                                  (build-path (path-only b) "c.rkt"))
+                          (let ([release (make-async-channel)])
+                            (async-channel-put gates (Gate snapshot release))
+                            (async-channel-get release)
+                            (analyze-source snapshot))
+                          (target-analyzer snapshot)))))
+      (lambda (session a b root)
+        (define c (build-path root "c.rkt"))
+        (open! session c "#lang racket/base\n(define other 1)\n")
+        (define blocking (await gates))
+        (dispatch-thunk session (capture-request session 1 a 0.2))
+        (check-error session 1 ErrorCode-RequestFailed)
+        (check-false (sync/timeout 0 gates))
+        (request session 2 a)
+        (release! blocking)
+        (define target (await gates))
+        (check-equal? (Source-Snapshot-source-id (Gate-input target)) b)
+        (release! target)
+        (check-location session 2 b)
+        (check-false (sync/timeout 0 gates))
+        (close! session c)
+        (barrier session))))
+
+  (test-case "rename invalidation wakes held queries and missing old paths return null"
+    (define gates (make-async-channel))
+    (with-example
+      (gated-analyzer gates)
+      (lambda (session a b root)
+        (request session 1 a)
+        (await gates)
+        (define renamed (build-path root "renamed.rkt"))
+        (rename-file-or-directory b renamed)
+        (notify session "workspace/didRenameFiles"
+                (hasheq 'files (list (hasheq 'oldUri (path->uri b) 'newUri (path->uri renamed)))))
+        (check-equal? (hash-ref (response session 1) 'result) (json-null)))))
+
+  (test-case "ordinary relative imports use shared disk and unsaved buffer analysis"
+    (with-example plain-controller
+                  (lambda (session a b _root)
+                    (request session 1 a)
+                    (check-location session 1 b)
+                    (open! session b unsaved)
+                    (request session 2 a)
+                    (check-location session 2 b 4)
+                    (close! session b)
+                    (barrier session))
+                  #:relative? #t)))

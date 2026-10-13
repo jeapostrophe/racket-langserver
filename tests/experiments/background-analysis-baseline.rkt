@@ -6,7 +6,9 @@
 ;; keep this out of module+ test so the suite does not require repeated work or
 ;; blocked edits after the prototype changes those behaviors.
 
-(require "../../common/interfaces.rkt"
+(require json
+         racket/match
+         "../../common/interfaces.rkt"
          "../../common/json-util.rkt"
          "../../common/path-util.rkt"
          "../../doclib/doc.rkt"
@@ -79,6 +81,21 @@
 (define (params uri pos)
   (hasheq 'textDocument (hasheq 'uri uri) 'position (->jsexpr pos)))
 
+;; Preserve the characterized pre-Step-4 handler after production migrates.
+;; Its imported lookup deliberately runs inside A's read lock.
+(define (baseline-definition id params)
+  (define uri (hash-ref (hash-ref params 'textDocument) 'uri))
+  (match-define (as-Pos pos) (hash-ref params 'position))
+  (define location
+    (with-read-doc (lsp-get-doc uri)
+      (lambda (doc)
+        (match (doc-definition doc uri pos)
+          [(struct* Module-Binding ([filepath path] [submods submods] [id name]))
+           (define range (doc-get-definition-by-id path submods name))
+           (and range (Location (path->uri path) range))]
+          [local local]))))
+  (hasheq 'jsonrpc "2.0" 'id id 'result (if location (->jsexpr location) (json-null))))
+
 (define (observe root)
   (define a-path (build-path root "a.rkt"))
   (define b-path (build-path root "b.rkt"))
@@ -108,7 +125,7 @@
         (->jsexpr (Location b-uri (Range (Pos 3 8) (Pos 3 20)))))
       (for ([request-id (in-range 1 3)])
         (define before (expansion-count root))
-        (check-equal? (hash-ref (text-document/definition request-id import-params) 'result)
+        (check-equal? (hash-ref (baseline-definition request-id import-params) 'result)
                       expected-location)
         (check-equal? (- (expansion-count root) before) 1))
       (check-false (workspace-definition-location current-workspace binding))
@@ -131,7 +148,7 @@
       (check-equal? (->jsexpr (workspace-definition-location current-workspace binding))
                     expected-location)
       (define before-indexed (expansion-count root))
-      (check-equal? (hash-ref (text-document/definition 4 import-params) 'result)
+      (check-equal? (hash-ref (baseline-definition 4 import-params) 'result)
                     expected-location)
       (check-equal? (- (expansion-count root) before-indexed) 1)
       (displayln "Publishing B supplies its indexed definition; lookup still expands B")
@@ -139,7 +156,7 @@
       (write-text b-path (b-text root #t))
       (define saved-location
         (->jsexpr (Location b-uri (Range (Pos 5 8) (Pos 5 20)))))
-      (check-equal? (hash-ref (text-document/definition 5 import-params) 'result)
+      (check-equal? (hash-ref (baseline-definition 5 import-params) 'result)
                     saved-location)
       (check-equal? (->jsexpr (workspace-definition-location current-workspace binding))
                     expected-location)
@@ -148,7 +165,7 @@
       (write-text (build-path root "hold") "")
       (define before-concurrent (expansion-count root))
       (define pending-definition
-        (start (lambda () (text-document/definition 6 import-params))))
+        (start (lambda () (baseline-definition 6 import-params))))
       (await
         (start
           (lambda ()
@@ -170,14 +187,14 @@
       (await edit-started)
       (check-false (sync/timeout 0.1 pending-edit))
       (define local-result
-        (await (start (lambda () (text-document/definition 7 local-params)))))
+        (await (start (lambda () (baseline-definition 7 local-params)))))
       (check-equal? (hash-ref local-result 'result)
                     (->jsexpr (Location a-uri (Range (Pos 2 8) (Pos 2 19)))))
       (check-false (file-exists? (build-path root "release")))
       (displayln "Held B: concurrent local definition completes; A edit remains pending")
 
       (define second-definition
-        (start (lambda () (text-document/definition 8 import-params))))
+        (start (lambda () (baseline-definition 8 import-params))))
       (await
         (start
           (lambda ()
