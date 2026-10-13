@@ -1,7 +1,7 @@
 #lang racket/base
 
 ;; Worker products separate shared immutable facts from the trace transferred
-;; exclusively to the consumer. A closed source never retains that candidate.
+;; exclusively to the consumer. Available results are independent of refresh jobs.
 (require json
          racket/class
          racket/contract
@@ -19,7 +19,8 @@
 (provide analyze-source
          (struct-out Analysis-Facts)
          (struct-out Analysis-Product)
-         (struct-out Analysis-Outcome))
+         (struct-out Analysis-Outcome)
+         (struct-out Available-Analysis))
 
 (struct/contract Analysis-Facts
   ([definitions (hash/c Module-Binding? Range? #:immutable #t)]
@@ -37,6 +38,11 @@
 (struct/contract Analysis-Outcome
   ([state (or/c 'succeeded 'unsuccessful 'failed 'stopped)]
    [value any/c])
+  #:transparent)
+
+(struct/contract Available-Analysis
+  ([snapshot Source-Snapshot?]
+   [product Analysis-Product?])
   #:transparent)
 
 ;; Diagnostics are protocol values, including strings returned by language

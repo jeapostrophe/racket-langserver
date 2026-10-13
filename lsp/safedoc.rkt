@@ -5,26 +5,29 @@
 ;; safe concurrent access from multiple threads, making it suitable for being
 ;; managed by the language server.
 
-(require "../common/rwlock.rkt"
+(require "analysis.rkt"
+         "../common/rwlock.rkt"
          "../workspace/source-store.rkt"
          "../doclib/doc.rkt"
          racket/contract)
 
 ;; The consumer updates source-view under the same lock as editor text.
 ;; analysis is a broadcast completion event; it contains no mutable trace.
-;; Both projections are cleared on close. Jobs and terminal state belong to
+;; available owns the completed trace and its analyzed snapshot, independently
+;; of a pending refresh. All projections are cleared on close. Jobs and terminal state belong to
 ;; source-controller, not to SafeDoc.
 ;; Access document and projection fields only inside a lock-acquiring eliminator.
 (struct/contract SafeDoc
   ([doc Doc?]
    [rwlock RWLock?]
    [source-view (or/c #f Source-View?)]
-   [analysis (or/c #f evt?)])
+   [analysis (or/c #f evt?)]
+   [available (or/c #f Available-Analysis?)])
   #:mutable
   #:transparent)
 
 (define (new-safedoc uri text version)
-  (SafeDoc (make-doc uri text version) (make-rwlock) #f #f))
+  (SafeDoc (make-doc uri text version) (make-rwlock) #f #f #f))
 
 (define (with-read-doc safe-doc proc)
   (call-with-read-lock
@@ -50,6 +53,8 @@
          SafeDoc-doc
          SafeDoc-source-view
          set-SafeDoc-source-view!
+         SafeDoc-available
+         set-SafeDoc-available!
          SafeDoc-analysis
          set-SafeDoc-analysis!
          new-safedoc

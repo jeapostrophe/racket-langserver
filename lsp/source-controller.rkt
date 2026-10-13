@@ -235,6 +235,7 @@
   (set-SafeDoc-source-view! sd
                             (source-store-edit! (Source-Controller-store controller) source-id))
   (set-SafeDoc-analysis! sd #f)
+  (set-SafeDoc-available! sd #f)
   (invalidate-jobs! controller source-id))
 
 ;; Close drops buffer authority without a read. Files become unobserved;
@@ -246,6 +247,7 @@
         (source-store-close! (Source-Controller-store controller) source-id)
         (set-SafeDoc-source-view! sd #f)
         (set-SafeDoc-analysis! sd #f)
+        (set-SafeDoc-available! sd #f)
         (Doc-uri (SafeDoc-doc sd)))))
   (invalidate-jobs! controller source-id)
   (when (path? source-id)
@@ -262,7 +264,8 @@
         (with-write-safedoc buffer
           (lambda (sd)
             (set-SafeDoc-source-view! sd (source-store-invalidate! store source-id))
-            (set-SafeDoc-analysis! sd #f)))
+            (set-SafeDoc-analysis! sd #f)
+            (set-SafeDoc-available! sd #f)))
         (source-store-invalidate! store source-id))
     (invalidate-jobs! controller source-id)
     (invalidate-reads! controller source-id)
@@ -455,7 +458,12 @@
 
 (define (source-controller-analyze! controller source-id)
   (define snapshot (source-controller-snapshot controller source-id))
-  (when snapshot (source-controller-acquire-analysis! controller snapshot))
+  (when snapshot
+    (define key (cons source-id 'analysis))
+    (define previous (hash-ref (Source-Controller-jobs controller) key #f))
+    (when (and previous (eq? 'terminal (Job-state previous)))
+      (invalidate-jobs! controller source-id))
+    (source-controller-acquire-analysis! controller snapshot))
   (void))
 
 (define (start-job! controller job)
@@ -528,9 +536,11 @@
     (with-write-safedoc buffer
       (lambda (sd)
         (define doc (SafeDoc-doc sd))
+        (set-SafeDoc-available! sd #f)
         (when (Analysis-Product-succeeded? product)
           (define contribution (Analysis-Product-contribution product))
           (doc-update-trace! doc (Analysis-Product-trace product) contribution (Doc-version doc))
+          (set-SafeDoc-available! sd (Available-Analysis (Job-snapshot job) product))
           (when (path? source-id)
             (workspace-set-contribution! current-workspace contribution)))
         (publish-diagnostics! controller (Doc-uri doc) (Analysis-Product-diagnostics product)))))

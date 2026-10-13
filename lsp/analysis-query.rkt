@@ -25,11 +25,12 @@
   (define-values (view job immediate)
     (with-read-safedoc safe-doc
       (lambda (sd)
-        (define outcome (and (SafeDoc-analysis sd) (sync/timeout 0 (SafeDoc-analysis sd))))
+        (define available (SafeDoc-available sd))
         (values (SafeDoc-source-view sd) (SafeDoc-analysis sd)
                 ;; Client versions need not change on source invalidation.
-                (and (Analysis-Outcome? outcome)
-                     (eq? 'succeeded (Analysis-Outcome-state outcome))
+                (and available (SafeDoc-source-view sd)
+                     (eq? (Source-Snapshot-revision (Available-Analysis-snapshot available))
+                          (Source-View-revision (SafeDoc-source-view sd)))
                      (success-response id (->jsexpr (read-result (SafeDoc-doc sd)))))))))
   (define (failed reason)
     (error-response id ErrorCode-RequestFailed reason))
