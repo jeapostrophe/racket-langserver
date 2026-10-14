@@ -98,7 +98,8 @@
                                   (hasheq 'textDocument (hasheq 'uri uri 'languageId "racket"
                                                                 'version 0 'text text)))
                           (barrier session)
-                          (define result (await (acquire session path)))
+                          ;; Cold expansion can exceed short coordination waits.
+                          (define result (await (acquire session path) 90))
                           (check-eq? 'succeeded (Analysis-Outcome-state result))
                           (check-equal? (hash-ref (Analysis-Facts-definitions (Analysis-Outcome-value result)) binding)
                                         (Range (Pos 1 8) (Pos 1 13)))
