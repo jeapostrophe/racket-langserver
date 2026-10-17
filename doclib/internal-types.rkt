@@ -8,7 +8,7 @@
 ;; - Do not place protocol JSON payload structs here; those belong in
 ;;   `interfaces.rkt` as `define-json-struct` types.
 
-(require "../common/path-util.rkt"
+(require "../common/source.rkt"
          "check-syntax-compat.rkt"
          "../common/interfaces.rkt"
          racket/contract
@@ -87,7 +87,7 @@
 
 ;; Reference locations supplied by exactly one document.
 (struct/contract Reference-Source
-  ([source-id source-id?]
+  ([id Source-Id?]
    [locations (listof Location?)])
   #:transparent)
 

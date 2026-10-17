@@ -34,6 +34,7 @@
          (json-type-out SignatureHelp)
          (json-type-out CompletionItem)
          (json-type-out CompletionList)
+         (json-type-out TextDocumentSyncKind)
          (json-type-out ContentChangeEvent-Incremental)
          (json-type-out ContentChangeEvent-Full)
          (json-type-out ContentChangeEvent)
@@ -48,7 +49,6 @@
          (json-type-out Indentation-Formatter)
          (json-type-out Fmt-Settings)
          (json-type-out Formatting-Configuration)
-         (json-type-out Document-Exclusions)
          (json-type-out Langserver-Settings)
          (json-type-out Langserver-Settings-Update)
          (json-type-out FileRename)
@@ -193,6 +193,11 @@
   [isIncomplete boolean?]
   [items (listof CompletionItem)])
 
+(define-json-enum TextDocumentSyncKind
+  [None 0]
+  [Full 1]
+  [Incremental 2])
+
 (define-json-struct ContentChangeEvent-Incremental
   [range Range]
   [rangeLength (optional exact-nonnegative-integer?)]
@@ -255,11 +260,6 @@
   [document-formatter (optional Document-Formatter) #:json documentFormatter]
   [indentation-formatter (optional Indentation-Formatter) #:json indentationFormatter]
   [fmt-settings (optional Fmt-Settings) #:json fmtSettings])
-
-;; Restart-only document routing, supplied by initialize.initializationOptions.
-(define-json-struct Document-Exclusions
-  [ignored-uri-schemes (optional (listof string?)) #:json ignoredUriSchemes]
-  [ignored-uris (optional (listof string?)) #:json ignoredUris])
 
 (define-json-struct Langserver-Settings
   [resyntax (optional Resyntax-Settings)]

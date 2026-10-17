@@ -29,6 +29,7 @@
          "interval-map-edit.rkt"
          "position-journal.rkt"
          "../../common/interfaces.rkt"
+         (only-in "../../common/source.rkt" source-file-path)
          "../internal-types.rkt"
          data/interval-map
          drracket/check-syntax
@@ -57,7 +58,8 @@
 
 (define declaration%
   (class base-service%
-    (init-field src doc-text)
+    (init-field source doc-text)
+    (define file-path (source-file-path source))
     (super-new)
 
     (define def-at-position (make-interval-map))
@@ -294,8 +296,10 @@
                        _src-obj start end id submods phase+space)
       (define normalized-end (normalize-end start end))
       (define def-id (get-or-create-def start normalized-end))
-      (define module-binding (Module-Binding src submods phase+space id))
-      (attach-module-binding! def-id module-binding))
+      ;; Virtual declarations remain local; only files have cross-file bindings.
+      (when file-path
+        (define module-binding (Module-Binding file-path submods phase+space id))
+        (attach-module-binding! def-id module-binding)))
 
     (define/override (syncheck:unused-binder _src-obj start end)
       ;; An unused lexical binder has no arrow, so this callback is its only

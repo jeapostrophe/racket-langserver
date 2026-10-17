@@ -1,11 +1,15 @@
 #lang racket/base
+
+;; LSP JSON-RPC frames: Content-Length headers, a blank line, then a JSON body.
+
 (require json
          racket/contract/base
-         racket/async-channel
          racket/match
          racket/string)
 
-;; (->* () (input-port?) (or/c jsexpr? eof-object? 'parse-json-error))
+;; Skip each header line until the blank separator, then parse one JSON value.
+;; Chosen over Content-Length: `read-json` finds the value boundary. Malformed
+;; JSON becomes 'parse-json-error. Encoded CRLF in JSON strings is re-read as LF.
 (define (read-message [in (current-input-port)])
   (match (read-line in 'return-linefeed)
     ["" (with-handlers ([exn:fail:read? (λ (exn) 'parse-json-error)])
@@ -21,18 +25,11 @@
   (fprintf out "Content-Length: ~a\r\n\r\n" content-length)
   (write-bytes json-bstr out))
 
-;; (->* (jsexpr?) (output-port?) void?)
+;; Flush so the peer sees a complete frame before this returns. Callers must
+;; serialize writes to each port; frames must not interleave.
 (define (display-message/flush msg [out (current-output-port)])
-  (async-channel-put out-ch (list out msg)))
-
-(define (read-loop out-ch)
-  (match-define (list out msg) (async-channel-get out-ch))
   (display-message msg out)
-  (flush-output out)
-  (read-loop out-ch))
-
-(define out-ch (make-async-channel))
-(define out-t (thread (lambda () (read-loop out-ch))))
+  (flush-output out))
 
 (provide
   (contract-out

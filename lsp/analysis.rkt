@@ -8,7 +8,6 @@
          racket/set
          "../common/json-util.rkt"
          "../common/interfaces.rkt"
-         "../common/path-util.rkt"
          "../doclib/doc.rkt"
          "../doclib/hover.rkt"
          "../doclib/check-syntax.rkt"
@@ -55,8 +54,7 @@
     [else value]))
 
 (define (analyze-source snapshot)
-  (define source (Source-Snapshot-source snapshot))
-  (define doc (make-doc (source-uri source) (Source-Snapshot-text snapshot) #:source source))
+  (define doc (make-source-doc (Source-Snapshot-source snapshot) (Source-Snapshot-text snapshot)))
   (define result (doc-check-syntax doc))
   (define trace (CSResult-trace result))
   (define succeeded? (CSResult-succeed? result))

@@ -1,7 +1,8 @@
 #lang racket
 
 (module+ test
-  (require rackunit
+  (require "../../common/source.rkt"
+           rackunit
            "../../doclib/doc.rkt"
            "../../doclib/hover.rkt"
            "../../doclib/doc-trace.rkt"
@@ -461,11 +462,12 @@
                #:when (string=? (Diagnostic-source diag) "Language Header Check"))
       diag))
 
-  (define (check-syntax-diagnostics uri text)
+  (define (check-syntax-diagnostics source text)
+    (define uri (source-uri source))
     (define doc-text (new lsp-editor%))
     (send doc-text insert text 0)
     (define lexer-state (build-lexer-state text uri))
-    (set->list (send (CSResult-trace (check-syntax uri doc-text lexer-state)) get-warn-diags)))
+    (set->list (send (CSResult-trace (check-syntax source doc-text lexer-state)) get-warn-diags)))
 
   (define (typed-racket-available?)
     (with-handlers ([exn:fail? (lambda (_exn) #f)])
@@ -490,11 +492,11 @@
     (send doc-text insert text 0)
     (define trace
       (new build-trace%
-        [src path]
+        [source (path->source path)]
         [doc-text doc-text]
         [lexer-state (build-lexer-state text uri)]))
     (define result
-      (expand-source path
+      (expand-source (path->source path)
                      (open-input-string text)
                      trace))
     (define order-test-data
@@ -508,7 +510,7 @@
     "Document diagnostics report missing language headers"
     (define text "(define x 1)\n")
     (define diags
-      (check-syntax-diagnostics "file:///tmp/missing-language-test.rkt"
+      (check-syntax-diagnostics (uri->source "file:///tmp/missing-language-test.rkt")
                                 text))
     (define diag
       (find-diagnostic-by-message
@@ -527,7 +529,7 @@
     "Document diagnostics accept unknown language headers"
     (define text "#lang not-a-real-language\n1\n")
     (define diags
-      (check-syntax-diagnostics "file:///tmp/unknown-language-test.rkt"
+      (check-syntax-diagnostics (uri->source "file:///tmp/unknown-language-test.rkt")
                                 text))
     (check-equal? (language-header-diagnostics diags) '()))
 
@@ -535,7 +537,7 @@
     "Document diagnostics simplify missing collection messages"
     (define text "#lang racke\n")
     (define diags
-      (check-syntax-diagnostics "file:///tmp/missing-collection-test.rkt"
+      (check-syntax-diagnostics (uri->source "file:///tmp/missing-collection-test.rkt")
                                 text))
     (define diag
       (find-diagnostic-by-message
@@ -551,7 +553,7 @@
     "Document diagnostics do not label requires as #lang failures"
     (define text "#lang racket/base\n(require racke/lang/reader)\n")
     (define diags
-      (check-syntax-diagnostics "file:///tmp/missing-require-collection-test.rkt"
+      (check-syntax-diagnostics (uri->source "file:///tmp/missing-require-collection-test.rkt")
                                 text))
     (define diag
       (find-diagnostic-by-message
@@ -567,7 +569,7 @@
     "Document diagnostics report missing require modules"
     (define text "#lang racket/base\n(require foo/bar)\n")
     (define diags
-      (check-syntax-diagnostics "file:///tmp/missing-require-module-test.rkt"
+      (check-syntax-diagnostics (uri->source "file:///tmp/missing-require-module-test.rkt")
                                 text))
     (define diag
       (find-diagnostic-by-message
@@ -581,12 +583,12 @@
   (test-case
     "Document diagnostics accept wrapped #lang headers"
     (define at-exp-diags
-      (check-syntax-diagnostics "file:///tmp/at-exp-language-test.rkt"
+      (check-syntax-diagnostics (uri->source "file:///tmp/at-exp-language-test.rkt")
                                 "#lang at-exp racket\n@(+ 1 2)\n"))
     (check-equal? (language-header-diagnostics at-exp-diags) '())
 
     (define s-exp-diags
-      (check-syntax-diagnostics "file:///tmp/s-exp-language-test.rkt"
+      (check-syntax-diagnostics (uri->source "file:///tmp/s-exp-language-test.rkt")
                                 "#lang s-exp racket/base\n(+ 1 2)\n"))
     (check-equal? (language-header-diagnostics s-exp-diags) '()))
 
@@ -594,7 +596,7 @@
     "Document diagnostics use first line range for empty language spans"
     (define text "#lang \n(define x 1)\n")
     (define diags
-      (check-syntax-diagnostics "file:///tmp/empty-language-test.rkt"
+      (check-syntax-diagnostics (uri->source "file:///tmp/empty-language-test.rkt")
                                 text))
     (define diag
       (find-diagnostic-by-message
@@ -753,7 +755,7 @@
     (send doc-text insert text 0)
     (define trace
       (new build-trace%
-        [src path]
+        [source (path->source path)]
         [doc-text doc-text]
         [lexer-state (build-lexer-state text uri)]))
 
@@ -808,7 +810,7 @@
     (send doc-text insert text 0)
     (define trace
       (new build-trace%
-        [src path]
+        [source (path->source path)]
         [doc-text doc-text]
         [lexer-state (build-lexer-state text uri)]))
 
@@ -862,7 +864,7 @@
     (send doc-text insert text 0)
     (define trace
       (new build-trace%
-        [src path]
+        [source (path->source path)]
         [doc-text doc-text]
         [lexer-state (build-lexer-state text (path->uri path))]))
     (send trace
@@ -919,7 +921,7 @@
     (send doc-text insert text 0)
     (define trace
       (new build-trace%
-        [src path]
+        [source (path->source path)]
         [doc-text doc-text]
         [lexer-state (build-lexer-state text (path->uri path))]))
 
@@ -981,7 +983,7 @@
     (send doc-text insert text 0)
     (define trace
       (new build-trace%
-        [src path]
+        [source (path->source path)]
         [doc-text doc-text]
         [lexer-state (build-lexer-state text (path->uri path))]))
     (send trace
@@ -1021,7 +1023,7 @@
     (send doc-text insert text 0)
     (define trace
       (new build-trace%
-        [src path]
+        [source (path->source path)]
         [doc-text doc-text]
         [lexer-state (build-lexer-state text (path->uri path))]))
     (send trace
@@ -1048,7 +1050,7 @@
     (send doc-text insert text 0)
     (define trace
       (new build-trace%
-        [src path]
+        [source (path->source path)]
         [doc-text doc-text]
         [lexer-state (build-lexer-state text (path->uri path))]))
     (send trace
@@ -1073,7 +1075,7 @@
     (send doc-text insert text 0)
     (define trace
       (new build-trace%
-        [src path]
+        [source (path->source path)]
         [doc-text doc-text]
         [lexer-state (build-lexer-state text (path->uri path))]))
     (send trace
@@ -1168,7 +1170,7 @@ END
     (define d (make-doc uri text))
     (define test-trace%
       (class build-trace%
-        (super-new [src (string->path "/tmp/completion-prefix-test.rkt")]
+        (super-new [source (path->source (string->path "/tmp/completion-prefix-test.rkt"))]
                    [doc-text (new lsp-editor%)]
                    [lexer-state (build-lexer-state text uri)])
         (define/override (get-completions) '())
@@ -1344,7 +1346,7 @@ END
     (define result (doc-references d uri (Pos 2 0) #t))
     (check-true (Module-Binding? (Document-Reference-Result-module-binding result)))
     (define source (Document-Reference-Result-source result))
-    (check-equal? (Reference-Source-source-id source) (uri->path uri))
+    (check-equal? (Reference-Source-id source) (source-id (uri->source uri)))
     (check-equal? (map Location-range (Reference-Source-locations source))
                   (list (Range (Pos 1 8) (Pos 1 9))
                         (Range (Pos 2 0) (Pos 2 1))))
@@ -1567,7 +1569,7 @@ END
     (send doc-text insert text 0)
     (define trace
       (new build-trace%
-        [src path]
+        [source (path->source path)]
         [doc-text doc-text]
         [lexer-state (build-lexer-state text uri)]))
     (define declaration-service (send trace get-declaration))
@@ -1600,7 +1602,7 @@ END
     (send doc-text insert text 0)
     (define trace
       (new build-trace%
-        [src path]
+        [source (path->source path)]
         [doc-text doc-text]
         [lexer-state (build-lexer-state text uri)]))
     (send trace syncheck:add-arrow/name-dup path 0 6 path 7 12 #t 0 'module-lang #f)
@@ -2134,7 +2136,7 @@ END
     (when (typed-racket-available?)
       (define diags
         (check-syntax-diagnostics
-          "file:///tmp/typed-racket-error-test.rkt"
+          (uri->source "file:///tmp/typed-racket-error-test.rkt")
           "#lang typed/racket\n(+ 1 \"x\")\n"))
       (define typed-diag
         (for/first ([diag (in-list diags)]
@@ -2860,3 +2862,64 @@ END
     (check-equal? (CodeAction-title act) "Add prefix `_` to ignore"))
 
   )
+
+(module+ test
+  (test-case "virtual expansion retains URI syntax sources and excludes workspace contributions"
+    (define text "#lang racket/base\n(require racket/list)\n(define value (first '(1)))\nvalue\n")
+    (for ([uri (in-list '("untitled:Untitled-1"
+                          "git:/project/main.rkt?rev=one#cell"
+                          "git:/project/main.rkt?rev=two#cell"
+                          "git:/project/main.rkt?rev=one#other"))])
+      (define doc (make-doc uri text))
+      (define editor (new lsp-editor%))
+      (send editor insert text 0)
+      (define collector
+        (new build-trace% [source (uri->source uri)]
+          [doc-text editor] [lexer-state (build-lexer-state text uri)]))
+      (define expanded (expand-source (uri->source uri) (open-input-string text) collector))
+      (check-true (ExpandResult-all-succeed? expanded))
+      (check-equal? (syntax-source (ExpandResult-pre-syntax expanded)) uri)
+      (check-equal? (syntax-source (ExpandResult-post-syntax expanded)) uri)
+      (check-true (doc-expand! doc))
+      (check-equal? (Doc-uri doc) uri)
+      (check-false (Doc-contribution doc))
+      (check-false (send collector get-contribution)))))
+
+(module+ test
+  (test-case "virtual Typed Racket syntax sources retain inferred hover and type diagnostics"
+    (when (typed-racket-available?)
+      (define uri "git:/project/typed.rkt?rev=one#cell")
+      (define doc
+        (make-doc uri
+                  (string-append "#lang typed/racket\n"
+                                 "(: count Integer)\n"
+                                 "(define count 1)\n"
+                                 "(+ count 2)\n")))
+      (check-true (doc-expand! doc))
+      (define hover (doc-hover doc (Pos 3 4)))
+      (check-not-false hover)
+      (check-equal? (Hover-range hover) (Range (Pos 3 3) (Pos 3 8)))
+      (check-true (string-contains? (Hover-contents hover) "```racket\nInteger\n```"))
+      (check-false (Doc-contribution doc))
+      (define typed-diag
+        (for/first ([diag (in-list
+                            (check-syntax-diagnostics (uri->source uri)
+                                                      "#lang typed/racket\n(+ 1 \"x\")\n"))]
+                    #:when (equal? (Diagnostic-source diag) "Typed Racket"))
+          diag))
+      (check-not-false typed-diag)
+      (check-equal? (Diagnostic-range typed-diag) (Range (Pos 1 5) (Pos 1 8)))
+      (check-true (string-contains? (Diagnostic-message typed-diag) "expected: Number")))))
+
+(module+ test
+  (test-case "direct source documents retain the supplied relative-path descriptor"
+    (define path (build-path 'same "descriptor-preservation.rkt"))
+    (define source (path->source path))
+    (define doc (make-source-doc source "#lang racket/base\n(define value 1)\nvalue\n"))
+    (check-eq? (Doc-source doc) source)
+    (check-equal? (source-file-path (Doc-source doc)) path)
+    (check-equal? (source-syntax-source (Doc-source doc)) path)
+    (check-equal? (Doc-uri doc) (source-uri source))
+    (check-true (doc-expand! doc))
+    (check-eq? (Doc-source doc) source)
+    (check-equal? (Doc-Contribution-path (Doc-contribution doc)) path)))

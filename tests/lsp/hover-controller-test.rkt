@@ -1,6 +1,7 @@
 #lang racket/base
 
-(require json
+(require "../../common/source.rkt"
+         json
          rackunit
          racket/async-channel
          racket/file
@@ -51,15 +52,15 @@
                      (async-channel-put reads path)
                      (file->string path))
             #:analyze (lambda (snapshot)
-                        (async-channel-put starts (Source-Snapshot-source-id snapshot))
+                        (async-channel-put starts (Source-Snapshot-id snapshot))
                         (analyze-source snapshot)))
           (lambda (session)
             (open! session a text)
             (barrier session)
             (await (owner session (lambda (c)
                                     (source-controller-acquire-analysis!
-                                      c (source-controller-snapshot c a)))))
-            (check-equal? (await starts) a)
+                                      c (source-controller-snapshot c (path->source a))))))
+            (check-equal? (await starts) (source-id (path->source a)))
             (request session 1 a "textDocument/hover" (Pos 1 2))
             (define result (hash-ref (response session 1) 'result))
             (define contents (hash-ref result 'contents))
@@ -201,7 +202,7 @@
         (barrier session)
         (await (owner session (lambda (c)
                                 (source-controller-acquire-analysis!
-                                  c (source-controller-snapshot c (uri->source-id uri))))))
+                                  c (source-controller-snapshot c (uri->source uri))))))
         (async-channel-put (Session-clients session)
                            (hasheq 'id 1 'method "textDocument/hover"
                                    'params (hasheq 'textDocument (hasheq 'uri uri)
@@ -240,7 +241,7 @@
         (barrier session)
         (await (owner session (lambda (c)
                                 (source-controller-acquire-analysis!
-                                  c (source-controller-snapshot c b)))))
+                                  c (source-controller-snapshot c (path->source b))))))
         (close! session b)
         (barrier session)
         (request session 301 a)

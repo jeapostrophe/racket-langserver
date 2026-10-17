@@ -1,7 +1,8 @@
 #lang racket/base
 
 ;; Gates prove that restored editor results precede fresh expansion completion.
-(require rackunit
+(require "../../common/source.rkt"
+         rackunit
          racket/async-channel
          racket/file
          racket/list
@@ -41,7 +42,7 @@
 
 (define (acquire session path)
   (owner session (lambda (c) (source-controller-acquire-analysis!
-                               c (source-controller-snapshot c path)))))
+                               c (source-controller-snapshot c (path->source path))))))
 
 (define (query session path id method [position (Pos 3 0)])
   (async-channel-put (Session-clients session)
@@ -184,7 +185,8 @@
           (make-source-controller
             #:resyntax #f
             #:analyze (lambda (snapshot)
-                        (if (equal? (Source-Snapshot-source-id snapshot) doc-path)
+                        (if (equal? (Source-Snapshot-id snapshot)
+                                    (source-id (path->source doc-path)))
                             ((analyzer gates) snapshot)
                             (analyze-source snapshot))))
           (lambda (session)

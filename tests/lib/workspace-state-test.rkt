@@ -1,6 +1,7 @@
 #lang racket/base
 
-(require "../../common/interfaces.rkt"
+(require "../../common/source.rkt"
+         "../../common/interfaces.rkt"
          "../../doclib/internal-types.rkt"
          "../../workspace/current.rkt"
          "../../workspace/api.rkt"
@@ -51,7 +52,8 @@
                     (list (cons new-module-binding (list (location "new"))))))
     (check-equal? (workspace-reference-sources workspace old-module-binding) '())
     (check-equal? (workspace-reference-sources workspace new-module-binding)
-                  (list (Reference-Source source (list (location "new"))))))
+                  (list (Reference-Source (source-id (path->source source))
+                                          (list (location "new"))))))
 
   (test-case
     "replacement removes only the replaced source from a shared binding"
@@ -69,7 +71,8 @@
       (contribution source-b (list (cons shared (list (location "b"))))))
     (workspace-set-contribution! workspace (contribution source-a '()))
     (check-equal? (workspace-reference-sources workspace shared)
-                  (list (Reference-Source source-b (list (location "b"))))))
+                  (list (Reference-Source (source-id (path->source source-b))
+                                          (list (location "b"))))))
 
   (test-case
     "overlapping roots retain contributions until all coverage is removed"
@@ -83,7 +86,8 @@
       (contribution source (list (cons value-binding (list (location "nested"))))))
     (workspace-remove-folder! workspace root)
     (check-equal? (workspace-reference-sources workspace value-binding)
-                  (list (Reference-Source source (list (location "nested")))))
+                  (list (Reference-Source (source-id (path->source source))
+                                          (list (location "nested")))))
     (workspace-remove-folder! workspace nested-root)
     (check-equal? (workspace-reference-sources workspace value-binding) '()))
 
@@ -108,7 +112,7 @@
           [name (in-list '(one two phase identifier))])
       (check-equal?
         (workspace-reference-sources workspace mb)
-        (list (Reference-Source (build-path root "source.rkt")
+        (list (Reference-Source (source-id (path->source (build-path root "source.rkt")))
                                 (list (location name)))))))
 
   (test-case
@@ -131,7 +135,7 @@
                     (list (cons outside-module-binding (list (location "accepted"))))))
     (check-equal?
       (workspace-reference-sources workspace outside-module-binding)
-      (list (Reference-Source (build-path root "source.rkt")
+      (list (Reference-Source (source-id (path->source (build-path root "source.rkt")))
                               (list (location "accepted"))))))
 
   (test-case
@@ -154,9 +158,9 @@
     (workspace-remove-path! workspace removed-path)
     (check-equal?
       (workspace-reference-sources workspace removed-module-binding)
-      (list (Reference-Source (build-path root "consumer.rkt")
+      (list (Reference-Source (source-id (path->source (build-path root "consumer.rkt")))
                               (list (location "still-present")))))
     (check-equal?
       (workspace-reference-sources workspace other-module-binding)
-      (list (Reference-Source (build-path root "consumer.rkt")
+      (list (Reference-Source (source-id (path->source (build-path root "consumer.rkt")))
                               (list (location "preserved")))))))

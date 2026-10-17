@@ -5,7 +5,6 @@
          racket/port
          "../../common/debug.rkt"
          "../../common/interfaces.rkt"
-         "../../common/path-util.rkt"
          "../../common/time.rkt"
          "../../doclib/internal-types.rkt"
          "../../doclib/doc.rkt"
@@ -61,5 +60,5 @@
                       (hash-ref (Analysis-Facts-definitions facts) binding #f))
                     legacy-definition
                     (lambda (snapshot range)
-                      (Location (source-uri (Source-Snapshot-source snapshot)) range)))
+                      (Location (Source-Snapshot-uri snapshot) range)))
       (success/enc id target)))

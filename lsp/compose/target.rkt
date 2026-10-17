@@ -4,6 +4,7 @@
          "../../common/debug.rkt"
          "../../common/interfaces.rkt"
          "../../common/path-util.rkt"
+         "../../common/source.rkt"
          "../../common/time.rkt"
          "../../doclib/internal-types.rkt"
          "../../workspace/source-store.rkt"
@@ -23,12 +24,13 @@
 
 (define (resolve-target controller target feature lookup legacy finish-target check-request! wait failed)
   (define path (Module-Binding-filepath target))
+  (define source (path->source path))
   (let loop ()
     ;; Check before constructing the refresh event, which submits target work.
     (check-request!)
     (define result
       (let/ec finish
-        (define acquired (wait (source-controller-refresh-evt controller path)))
+        (define acquired (wait (source-controller-refresh-evt controller source)))
         (define target-view (Source-Result-view acquired))
         (define changed (Source-View-changed target-view))
         (define (again) (finish 'retry))
@@ -40,7 +42,7 @@
         (define (validate!)
           ;; The refresh result is immutable, but the authority may have
           ;; changed before we received it. Eligibility is owner-decided.
-          (unless (owner (lambda (c) (eq? target-view (source-controller-view c path))))
+          (unless (owner (lambda (c) (eq? target-view (source-controller-view c source))))
             (again)))
         (validate!)
         (when (Source-Result-error acquired)
@@ -65,7 +67,7 @@
         ;; failed/stopped attempts. A save can make that outcome obsolete.
         ;; Legacy disk lookup retains no target-snapshot freshness guarantee.
         (when shared?
-          (define refreshed (target-wait (source-controller-refresh-evt controller path)))
+          (define refreshed (target-wait (source-controller-refresh-evt controller source)))
           (unless (eq? target-view (Source-Result-view refreshed)) (again))
           (when (Source-Result-error refreshed)
             (target-failed (string-append feature " validation read failed")

@@ -1,6 +1,7 @@
 #lang racket/base
 
-(require "../../common/interfaces.rkt"
+(require "../../common/source.rkt"
+         "../../common/interfaces.rkt"
          "../../common/json-util.rkt"
          "../../common/path-util.rkt"
          "../../doclib/doc.rkt"
@@ -53,9 +54,9 @@
 
 (define (check-contribution-paths module-binding expected)
   (check-equal?
-    (map Reference-Source-source-id
+    (map Reference-Source-id
          (workspace-reference-sources current-workspace module-binding))
-    expected))
+    (map (lambda (path) (source-id (path->source path))) expected)))
 
 (module+ test
   (test-case

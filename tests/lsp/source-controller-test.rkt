@@ -3,7 +3,8 @@
 ;; Source-controller checks through the production consumer. The test holds
 ;; disk reads, so ordering does not depend on sleeps. A direct process-message
 ;; call would skip the client and internal event pump.
-(require json
+(require "../../common/source.rkt"
+         json
          rackunit
          racket/async-channel
          racket/class
@@ -45,10 +46,13 @@
   (await (source-controller-call-evt (Session-controller session) proc)))
 
 (define (view session path)
-  (owner session (lambda (controller) (source-controller-view controller path))))
+  (owner session
+         (lambda (controller)
+           (source-controller-view controller (if (Source? path) path (path->source path))))))
 
 (define (refresh session path)
-  (source-controller-refresh-evt (Session-controller session) path))
+  (source-controller-refresh-evt (Session-controller session)
+                                 (if (Source? path) path (path->source path))))
 
 (define (notify session method params)
   (async-channel-put (Session-clients session) (hasheq 'method method 'params params)))
@@ -140,7 +144,8 @@
     (check-exn exn:fail:contract? (lambda () (make-source-controller #:read (lambda () "text"))))
     (check-exn exn:fail:contract? (lambda () (make-source-controller #:read-timeout -1)))
     (check-exn exn:fail:contract? (lambda () (Source-Result #f #f #f)))
-    (define view (source-store-view (make-source-store) (build-path scratch "contract.rkt")))
+    (define view
+      (source-store-view (make-source-store) (path->source (build-path scratch "contract.rkt"))))
     (check-exn exn:fail:contract? (lambda () (Source-Result view #f 'invalid-error))))
 
   (test-case "SafeDoc source-view mutations enforce their contract"

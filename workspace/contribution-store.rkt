@@ -1,6 +1,7 @@
 #lang racket/base
 
-(require "../common/interfaces.rkt"
+(require "../common/source.rkt"
+         "../common/interfaces.rkt"
          "../doclib/internal-types.rkt"
          racket/contract)
 
@@ -99,7 +100,7 @@
   (define path->locations
     (hash-ref (Contribution-Store-module-binding->path->locations store) module-binding (hash)))
   (for/list ([(path locations) (in-hash path->locations)])
-    (Reference-Source path locations)))
+    (Reference-Source (source-id (path->source path)) locations)))
 
 ;; A Module-Binding identifies its defining document. Keep the path map in the
 ;; index so contribution replacement and removal remain source-local.

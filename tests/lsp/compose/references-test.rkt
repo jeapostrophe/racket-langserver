@@ -1,6 +1,7 @@
 #lang racket/base
 
-(require "../../../common/interfaces.rkt"
+(require "../../../common/source.rkt"
+         "../../../common/interfaces.rkt"
          "../../../doclib/internal-types.rkt"
          "../../../lsp/compose/references.rkt"
          "../../../workspace/api.rkt"
@@ -43,21 +44,21 @@
     (define live-location (location "file:///live.rkt" 2 0 2 1))
     (define document-result
       (Document-Reference-Result
-        (Reference-Source live-path (list live-location))
+        (Reference-Source (source-id (path->source live-path)) (list live-location))
         module-binding))
     (define sources (merge-reference-sources workspace document-result #f))
 
-    (check-equal? (Reference-Source-source-id (first sources)) live-path)
+    (check-equal? (Reference-Source-id (first sources)) (source-id (path->source live-path)))
     (check-equal? (Reference-Source-locations (first sources))
                   (list live-location))
-    (check-equal? (list->set (map Reference-Source-source-id (rest sources)))
-                  (set source-a source-b)))
+    (check-equal? (list->set (map Reference-Source-id (rest sources)))
+                  (set (source-id (path->source source-a)) (source-id (path->source source-b)))))
 
   (test-case
     "merge for a local binding returns only the live source"
     (define workspace (make-workspace))
     (define live-source
-      (Reference-Source (build-path root "local.rkt")
+      (Reference-Source (source-id (path->source (build-path root "local.rkt")))
                         (list (location "file:///local.rkt" 1 0 1 1))))
 
     (check-equal?
@@ -86,7 +87,7 @@
       (merge-reference-sources
         workspace
         (Document-Reference-Result
-          (Reference-Source client-path (list client-location))
+          (Reference-Source (source-id (path->source client-path)) (list client-location))
           module-binding)
         #t))
 
@@ -112,7 +113,7 @@
       (merge-reference-sources
         workspace
         (Document-Reference-Result
-          (Reference-Source client-path (list client-location))
+          (Reference-Source (source-id (path->source client-path)) (list client-location))
           module-binding)
         #t))
 
@@ -127,9 +128,9 @@
     (define a-later (location "file:///a.rkt" 1 3 1 4))
     (define b-location (location "file:///b.rkt" 0 0 0 1))
     (define sources
-      (list (Reference-Source (build-path root "b.rkt")
+      (list (Reference-Source (source-id (path->source (build-path root "b.rkt")))
                               (list b-location a-later))
-            (Reference-Source (build-path root "a.rkt")
+            (Reference-Source (source-id (path->source (build-path root "a.rkt")))
                               (list a-long a-short a-later a-short))))
 
     (check-equal? (reference-sources->locations sources)

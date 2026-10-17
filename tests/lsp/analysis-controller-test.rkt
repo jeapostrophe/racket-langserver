@@ -1,8 +1,10 @@
 #lang racket/base
 
-(require rackunit
+(require "../../common/source.rkt"
+         rackunit
          racket/async-channel
          racket/class
+         racket/file
          racket/match
          racket/logging
          racket/list
@@ -52,7 +54,7 @@
   (owner session
          (lambda (controller)
            (source-controller-acquire-analysis!
-             controller (source-controller-snapshot controller path)))))
+             controller (source-controller-snapshot controller (path->source path))))))
 
 (define (request session method id path)
   (async-channel-put (Session-clients session)
@@ -332,7 +334,8 @@
                     (check-eq? 'stopped (Analysis-Outcome-state (await queued)))
                     (release! second-probe)
                     (define last-probe (await probes))
-                    (check-equal? (Source-Snapshot-source-id (Probe-snapshot last-probe)) (list-ref paths 3))
+                    (check-equal? (Source-Snapshot-id (Probe-snapshot last-probe))
+                                  (source-id (path->source (list-ref paths 3))))
                     (release! last-probe)
                     (check-eq? 'succeeded (Analysis-Outcome-state (await (acquire session (list-ref paths 3)))))
                     (for ([path (in-list paths)]) (close! session path))
@@ -408,8 +411,8 @@
     (define published '())
     (source-controller-set-notifier! controller
                                      (lambda (_method params) (set! published (cons params published))))
-    (source-controller-open! controller path sd)
-    (define snapshot (source-controller-snapshot controller path))
+    (source-controller-open! controller (path->source path) sd)
+    (define snapshot (source-controller-snapshot controller (path->source path)))
     (define first (source-controller-acquire-analysis! controller snapshot))
     (define old-message (await (source-controller-events controller)))
     (source-controller-handle! controller
@@ -424,7 +427,7 @@
     (source-controller-handle! controller old-message)
     (check-equal? (length published) 1)
     (check-eq? accepted (await (source-controller-acquire-analysis! controller snapshot)))
-    (source-controller-close! controller path sd)
+    (source-controller-close! controller (path->source path) sd)
     (source-controller-shutdown! controller))
 
   (test-case "Resyntax shares bounded lifetime, accepts current findings and discards after edit"
@@ -483,22 +486,22 @@
     (source-controller-set-notifier! controller
                                      (lambda (_method params) (set! published (cons params published))))
     (define sd (new-safedoc (path->uri path) text 7))
-    (source-controller-open! controller path sd)
+    (source-controller-open! controller (path->source path) sd)
     (define first (source-controller-acquire-analysis!
-                    controller (source-controller-snapshot controller path)))
+                    controller (source-controller-snapshot controller (path->source path))))
     (define old-message (await (source-controller-events controller)))
     (with-write-safedoc sd
       (lambda (sd)
         (doc-update-version! (SafeDoc-doc sd) 8)
-        (source-controller-edited! controller path sd)))
+        (source-controller-edited! controller (path->source path) sd)))
     (source-controller-handle! controller old-message)
     (check-eq? 'stopped (Analysis-Outcome-state (await first)))
     (check-equal? published '())
-    (source-controller-close! controller path sd)
+    (source-controller-close! controller (path->source path) sd)
     (define reopened (new-safedoc (path->uri path) text 7))
-    (source-controller-open! controller path reopened)
+    (source-controller-open! controller (path->source path) reopened)
     (define next (source-controller-acquire-analysis!
-                   controller (source-controller-snapshot controller path)))
+                   controller (source-controller-snapshot controller (path->source path))))
     (source-controller-handle! controller (await (source-controller-events controller)))
     (check-eq? 'succeeded (Analysis-Outcome-state (await next)))
     (check-equal? (length published) 2) ; close clear and new acceptance
@@ -506,7 +509,7 @@
     (check-equal? (length published) 2)
     (check-true (with-read-doc reopened doc-trace-latest?))
     (check-false (with-read-safedoc sd SafeDoc-source-view))
-    (source-controller-close! controller path reopened)
+    (source-controller-close! controller (path->source path) reopened)
     (source-controller-shutdown! controller)))
 
 (module+ test
@@ -527,7 +530,9 @@
         (barrier session)
         (await (acquire session path))
         (set! fail-next? #t)
-        (owner session (lambda (controller) (source-controller-invalidate! controller path)))
+        (owner session
+               (lambda (controller)
+                 (source-controller-invalidate! controller (path->source path))))
         (define probe (await probes))
         (request session "textDocument/inlayHint" 12 path)
         (request session "textDocument/semanticTokens/full" 13 path)
@@ -569,7 +574,8 @@
         #:analysis-slots 1
         #:analyze (lambda (snapshot)
                     (define product ((controlled-analyzer probes) snapshot))
-                    (if (regexp-match? #rx"bad-product" (path->string (Source-Snapshot-source-id snapshot)))
+                    (define path (source-file-path (Source-Snapshot-source snapshot)))
+                    (if (regexp-match? #rx"bad-product" (path->string path))
                         (Analysis-Product #t (Analysis-Product-facts product) '()
                                           (Analysis-Product-trace product) #f)
                         product)))
@@ -652,7 +658,7 @@
                     (await (acquire session path))
                     (request session "textDocument/semanticTokens/full" 201 path)
                     (define tokens (hash-ref (response session 201) 'result))
-                    (owner session (lambda (c) (source-controller-analyze! c path)))
+                    (owner session (lambda (c) (source-controller-analyze! c (path->source path))))
                     (define held (await probes))
                     (define fresh (acquire session path))
                     (request session "textDocument/semanticTokens/full" 202 path)
@@ -666,6 +672,71 @@
                     (barrier session)))))
 
 (module+ test
+  (test-case "retained contributions use the reopened URI before fresh analysis completes"
+    (define root (make-temporary-file "retained-uri~a" 'directory scratch))
+    (define target-path (build-path root "target.rkt"))
+    (define client-path (build-path root "client.rkt"))
+    (define target-text "#lang racket/base\n(provide foo)\n(define (foo) 42)\n(foo)\n")
+    (define client-text "#lang racket/base\n(require \"target.rkt\")\n(foo)\n")
+    (define canonical (path->uri target-path))
+    (define localhost (regexp-replace #rx"^file://" canonical "file://localhost"))
+    (define folder (hasheq 'uri (path->uri root) 'name "retained-uri"))
+    (define probes (make-async-channel))
+    (define binding (Module-Binding target-path '() 0 'foo))
+    (define (check-restored-locations session uri)
+      (async-channel-put
+        (Session-clients session)
+        (hasheq 'id 220 'method "textDocument/references"
+                'params (hasheq 'textDocument (hasheq 'uri (path->uri client-path))
+                                'position (hasheq 'line 2 'character 2)
+                                'context (hasheq 'includeDeclaration #t))))
+      (define locations (hash-ref (response session 220) 'result))
+      (define target-locations
+        (filter (lambda (location) (equal? (uri->path (hash-ref location 'uri)) target-path))
+                locations))
+      (check-equal? (length target-locations) 3)
+      (for ([location (in-list target-locations)])
+        (check-equal? (hash-ref location 'uri) uri))
+      (check-equal?
+        (owner session (lambda (_) (workspace-definition-location current-workspace binding)))
+        (Location uri (Range (Pos 2 9) (Pos 2 12)))))
+    (dynamic-wind
+      (lambda ()
+        (display-to-file target-text target-path)
+        (workspace-add-folder! current-workspace root))
+      (lambda ()
+        (with-session (make-source-controller #:analyze (controlled-analyzer probes) #:resyntax #f)
+                      (lambda (session)
+                        (for ([path (in-list (list target-path client-path))]
+                              [source-text (in-list (list target-text client-text))])
+                          (open! session path source-text)
+                          (release! (await probes))
+                          (barrier session)
+                          (check-eq? 'succeeded
+                                     (Analysis-Outcome-state (await (acquire session path) 90))))
+                        ;; Repeatedly close during refresh so each reopen transfers the same trace.
+                        (for ([old-uri (in-list (list canonical localhost canonical localhost))]
+                              [new-uri (in-list (list localhost canonical localhost localhost))])
+                          (notify session "textDocument/didClose"
+                                  (hasheq 'textDocument (hasheq 'uri old-uri)))
+                          (notify session "textDocument/didOpen"
+                                  (hasheq 'textDocument (hasheq 'uri new-uri 'languageId "racket"
+                                                                'version 0 'text target-text)))
+                          (await probes)
+                          (barrier session)
+                          (check-false (sync/timeout 0 (acquire session target-path)))
+                          (check-restored-locations session new-uri)
+                          ;; Folder addition republishes the contribution held by the restored Doc.
+                          (notify session "workspace/didChangeWorkspaceFolders"
+                                  (hasheq 'event (hasheq 'added '() 'removed (list folder))))
+                          (notify session "workspace/didChangeWorkspaceFolders"
+                                  (hasheq 'event (hasheq 'added (list folder) 'removed '())))
+                          (barrier session)
+                          (check-restored-locations session new-uri)))))
+      (lambda ()
+        (workspace-remove-folder! current-workspace root)
+        (delete-directory/files root))))
+
   (test-case "unchanged close/reopen transfers analysis through new lifetimes and original URIs"
     (define probes (make-async-channel))
     (with-session (make-source-controller #:analyze (controlled-analyzer probes) #:resyntax #f)

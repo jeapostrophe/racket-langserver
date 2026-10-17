@@ -249,6 +249,13 @@
 
   (test-case
     "source->language-policy falls back by suffix only for missing headers"
+    (check-policy "(define x 1)\n"
+                  #:status 'missing
+                  #:language #f
+                  #:body-mode 'unknown
+                  #:format? #f
+                  #:require-header? #t
+                  #:expand? #t)
     (check-policy "fun f(): 1\n"
                   #:uri "file:///tmp/demo.rhm"
                   #:status 'missing

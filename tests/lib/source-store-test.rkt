@@ -2,7 +2,8 @@
 
 ;; Source-store transitions with no controller and no disk. These checks cover
 ;; observation, authority tickets, and which text the store retains.
-(require "../../common/path-util.rkt"
+(require "../../common/source.rkt"
+         "../../common/path-util.rkt"
          rackunit
          "../../workspace/source-store.rkt")
 
@@ -15,21 +16,21 @@
   (test-case "source contracts reject invalid metadata and mutable snapshot text"
     (define revision (gensym 'revision))
     (check-exn exn:fail:contract?
-               (lambda () (Source-View path revision 'unknown 'present never-evt)))
+               (lambda () (Source-View (path->source path) revision 'unknown 'present never-evt)))
     (check-exn exn:fail:contract?
-               (lambda () (Source-View path revision 'disk 'unknown never-evt)))
+               (lambda () (Source-View (path->source path) revision 'disk 'unknown never-evt)))
     (check-exn exn:fail:contract?
-               (lambda () (Source-View path revision 'disk 'present #f)))
+               (lambda () (Source-View (path->source path) revision 'disk 'present #f)))
     (check-exn exn:fail:contract?
                (lambda ()
-                 (Source-Snapshot (File-Source (path->uri path) path)
+                 (Source-Snapshot (path->source path)
                                   revision 'disk (string-copy "text"))))
     (check-exn exn:fail:contract?
-               (lambda () (Source-Snapshot "source.rkt" revision 'disk "text"))))
+               (lambda () (Source-Snapshot #f revision 'disk "text"))))
 
   (test-case "unchanged exact disk text preserves a revision and broadcasts changes"
     (define store (make-source-store))
-    (define initial (source-store-view store path))
+    (define initial (source-store-view store (path->source path)))
     (check-eq? 'unobserved (Source-View-state initial))
     (define first (source-store-observe! store initial 'present "one"))
     (check-true (changed? initial))
@@ -39,15 +40,16 @@
     (define second (source-store-observe! store first 'present "two"))
     (check-not-eq? (Source-View-revision first) (Source-View-revision second))
     (check-true (changed? first))
-    (define snapshot (source-store-disk-snapshot store path))
+    (define snapshot (source-store-disk-snapshot store (path->source path)))
     (check-equal? "two" (Source-Snapshot-text snapshot))
     (check-true (immutable? (Source-Snapshot-text snapshot))))
 
   (test-case "missing, unavailable, and recreated sources stay distinct"
     (define store (make-source-store))
-    (define missing (source-store-observe! store (source-store-view store path) 'missing))
+    (define missing
+      (source-store-observe! store (source-store-view store (path->source path)) 'missing))
     (check-eq? missing (source-store-observe! store missing 'missing))
-    (check-false (source-store-disk-snapshot store path))
+    (check-false (source-store-disk-snapshot store (path->source path)))
     (define unavailable (source-store-observe! store missing 'unavailable))
     (check-true (changed? missing))
     (check-eq? 'unavailable (Source-View-state unavailable))
@@ -57,28 +59,29 @@
 
   (test-case "close discards unsaved authority and rejects old disk tickets"
     (define store (make-source-store))
-    (define ticket (source-store-view store path))
+    (define ticket (source-store-view store (path->source path)))
     (define buffer (box 'editable-text))
-    (define opened (source-store-open! store path buffer))
-    (check-eq? buffer (source-store-buffer store path))
+    (define opened (source-store-open! store (path->source path) buffer))
+    (check-eq? buffer (source-store-buffer store (path->source path)))
     (check-false (source-store-observe! store ticket 'present "old read"))
-    (define edited (source-store-edit! store path))
+    (define edited (source-store-edit! store (path->source path)))
     (check-true (changed? opened))
-    (define closed (source-store-close! store path))
+    (define closed (source-store-close! store (path->source path)))
     (check-true (changed? edited))
     (check-eq? 'unobserved (Source-View-state closed))
-    (check-false (source-store-buffer store path))
-    (check-false (source-store-disk-snapshot store path))
+    (check-false (source-store-buffer store (path->source path)))
+    (check-false (source-store-disk-snapshot store (path->source path)))
     (check-false (source-store-observe! store ticket 'present "old read"))
-    (define reopened (source-store-open! store path buffer))
+    (define reopened (source-store-open! store (path->source path) buffer))
     (check-not-eq? (Source-View-revision opened) (Source-View-revision reopened))
     (check-false (source-store-observe! store closed 'present "disk"))
-    (check-eq? reopened (source-store-view store path)))
+    (check-eq? reopened (source-store-view store (path->source path))))
 
   (test-case "explicit invalidation prevents identical text from reviving a revision"
     (define store (make-source-store))
-    (define old (source-store-observe! store (source-store-view store path) 'present "same"))
-    (define invalidated (source-store-invalidate! store path))
+    (define old
+      (source-store-observe! store (source-store-view store (path->source path)) 'present "same"))
+    (define invalidated (source-store-invalidate! store (path->source path)))
     (check-true (changed? old))
     (check-false (source-store-observe! store old 'present "late"))
     (define fresh (source-store-observe! store invalidated 'present "same"))

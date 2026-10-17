@@ -1,6 +1,7 @@
 #lang racket/base
 
-(require json
+(require "../../common/source.rkt"
+         json
          rackunit
          racket/async-channel
          racket/list
@@ -31,7 +32,7 @@
     (owner session
            (lambda (controller)
              (source-controller-acquire-analysis!
-               controller (source-controller-snapshot controller (uri->source-id uri))))))
+               controller (source-controller-snapshot controller (uri->source uri))))))
   (check-eq? 'succeeded (Analysis-Outcome-state (await event))))
 
 (define (feature session id method uri [extra (hasheq)])
@@ -77,8 +78,7 @@
 
 (module+ test
   (test-case "live file and matching virtual paths keep private analysis, locations and edits"
-    ;; Cover synthetic locations too, so workspace isolation cannot pass merely
-    ;; because the generated paths happen to fall outside the workspace folders.
+    ;; Include all file paths so isolation depends on source identity.
     (define root (car (explode-path scratch)))
     (workspace-add-folder! current-workspace root)
     (dynamic-wind
@@ -106,12 +106,13 @@
             (check-not-false (workspace-definition-location current-workspace live-binding))
             (for ([uri (in-list (list a b))]
                   [name (in-list '(alpha beta))])
-              (define backend
+              (check-false
                 (owner session
                        (lambda (_)
-                         (with-read-doc (lsp-get-doc uri)
-                           (lambda (doc) (source-backend-path (Doc-source doc)))))))
-              (check-false (workspace-definition-location current-workspace (Module-Binding backend '() 0 name)))
+                         (with-read-doc (lsp-get-doc uri) Doc-contribution))))
+              (check-false
+                (workspace-definition-location current-workspace
+                                               (Module-Binding file-path '() 0 name)))
               (check-local-results session uri))
             ;; The two original URIs each own their diagnostic stream.
             (define publications (for/list ([_ (in-range 3)]) (await (Session-notifications session))))
@@ -148,13 +149,13 @@
             #:read (lambda (_) (error 'disk "events must not acquire disk"))
             #:resyntax #f
             #:analyze (lambda (snapshot)
-                        (async-channel-put analyses (Source-Snapshot-source-id snapshot))
+                        (async-channel-put analyses (Source-Snapshot-id snapshot))
                         (analyze-source snapshot)))
           (lambda (session)
             (define path (build-path scratch "event-coexist.rkt"))
             (define file-uri (path->uri path))
             (define virtual-uri (string-append (regexp-replace #rx"^file:" file-uri "notebook:") "#cell"))
-            (define virtual-id (uri->source-id virtual-uri))
+            (define virtual-source (uri->source virtual-uri))
             (open-uri! session file-uri (module-text 'live))
             (open-uri! session virtual-uri (module-text 'alpha))
             (barrier session)
@@ -162,10 +163,10 @@
             (analyzed session virtual-uri)
             (await analyses)
             (await analyses)
-            (define before (view session virtual-id))
+            (define before (view session virtual-source))
             (define (unchanged)
               (barrier session)
-              (check-eq? before (view session virtual-id)))
+              (check-eq? before (view session virtual-source)))
             (for ([type (in-list '(1 2 3))])
               (notify session "workspace/didChangeWatchedFiles"
                       (hasheq 'changes (list (hasheq 'uri file-uri 'type type))))
@@ -182,7 +183,8 @@
                     (hasheq 'files (list (hasheq 'oldUri file-uri 'newUri next-uri))))
             (unchanged)
             (analyzed session file-uri)
-            (check-equal? (await analyses) path "rename reanalyzes only the open file")
+            (check-equal? (await analyses) (source-id (path->source path))
+                          "rename reanalyzes only the open file")
             ;; Non-file event endpoints must not be decoded into the live path.
             (notify session "workspace/didRenameFiles"
                     (hasheq 'files (list (hasheq 'oldUri virtual-uri 'newUri "untitled:renamed"))))

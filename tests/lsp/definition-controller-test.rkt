@@ -2,7 +2,8 @@
 
 ;; Cross-file definition requests use the production serial consumer. Gates
 ;; mark actual reads and target analysis starts; no sleep establishes ordering.
-(require json
+(require "../../common/source.rkt"
+         json
          rackunit
          racket/async-channel
          racket/file
@@ -39,7 +40,7 @@
 
 (define (controlled-analyzer path gates)
   (lambda (snapshot)
-    (when (equal? path (Source-Snapshot-source-id snapshot))
+    (when (equal? (source-id (path->source path)) (Source-Snapshot-id snapshot))
       (define release (make-async-channel))
       (async-channel-put gates (Gate snapshot release))
       (case (async-channel-get release)
@@ -64,7 +65,7 @@
 (define (acquire session path)
   (owner session
          (lambda (c) (source-controller-acquire-analysis!
-                       c (source-controller-snapshot c path)))))
+                       c (source-controller-snapshot c (path->source path))))))
 
 (define (request session id path [pos (Pos 3 7)])
   (async-channel-put (Session-clients session)
@@ -508,8 +509,8 @@
         (make-source-controller
           #:analysis-slots 1 #:resyntax #f
           #:analyze (lambda (snapshot)
-                      (if (equal? (Source-Snapshot-source-id snapshot)
-                                  (build-path (path-only b) "c.rkt"))
+                      (if (equal? (Source-Snapshot-id snapshot)
+                                  (source-id (path->source (build-path (path-only b) "c.rkt"))))
                           (let ([release (make-async-channel)])
                             (async-channel-put gates (Gate snapshot release))
                             (async-channel-get release)
@@ -525,7 +526,7 @@
         (request session 2 a)
         (release! blocking)
         (define target (await gates))
-        (check-equal? (Source-Snapshot-source-id (Gate-input target)) b)
+        (check-equal? (Source-Snapshot-id (Gate-input target)) (source-id (path->source b)))
         (release! target)
         (check-location session 2 b)
         (check-false (sync/timeout 0 gates))

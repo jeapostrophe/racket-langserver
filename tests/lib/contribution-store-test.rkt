@@ -1,6 +1,7 @@
 #lang racket/base
 
-(require "../../common/interfaces.rkt"
+(require "../../common/source.rkt"
+         "../../common/interfaces.rkt"
          "../../doclib/internal-types.rkt"
          "../../workspace/contribution-store.rkt"
          racket/path
@@ -100,7 +101,7 @@
     (contribution-store-remove-source! store (string->path "source-a.rkt"))
     (check-store-consistent store)
     (check-equal? (contribution-store-reference-sources store shared)
-                  (list (Reference-Source (string->path "source-b.rkt")
+                  (list (Reference-Source (source-id (path->source (string->path "source-b.rkt")))
                                           (list (location "b"))))))
 
   (test-case
@@ -133,10 +134,12 @@
       (contribution-store-definition-location store removed-module-binding))
     (check-equal?
       (list->set (contribution-store-reference-sources store removed-module-binding))
-      (set (Reference-Source (string->path "consumer-a.rkt") (list (location "still-a")))
-           (Reference-Source (string->path "consumer-b.rkt") (list (location "still-b")))))
+      (set (Reference-Source (source-id (path->source (string->path "consumer-a.rkt")))
+                             (list (location "still-a")))
+           (Reference-Source (source-id (path->source (string->path "consumer-b.rkt")))
+                             (list (location "still-b")))))
     (check-equal? (contribution-store-reference-sources store preserved-module-binding)
                   (list
                     (Reference-Source
-                      (string->path "consumer-a.rkt")
+                      (source-id (path->source (string->path "consumer-a.rkt")))
                       (list (location "preserved")))))))

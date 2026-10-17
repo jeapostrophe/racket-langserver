@@ -1,6 +1,7 @@
 #lang racket/base
 
-(require rackunit
+(require "../../common/source.rkt"
+         rackunit
          racket/async-channel
          "../../common/interfaces.rkt"
          "../../common/json-util.rkt"
@@ -15,11 +16,12 @@
 
 (define text "#lang racket/base\n(define value 1)\nvalue\n")
 (define uri "untitled:Untitled-1")
-(define id (uri->source-id uri))
+(define source (uri->source uri))
 
-(define (open-uri! session [source text])
+(define (open-uri! session [document-text text])
   (notify session "textDocument/didOpen"
-          (hasheq 'textDocument (hasheq 'uri uri 'languageId "racket" 'version 0 'text source))))
+          (hasheq 'textDocument
+                  (hasheq 'uri uri 'languageId "racket" 'version 0 'text document-text))))
 
 (define (close-uri! session)
   (notify session "textDocument/didClose" (hasheq 'textDocument (hasheq 'uri uri))))
@@ -35,7 +37,8 @@
 (define (acquire session)
   (owner session
          (lambda (controller)
-           (source-controller-acquire-analysis! controller (source-controller-snapshot controller id)))))
+           (source-controller-acquire-analysis!
+             controller (source-controller-snapshot controller source)))))
 
 (define (analysis-diagnostics session)
   (hash-ref (hash-ref (await (Session-notifications session)) 'params) 'diagnostics))
@@ -66,8 +69,8 @@
                                                      'end (hasheq 'line 1 'character 15))
                                       'text "2"))))
         (define edited (await probes))
-        (check-eq? (Source-Snapshot-source (Probe-snapshot initial))
-                   (Source-Snapshot-source (Probe-snapshot edited)))
+        (check-equal? (Source-Snapshot-id (Probe-snapshot initial))
+                      (Source-Snapshot-id (Probe-snapshot edited)))
         (check-equal? (Source-Snapshot-text (Probe-snapshot edited))
                       "#lang racket/base\n(define value 2)\nvalue\n")
         (check-error (response session 1) ErrorCode-RequestCancelled)
@@ -93,11 +96,13 @@
         (check-equal? (analysis-diagnostics session) '())
         (open-uri! session)
         (define reopened (await probes))
-        (check-not-equal? (Source-Snapshot-source (Probe-snapshot initial))
-                          (Source-Snapshot-source (Probe-snapshot reopened)))
+        (check-equal? (Source-Snapshot-id (Probe-snapshot initial))
+                      (Source-Snapshot-id (Probe-snapshot reopened)))
+        (check-not-eq? (Source-Snapshot-revision (Probe-snapshot initial))
+                       (Source-Snapshot-revision (Probe-snapshot reopened)))
         (async-channel-put (Probe-release reopened) 'go)
         (check-eq? 'succeeded (Analysis-Outcome-state (await (acquire session))))
-        (check-false (file-exists? (source-backend-path (Source-Snapshot-source (Probe-snapshot reopened)))))
+        (check-equal? (Source-Snapshot-uri (Probe-snapshot reopened)) uri)
         (close-uri! session)
         (barrier session))))
 

@@ -1,6 +1,7 @@
 #lang racket/base
 
-(require rackunit
+(require "../../common/source.rkt"
+         rackunit
          "../../doclib/doc-trace.rkt"
          "../../doclib/editor.rkt"
          "../../doclib/lexer.rkt"
@@ -105,7 +106,7 @@
     (send doc-text insert text 0)
     (define trace
       (new build-trace%
-        [src source]
+        [source (path->source source)]
         [doc-text doc-text]
         [lexer-state (build-lexer-state text uri)]))
     (send trace
@@ -132,7 +133,7 @@
     (send doc-text insert text 0)
     (define trace
       (new build-trace%
-        [src source]
+        [source (path->source source)]
         [doc-text doc-text]
         [lexer-state (build-lexer-state text uri)]))
     (send trace
@@ -159,7 +160,7 @@
         (new lsp-editor%))
       (send doc-text insert text 0)
       (new build-trace%
-        [src source]
+        [source (path->source source)]
         [doc-text doc-text]
         [lexer-state (build-lexer-state text uri)]))
 
@@ -212,7 +213,7 @@
     (send doc-text insert text 0)
     (define trace
       (new build-trace%
-        [src source]
+        [source (path->source source)]
         [doc-text doc-text]
         [lexer-state (build-lexer-state text uri)]))
     (send-generic trace

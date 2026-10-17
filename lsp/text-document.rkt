@@ -19,7 +19,7 @@
          "semantic-token-lsp.rkt"
          "analysis-query.rkt"
          "source-controller.rkt"
-         "../common/path-util.rkt"
+         "../common/source.rkt"
          "lsp.rkt"
          "workspace.rkt")
 
@@ -31,45 +31,43 @@
 
 (define (did-open! request-client params)
   (match-define (hash-table ['textDocument (^DocItem #:uri uri #:version version #:text text)]) params)
-  (unless (ignored-document-uri? uri)
-    (fetch-configuration request-client uri)
-    (lsp-open-doc! uri text version)
-    (source-controller-analyze! (current-source-controller) (uri->source-id uri))))
+  (fetch-configuration request-client uri)
+  (lsp-open-doc! uri text version)
+  (source-controller-analyze! (current-source-controller) (uri->source uri)))
 
 (define (did-close! params)
   (match-define (hash-table ['textDocument (DocItem-js #:uri uri)]) params)
-  (unless (ignored-document-uri? uri)
-    (lsp-close-doc! uri)))
+  (lsp-close-doc! uri))
 
 (define (did-change! params)
   (match-define (hash-table ['textDocument (^DocIdentifier #:version version #:uri uri)]
                             ['contentChanges content-changes]) params)
-  (unless (ignored-document-uri? uri)
-    (define safe-doc (lsp-get-doc uri))
-    (define source-id (uri->source-id uri))
-    (define content-changes*
-      (cond [(eq? (json-null) content-changes) empty]
-            [(list? content-changes) content-changes]
-            [else (list content-changes)]))
+  (define safe-doc (lsp-get-doc uri))
+  (define source (uri->source uri))
+  (define content-changes*
+    (cond [(eq? (json-null) content-changes) empty]
+          [(list? content-changes) content-changes]
+          [else (list content-changes)]))
 
-    (with-write-safedoc safe-doc
-      (λ (sd)
-        (define doc (SafeDoc-doc sd))
-        (source-controller-edited! (current-source-controller) source-id sd)
-        (for ([change (in-list content-changes*)])
-          (match change
-            [(^ContentChangeEvent-Incremental #:range range #:text text)
-             (doc-apply-edit! doc range text)]
-            [(^ContentChangeEvent-Full #:text text)
-             (doc-reset! doc text)]))
+  (with-write-safedoc safe-doc
+    (λ (sd)
+      (define doc (SafeDoc-doc sd))
+      (source-controller-edited! (current-source-controller) source sd)
+      (for ([change (in-list content-changes*)])
+        (match change
+          [(^ContentChangeEvent-Incremental #:range range #:text text)
+           (doc-apply-edit! doc range text)]
+          [(^ContentChangeEvent-Full #:text text)
+           (doc-reset! doc text)]))
 
-        (doc-update-version! doc version)))
+      (doc-update-version! doc version)))
 
-    (source-controller-analyze! (current-source-controller) source-id)))
+  (source-controller-analyze! (current-source-controller) source))
+
+(define (success-from-doc id uri proc)
+  (success/enc id (with-read-doc (lsp-get-doc uri) proc)))
 
 ;; Hover request
-;; Returns an object conforming to the Hover interface, to
-;; be used as the result of the response message.
 (define (hover id params)
   (match params
     [(hash-table ['textDocument (DocIdentifier-js #:uri uri)]
@@ -89,16 +87,7 @@
                  ; 2. `only: CodeActionKind[]` server should use this to filter out client-unwanted code action
                  ; 3. `triggerKind?: CodeActionTriggerKind` the reason why code action were requested
                  ['context _ctx])
-     (define safe-doc (lsp-get-doc uri))
-
-     (define actions
-       (with-read-doc safe-doc
-         (λ (doc)
-           (doc-code-action doc range))))
-     (success/enc id actions)]
-    [(hash-table ['textDocument (DocIdentifier-js #:uri uri)])
-     (error-response id ErrorCode-InvalidParams
-                     (format "textDocument/codeAction failed uri is not a path ~a" uri))]
+     (success-from-doc id uri (λ (doc) (doc-code-action doc range)))]
     [_ (error-response id ErrorCode-InvalidParams "textDocument/codeAction failed")]))
 
 ;; Signature Help request
@@ -106,12 +95,7 @@
   (match params
     [(hash-table ['textDocument (DocIdentifier-js #:uri uri)]
                  ['position (as-Pos pos)])
-     (define safe-doc (lsp-get-doc uri))
-     (define result
-       (with-read-doc safe-doc
-         (λ (doc)
-           (doc-signature-help doc pos))))
-     (success/enc id result)]
+     (success-from-doc id uri (λ (doc) (doc-signature-help doc pos)))]
     [_
      (error-response id ErrorCode-InvalidParams "textDocument/signatureHelp failed")]))
 
@@ -120,11 +104,7 @@
   (match params
     [(hash-table ['textDocument (DocIdentifier-js #:uri uri)]
                  ['position (as-Pos pos)])
-     (define safe-doc (lsp-get-doc uri))
-     (define result
-       (with-read-doc safe-doc
-         (λ (doc) (doc-completion doc pos))))
-     (success/enc id result)]
+     (success-from-doc id uri (λ (doc) (doc-completion doc pos)))]
     [_
      (error-response id ErrorCode-InvalidParams "textDocument/completion failed")]))
 
@@ -165,11 +145,7 @@
   (match params
     [(hash-table ['textDocument (DocIdentifier-js #:uri uri)]
                  ['position (as-Pos pos)])
-     (define safe-doc (lsp-get-doc uri))
-     (define result
-       (with-read-doc safe-doc
-         (λ (doc) (doc-highlights doc pos))))
-     (success/enc id result)]
+     (success-from-doc id uri (λ (doc) (doc-highlights doc pos)))]
     [_
      (error-response id ErrorCode-InvalidParams "textDocument/documentHighlight failed")]))
 
@@ -179,11 +155,7 @@
     [(hash-table ['textDocument (DocIdentifier-js #:uri uri)]
                  ['position (as-Pos pos)]
                  ['newName new-name])
-     (define safe-doc (lsp-get-doc uri))
-     (define result
-       (with-read-doc safe-doc
-         (λ (doc) (doc-rename doc uri pos new-name))))
-     (success/enc id result)]
+     (success-from-doc id uri (λ (doc) (doc-rename doc uri pos new-name)))]
     [_
      (error-response id ErrorCode-InvalidParams "textDocument/rename failed")]))
 
@@ -192,11 +164,7 @@
   (match params
     [(hash-table ['textDocument (DocIdentifier-js #:uri uri)]
                  ['position (as-Pos pos)])
-     (define safe-doc (lsp-get-doc uri))
-     (define result
-       (with-read-doc safe-doc
-         (λ (doc) (doc-prepare-rename doc pos))))
-     (success/enc id result)]
+     (success-from-doc id uri (λ (doc) (doc-prepare-rename doc pos)))]
     [_
      (error-response id ErrorCode-InvalidParams "textDocument/prepareRename failed")]))
 
@@ -204,15 +172,13 @@
 (define (document-symbol id params)
   (match params
     [(hash-table ['textDocument (DocIdentifier-js #:uri uri)])
-     (define safe-doc (lsp-get-doc uri))
-     (define results
-       (with-read-doc safe-doc
-         (λ (doc)
-           (cond
-             [(client-capability-hierarchical-document-symbol?)
-              (doc-symbols-hierarchical doc)]
-             [else (doc-symbols doc uri)]))))
-     (success/enc id results)]
+     (success-from-doc
+       id uri
+       (λ (doc)
+         (cond
+           [(client-capability-hierarchical-document-symbol?)
+            (doc-symbols-hierarchical doc)]
+           [else (doc-symbols doc uri)])))]
     [_
      (error-response id ErrorCode-InvalidParams "textDocument/documentSymbol failed")]))
 
@@ -241,21 +207,17 @@
                         (error-response id
                                         ErrorCode-RequestFailed
                                         (exn-message exn)))])
-       (define safe-doc (lsp-get-doc uri))
-       (define backend
-         (Formatting-Settings-document-formatter current-formatting-settings))
-       (with-read-doc safe-doc
+       (define settings current-formatting-settings)
+       (define backend (Formatting-Settings-document-formatter settings))
+       (success-from-doc
+         id uri
          (λ (doc)
-           (define start (doc-abs-pos->pos doc 0))
-           (define end (doc-abs-pos->pos doc (doc-end-abs-pos doc)))
-           (success/enc
-             id
-             (doc-format-edits doc
-                               (Range start end)
-                               #:backend backend
-                               #:fmt-settings
-                               (Formatting-Settings-fmt-settings current-formatting-settings)
-                               #:formatting-options opts)))))]
+           (doc-format-edits doc
+                             (Range (doc-abs-pos->pos doc 0)
+                                    (doc-abs-pos->pos doc (doc-end-abs-pos doc)))
+                             #:backend backend
+                             #:fmt-settings (Formatting-Settings-fmt-settings settings)
+                             #:formatting-options opts))))]
     [_
      (error-response id ErrorCode-InvalidParams "textDocument/formatting failed")]))
 
@@ -265,17 +227,15 @@
     [(hash-table ['textDocument (DocIdentifier-js #:uri uri)]
                  ['range (as-Range range)]
                  ['options (as-FormattingOptions opts)])
-     (define safe-doc (lsp-get-doc uri))
      (define backend
        (Formatting-Settings-indentation-formatter current-formatting-settings))
-     (with-read-doc safe-doc
+     (success-from-doc
+       id uri
        (λ (doc)
-         (success/enc
-           id
-           (doc-format-edits doc
-                             range
-                             #:backend backend
-                             #:formatting-options opts))))]
+         (doc-format-edits doc
+                           range
+                           #:backend backend
+                           #:formatting-options opts)))]
     [_
      (error-response id ErrorCode-InvalidParams "textDocument/rangeFormatting failed")]))
 
@@ -283,55 +243,51 @@
 (define (on-type-formatting! id params)
   (match params
     [(hash-table ['textDocument (DocIdentifier-js #:uri uri)]
-                 ;; `position` is assumed to be the cursor position that after the edit.
-                 ;; Therefore, `position - 1` is the position of `ch`.
-                 ;; Also see issue https://github.com/jeapostrophe/racket-langserver/issues/111
+                 ;; LSP `position` is the cursor after inserted `ch`.
+                 ;; `doc-on-type-format-edits` maps that to the character.
+                 ;; https://github.com/jeapostrophe/racket-langserver/issues/111
                  ['position (as-Pos pos)]
                  ['ch ch]
                  ['options (as-FormattingOptions opts)])
-     (define safe-doc (lsp-get-doc uri))
      (define backend
        (Formatting-Settings-indentation-formatter current-formatting-settings))
-
-     (with-read-doc safe-doc
+     (success-from-doc
+       id uri
        (λ (doc)
-         (success/enc
-           id
-           (doc-on-type-format-edits doc pos ch
-                                     #:backend backend
-                                     #:formatting-options opts))))]
+         (doc-on-type-format-edits doc pos ch
+                                   #:backend backend
+                                   #:formatting-options opts)))]
     [_
      (error-response id ErrorCode-InvalidParams "textDocument/onTypeFormatting failed")]))
 
 (define (full-semantic-tokens id params)
   (match params
     [(hash-table ['textDocument (DocIdentifier-js #:uri uri)])
-     (define safe-doc (lsp-get-doc uri))
-     (define full-range
-       (with-read-doc safe-doc
-         (λ (doc)
-           (Range (doc-abs-pos->pos doc 0)
-                  (doc-abs-pos->pos doc (doc-end-abs-pos doc))))))
-     (semantic-tokens uri id safe-doc full-range)]
+     (semantic-tokens id (lsp-get-doc uri) 'full)]
     [_ (error-response id ErrorCode-InvalidParams "textDocument/semanticTokens/full failed")]))
 
 (define (range-semantic-tokens id params)
   (match params
     [(hash-table ['textDocument (DocIdentifier-js #:uri uri)]
                  ['range (as-Range range)])
-     (define safe-doc (lsp-get-doc uri))
-     (semantic-tokens uri id safe-doc range)]
+     (semantic-tokens id (lsp-get-doc uri) range)]
     [_ (error-response id ErrorCode-InvalidParams "textDocument/semanticTokens/range failed")]))
 
-(define (semantic-tokens uri id safe-doc range)
-  (define (get-tokens-encoding doc)
-    (encode-semantic-tokens
-      (λ (pos) (doc-abs-pos->pos doc pos))
-      (doc-range-tokens doc range)))
-
-  (analysis-query safe-doc id
-                  (lambda (doc) (hash 'data (get-tokens-encoding doc)))
-                  (hash 'data '())))
+(define (semantic-tokens id safe-doc range)
+  (analysis-query
+    safe-doc id
+    (λ (doc)
+      ;; Chosen over a request-time Range: this callback may run after analysis.
+      (define tokens-range
+        (if (eq? range 'full)
+            (Range (doc-abs-pos->pos doc 0)
+                   (doc-abs-pos->pos doc (doc-end-abs-pos doc)))
+            range))
+      (hash 'data
+            (encode-semantic-tokens
+              (λ (pos) (doc-abs-pos->pos doc pos))
+              (doc-range-tokens doc tokens-range))))
+    (hash 'data '())))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 

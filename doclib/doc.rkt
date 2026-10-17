@@ -7,7 +7,7 @@
 
 (require "../common/interfaces.rkt"
          "editor.rkt"
-         "../common/path-util.rkt"
+         "../common/source.rkt"
          "lazy-cache.rkt"
          "doc-trace.rkt"
          "check-syntax-compat.rkt"
@@ -46,7 +46,7 @@
          racket/format)
 
 (struct/contract Doc
-  ([source source?]
+  ([source Source?]
    [text (is-a?/c lsp-editor%)]
    [trace (is-a?/c build-trace%)]
    [contribution (or/c #f Doc-Contribution?)]
@@ -76,9 +76,15 @@
 (define (Doc-uri doc)
   (source-uri (Doc-source doc)))
 
-(define/contract (make-doc uri text [version 0] #:source [source (make-source uri)])
+(define/contract (make-doc uri text [version 0])
   (->* (string? string?)
-       (exact-nonnegative-integer? #:source source?)
+       (exact-nonnegative-integer?)
+       Doc?)
+  (make-source-doc (uri->source uri) text version))
+
+(define/contract (make-source-doc source text [version 0])
+  (->* (Source? string?)
+       (exact-nonnegative-integer?)
        Doc?)
   (define doc-text (new lsp-editor%))
   (send doc-text insert text 0)
@@ -86,7 +92,6 @@
   ;; the init trace should not be #f
   (define doc-trace
     (new build-trace%
-      [src (source-backend-path source)]
       [source source]
       [doc-text doc-text]
       [lexer-state lexer-state]))
@@ -154,7 +159,7 @@
 
 (define/contract (doc-update-uri! doc new-uri)
   (-> Doc? string? void?)
-  (set-Doc-source! doc (make-source new-uri)))
+  (set-Doc-source! doc (uri->source new-uri)))
 
 (define/contract (doc-reset! doc new-text)
   (-> Doc? string? void?)
@@ -232,14 +237,14 @@
                                 (text-edit-end doc edit)
                                 (TextEdit-newText edit)))))
 
-(define/contract (doc-expand uri doc-text lexer-state #:source [source (make-source uri)])
-  (->* (string? (is-a?/c lsp-editor%) LexerState?) (#:source source?) CSResult?)
-  (check-syntax uri doc-text lexer-state #:source source))
+(define/contract (doc-expand source doc-text lexer-state)
+  (-> Source? (is-a?/c lsp-editor%) LexerState? CSResult?)
+  (check-syntax source doc-text lexer-state))
 
 (define/contract (doc-update-trace! doc new-trace new-contribution new-version)
   (-> Doc?
       (is-a?/c build-trace%)
-      Doc-Contribution?
+      (or/c #f Doc-Contribution?)
       exact-nonnegative-integer?
       void?)
   (set-Doc-trace! doc new-trace)
@@ -250,11 +255,9 @@
 ;; holders must never mutate the trace subsequently installed in a new buffer.
 (define/contract (doc-detach-analysis! doc)
   (-> Doc? void?)
-  (define source (Doc-source doc))
   (set-Doc-trace! doc
                   (new build-trace%
-                    [src (source-backend-path source)]
-                    [source source]
+                    [source (Doc-source doc)]
                     [doc-text (Doc-text doc)]
                     [lexer-state (doc-lexer-state doc)]))
   (set-Doc-contribution! doc #f)
@@ -269,8 +272,9 @@
 ;; Shared queries retain ranges, never the mutable declaration service.
 (define/contract (doc-definition-ranges doc)
   (-> Doc? (hash/c Module-Binding? Range? #:immutable #t))
-  (for/hash ([(binding location) (in-hash (Doc-Contribution-definitions
-                                            (Doc-contribution doc)))])
+  (for/hash ([(binding location) (in-hash (if (Doc-contribution doc)
+                                              (Doc-Contribution-definitions (Doc-contribution doc))
+                                              (hash)))])
     (values binding (Location-range location))))
 
 (define/contract (doc-expand! doc)
@@ -288,7 +292,7 @@
 
 (define/contract (doc-check-syntax doc)
   (-> Doc? CSResult?)
-  (doc-expand (Doc-uri doc) (Doc-text doc) (doc-lexer-state doc) #:source (Doc-source doc)))
+  (doc-expand (Doc-source doc) (Doc-text doc) (doc-lexer-state doc)))
 
 (define/contract (doc-pos->abs-pos doc pos)
   (-> Doc? Pos? exact-nonnegative-integer?)
@@ -408,7 +412,7 @@
   (define in (open-input-string (send doc-text get-text)))
 
   ;; expand-source handles traversal and adding syntax to collector
-  (expand-source path in collector)
+  (expand-source (path->source path) in collector)
   (send collector get submods id))
 
 (define/contract (doc-get-definition-by-id path submods id)
@@ -426,9 +430,10 @@
 ;; formatting ;;
 
 (define (doc-src-dir doc)
-  (and (File-Source? (Doc-source doc))
+  (define file-path (source-file-path (Doc-source doc)))
+  (and file-path
        (let-values ([(base _name _must-be-dir?)
-                     (split-path (source-backend-path (Doc-source doc)))])
+                     (split-path (path->complete-path file-path))])
          base)))
 
 (define (formatting-range->lines doc-text fmt-range)
@@ -798,8 +803,9 @@
   (-> Doc? (hash/c Module-Binding? Hover-Code-Summary? #:immutable #t))
   (define service (send (Doc-trace doc) get-hover))
   (for/fold ([summaries (hash)])
-            ([(binding location) (in-hash (Doc-Contribution-definitions
-                                            (Doc-contribution doc)))])
+            ([(binding location) (in-hash (if (Doc-contribution doc)
+                                              (Doc-Contribution-definitions (Doc-contribution doc))
+                                              (hash)))])
     (define-values (_start _end detail)
       (send service source-detail-at
             (doc-pos->abs-pos doc (Range-start (Location-range location)))))
@@ -996,7 +1002,7 @@
     [definition-range
      (Location #:uri uri
                #:range definition-range)]
-    [(Virtual-Source? (Doc-source doc)) #f]
+    [(not (source-file-path (Doc-source doc))) #f]
     [else (doc-module-binding-at doc pos)]))
 
 ;; References: live locations for this document, plus an optional Module-Binding
@@ -1015,7 +1021,8 @@
          (Location #:uri uri #:range range)))
      (Document-Reference-Result
        (Reference-Source (source-id (Doc-source doc)) local-locations)
-       (doc-module-binding-at doc pos))]
+       (and (source-file-path (Doc-source doc))
+            (doc-module-binding-at doc pos)))]
     [else #f]))
 
 ;; Document Highlight: returns binding highlights or an empty list.
@@ -1257,6 +1264,7 @@
          Doc-contribution
          (struct-out Doc-Contribution)
          make-doc
+         make-source-doc
          doc-apply-edit!
          doc-apply-edits!
          doc-reset!

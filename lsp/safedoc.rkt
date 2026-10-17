@@ -1,9 +1,8 @@
 #lang racket/base
 
-;; This module provides `SafeDoc`, a thread-safe document representation for the
-;; LSP server. It wraps a `Doc` object and uses a read-write lock to allow for
-;; safe concurrent access from multiple threads, making it suitable for being
-;; managed by the language server.
+;; One open document's editor text and the fields that must stay consistent
+;; with it under one lock.
+;; Jobs, retention, and publication belong to source-controller.
 
 (require "analysis.rkt"
          "../common/rwlock.rkt"
@@ -11,12 +10,12 @@
          "../doclib/doc.rkt"
          racket/contract)
 
-;; The consumer updates source-view under the same lock as editor text.
-;; analysis is a broadcast completion event; it contains no mutable trace.
-;; available owns the completed trace and its analyzed snapshot, independently
-;; of a pending refresh. All projections are cleared on close. Jobs and terminal state belong to
-;; source-controller, not to SafeDoc.
-;; Access document and projection fields only inside a lock-acquiring eliminator.
+;; source-view is updated in the same write-lock section as doc mutations.
+;; analysis is a broadcast completion event, not the product.
+;; available holds the completed product and analyzed snapshot even while analysis is pending.
+;; Callers clear source-view, analysis, and available on close.
+;; Access these fields only inside with-read-safedoc / with-write-safedoc
+;; (or with-read-doc / with-write-doc for doc alone).
 (struct/contract SafeDoc
   ([doc Doc?]
    [rwlock RWLock?]

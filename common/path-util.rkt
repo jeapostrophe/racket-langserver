@@ -1,48 +1,44 @@
 #lang racket/base
 
-;; Filesystem locations stay as paths. Source descriptors retain the original
-;; protocol URI independently from the backend location.
-
-(provide path->uri
-         uri->path
-         directory-contains?
-         file-uri?
-         uri->source-id
-         uri->suffix
-         (struct-out File-Source)
-         (struct-out Virtual-Source)
-         (struct-out Virtual-Id)
-         source?
-         source-id?
-         make-source
-         source-id
-         source-uri
-         source-backend-path
-         source-location->uri)
+;; File URI encoding of exact path segments, URI filename suffixes, and
+;; folder membership.
 
 (require net/url
          racket/contract
          racket/list
          racket/path
-         racket/match)
+         (only-in racket/string non-empty-string?))
 
+(provide path->uri
+         uri->path
+         directory-contains?
+         file-uri?
+         uri->suffix)
+
+;; Encode a path as a file URI without collapsing `.` or `..`.
+;; `path->url` then `url->string` simplify those segments, so decoding
+;; would yield a different path.
 (define/contract (path->uri path)
   (-> path? string?)
   (define base-url (path->url path))
   (define elements (explode-path path))
   (define-values (_base name directory?) (split-path path))
-  ;; path->url simplifies dot segments. Keep those segments because paths are
-  ;; exact source identities, including the key close must remove.
+  (define absolute? (absolute-path? path))
   (define root-segments
-    (if (absolute-path? path)
+    (if absolute?
+        ;; The root URL ends with an empty directory segment. Drop it so the
+        ;; remaining path replaces that slot rather than appending after it.
         (drop-right (url-path (path->url (car elements))) 1)
         '()))
+  (define rest-segments
+    (for/list ([element (in-list (if absolute? (cdr elements) elements))])
+      (path/param (if (symbol? element) element (path-element->string element)) '())))
   (define segments
     (append root-segments
-            (for/list ([element (in-list (if (absolute-path? path) (cdr elements) elements))])
-              (path/param (if (symbol? element) element (path-element->string element)) '()))
-            ;; A final same/up already marks a directory. A trailing slash
-            ;; would append another same segment when the URI is decoded.
+            rest-segments
+            ;; A trailing slash is only for a real directory name. A final
+            ;; `'same` or `'up` already names a directory; an extra empty
+            ;; segment would decode as another `'same`.
             (if (and directory? (path? name)) (list (path/param "" '())) '())))
   (url->string (struct-copy url base-url [path segments])))
 
@@ -50,66 +46,23 @@
   (-> string? path?)
   (url->path (string->url uri)))
 
-(define/contract (directory-contains? dir filepath)
+;; Folder membership, not source identity. Containment may collapse `.` and
+;; `..`; source identity must keep those segments.
+(define/contract (directory-contains? dir path)
   (-> path-string? path-string? boolean?)
-  (define dir-parts (explode-path (simple-form-path dir)))
-  (define file-parts (explode-path (simple-form-path filepath)))
-  (and (>= (length file-parts) (length dir-parts))
-       (equal? dir-parts (take file-parts (length dir-parts)))))
+  (list-prefix? (explode-path (simple-form-path dir))
+                (explode-path (simple-form-path path))))
 
-;; File identities retain their exact path spelling. Virtual identities retain
-;; the complete URI; virtual backend paths never identify documents in server state.
-(struct/contract File-Source ([uri string?] [path path?]) #:transparent)
-(struct/contract Virtual-Id ([uri string?]) #:transparent)
-(struct/contract Virtual-Source ([uri string?] [path complete-path?]) #:transparent)
-
-(define (source? value)
-  (or (File-Source? value) (Virtual-Source? value)))
-
-(define (source-id? value)
-  (or (path? value) (Virtual-Id? value)))
-
+;; (-> string? boolean?)
 (define (file-uri? uri)
   (equal? (url-scheme (string->url uri)) "file"))
 
-(define (uri->source-id uri)
-  (if (file-uri? uri) (uri->path uri) (Virtual-Id uri)))
-
-(define (make-source uri)
-  (if (file-uri? uri)
-      (File-Source uri (uri->path uri))
-      (Virtual-Source
-        uri
-        (build-path (find-system-path 'temp-dir)
-                    (format "racket-langserver-~a-~a" (current-inexact-milliseconds) (gensym))
-                    "buffer.rkt"))))
-
-(define (source-id source)
-  (match source
-    [(File-Source _ path) path]
-    [(Virtual-Source uri _) (Virtual-Id uri)]))
-
-(define (source-uri source)
-  (match source
-    [(File-Source uri _) uri]
-    [(Virtual-Source uri _) uri]))
-
-(define (source-backend-path source)
-  (match source
-    [(File-Source _ path) path]
-    [(Virtual-Source _ path) path]))
-
-;; Use this at result construction, where a backend location crosses into LSP.
-(define (source-location->uri source path)
-  (if (equal? path (source-backend-path source))
-      (source-uri source)
-      (path->uri path)))
-
+;; Last URI path segment, not a filesystem path, so virtual URIs still match.
+;; Query and fragment are not the filename.
+;; (-> string? (or/c string? #f))
 (define (uri->suffix uri)
-  (define segments (and uri (url-path (string->url uri))))
-  (define extension
-    (and segments (pair? segments)
-         (let ([name (path/param-path (last segments))])
-           (and (string? name) (not (equal? name ""))
-                (path-get-extension (string->path name))))))
+  (define segments (url-path (string->url uri)))
+  (define name (and (pair? segments) (path/param-path (last segments))))
+  (define extension (and (non-empty-string? name)
+                         (path-get-extension (string->path name))))
   (and extension (bytes->string/utf-8 (subbytes extension 1))))

@@ -460,7 +460,7 @@
               spec))))
 
 (define (match-by-suffix uri)
-  (define maybe-suffix (uri->suffix uri))
+  (define maybe-suffix (and uri (uri->suffix uri)))
   (and maybe-suffix
        (for/or ([spec (in-list language-specs)])
          (and (member maybe-suffix (Language-Spec-suffixes spec))

@@ -1,6 +1,7 @@
 #lang racket/base
 
-(require "../../common/interfaces.rkt"
+(require "../../common/source.rkt"
+         "../../common/interfaces.rkt"
          "../../common/path-util.rkt"
          "../../doclib/doc.rkt"
          "../../doclib/internal-types.rkt"
@@ -49,9 +50,12 @@
 
         (define sources
           (merge-reference-sources workspace document-result #t))
-        (check-equal? (map Reference-Source-source-id sources)
-                      (list (Doc-Contribution-path (Doc-contribution lib-doc))
-                            (Doc-Contribution-path (Doc-contribution client-doc))))
+        (check-equal? (map Reference-Source-id sources)
+                      (list (source-id
+                              (path->source (Doc-Contribution-path (Doc-contribution lib-doc))))
+                            (source-id
+                              (path->source
+                                (Doc-Contribution-path (Doc-contribution client-doc))))))
         (check-equal?
           (reference-sources->locations sources)
           (list
@@ -89,9 +93,12 @@
         (check-eq? (Doc-contribution lib-doc) accepted-lib-contribution)
         (define shifted-sources
           (merge-reference-sources workspace shifted-result #t))
-        (check-equal? (map Reference-Source-source-id shifted-sources)
-                      (list (Doc-Contribution-path accepted-lib-contribution)
-                            (Doc-Contribution-path (Doc-contribution client-doc))))
+        (check-equal? (map Reference-Source-id shifted-sources)
+                      (list (source-id
+                              (path->source (Doc-Contribution-path accepted-lib-contribution)))
+                            (source-id
+                              (path->source
+                                (Doc-Contribution-path (Doc-contribution client-doc))))))
         (check-equal?
           (Reference-Source-locations (car shifted-sources))
           (list
