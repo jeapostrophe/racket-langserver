@@ -45,17 +45,18 @@
           (unless (owner (lambda (c) (eq? target-view (source-controller-view c source))))
             (again)))
         (validate!)
+        ;; Handle errors first: failed and abandoned reads can both leave
+        ;; content unknown, but only an abandoned read should be retried here.
         (when (Source-Result-error acquired)
           (target-failed (string-append feature " source read failed")
                          (Source-Failure-reason (Source-Result-error acquired))))
-        (case (Source-View-state target-view)
-          ;; An abandoned read can return an unobserved view. Retry;
+        (case (Source-View-content-state target-view)
+          ;; An abandoned read can return an unknown view. Retry;
           ;; this is not a missing file and has no snapshot to use.
-          [(unobserved) (again)]
-          [(missing)
+          [(unknown) (again)]
+          [(file-not-found)
            (check-request! check-target!)
-           (finish #f)]
-          [(unavailable) (target-failed (string-append feature " source unavailable") 'unavailable)])
+           (finish #f)])
         (define snapshot (Source-Result-snapshot acquired))
         (define shared? (shared-binding? target))
         (define outcome

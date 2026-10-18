@@ -309,7 +309,7 @@
         (close! session b)
         (barrier session)
         (check-equal? read-count count-at-open)
-        (check-eq? (Source-View-state (view session b)) 'unobserved)
+        (check-eq? (Source-View-content-state (view session b)) 'unknown)
         (request session 3 a)
         (define disk-gate (await gates))
         (check-eq? (Source-Snapshot-origin (Gate-input disk-gate)) 'disk)

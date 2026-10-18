@@ -72,10 +72,12 @@
 ;; this controller, and are checked again before joining or creating an attempt.
 (define (source-controller-acquire-analysis! controller snapshot)
   (define source (Source-Snapshot-source snapshot))
+  (define view (source-controller-view controller source))
   (cond
     [(or (stopped? controller)
+         (not view)
          (not (eq? (Source-Snapshot-revision snapshot)
-                   (Source-View-revision (source-controller-view controller source)))))
+                   (Source-View-revision view))))
      (ready-evt (Analysis-Outcome 'stopped 'ineligible))]
     [else
      (define job

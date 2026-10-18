@@ -21,6 +21,7 @@
          "../../lsp/methods.rkt"
          "../../lsp/safedoc.rkt"
          "../../lsp/source-controller.rkt"
+         "../../lsp/source-controller/reads.rkt"
          "../../workspace/source-store.rkt")
 
 (define-runtime-path scratch-path "../../.agent-scratch")
@@ -143,10 +144,19 @@
     (check-exn exn:fail:contract? (lambda () (make-source-controller #:read #f)))
     (check-exn exn:fail:contract? (lambda () (make-source-controller #:read (lambda () "text"))))
     (check-exn exn:fail:contract? (lambda () (make-source-controller #:read-timeout -1)))
-    (check-exn exn:fail:contract? (lambda () (Source-Result #f #f #f)))
+    (check-exn exn:fail:contract? (lambda () (Source-Result 'invalid-view #f #f)))
     (define view
       (source-store-view (make-source-store) (path->source (build-path scratch "contract.rkt"))))
     (check-exn exn:fail:contract? (lambda () (Source-Result view #f 'invalid-error))))
+
+  (test-case "disk reader returns content and reports a missing file"
+    (with-files
+      (lambda (root)
+        (define path (build-path root "reader.rkt"))
+        (display-to-file "hello" path)
+        (check-equal? "hello" (read-source-text path))
+        (delete-file path)
+        (check-true (Disk-Missing? (read-source-text path))))))
 
   (test-case "SafeDoc source-view mutations enforce their contract"
     (with-session (make-source-controller)
@@ -253,7 +263,7 @@
                     (close! session path)
                     (barrier session)
                     (define closed (view session path))
-                    (check-eq? 'unobserved (Source-View-state closed))
+                    (check-eq? 'unknown (Source-View-content-state closed))
                     (check-not-false (sync/timeout 0 (Source-View-changed opened)))
                     (check-false (sync/timeout 0 probes) "close starts no read")
                     (define saved-result (refresh session path))
@@ -292,7 +302,7 @@
                         (check-not-eq? (Source-Result-view first) (Source-Result-view changed))
                         (delete-file path)
                         (define missing (await (refresh session path)))
-                        (check-eq? 'missing (Source-View-state (Source-Result-view missing)))
+                        (check-eq? 'file-not-found (Source-View-content-state (Source-Result-view missing)))
                         (check-false (Source-Result-error missing))
                         (display-to-file "new" path)
                         (check-equal? "new" (result-text (await (refresh session path)))))))))
@@ -307,10 +317,10 @@
                     (define recreated (refresh session path))
                     (owner session void)
                     (release! read-1 (Disk-Missing))
-                    (check-eq? 'missing (Source-View-state (Source-Result-view (await deleted))))
+                    (check-eq? 'file-not-found (Source-View-content-state (Source-Result-view (await deleted))))
                     (release! (await probes) "recreated")
                     (check-equal? "recreated" (result-text (await recreated)))
-                    (check-eq? 'present (Source-View-state (view session path))))))
+                    (check-eq? 'text-available (Source-View-content-state (view session path))))))
 
   (test-case "arbitrary raise and premature reader exit settle and permit another refresh"
     (define probes (make-async-channel))
@@ -321,7 +331,7 @@
                       (define result (refresh session path))
                       (release! (await probes) failure)
                       (define failed (await result))
-                      (check-eq? 'unavailable (Source-View-state (Source-Result-view failed)))
+                      (check-eq? 'unknown (Source-View-content-state (Source-Result-view failed)))
                       (check-true (Source-Failure? (Source-Result-error failed))))
                     (define retry (refresh session path))
                     (release! (await probes) "recovered")
@@ -341,13 +351,33 @@
                     (release! (await probes) "later")
                     (check-equal? "later" (result-text (await queued))))))
 
-  (test-case "read errors are unavailable rather than missing"
+  (test-case "failed reads discard cached text and keep failure details in the result"
+    (define probes (make-async-channel))
+    (with-session (controlled-controller probes)
+                  (lambda (session)
+                    (define path (build-path scratch "cached-read-failure.rkt"))
+                    (define first (refresh session path))
+                    (release! (await probes) "cached")
+                    (define previous (Source-Result-view (await first)))
+                    (for ([_ (in-range 2)])
+                      (define next (refresh session path))
+                      (release! (await probes) 'raise)
+                      (define failed (await next))
+                      (define current (Source-Result-view failed))
+                      (check-eq? 'unknown (Source-View-content-state current))
+                      (check-false (Source-Result-snapshot failed))
+                      (check-equal? (Source-Result-error failed)
+                                    (Source-Failure 'arbitrary-read-failure))
+                      (check-not-false (sync/timeout 0 (Source-View-changed previous)))
+                      (set! previous current)))))
+
+  (test-case "read errors leave content unknown and report a separate failure"
     (with-files
       (lambda (root)
         (with-session (make-source-controller)
                       (lambda (session)
                         (define failed (await (refresh session root))) ; reading a directory fails
-                        (check-eq? 'unavailable (Source-View-state (Source-Result-view failed)))
+                        (check-eq? 'unknown (Source-View-content-state (Source-Result-view failed)))
                         (check-true (Source-Failure? (Source-Result-error failed))))))))
 
   (test-case "folder removal preserves a held source and rename invalidates both paths"
@@ -378,7 +408,7 @@
                     (check-not-false (sync/timeout 0 (Source-View-changed before-removal)))
                     (check-not-false (sync/timeout 0 (Source-View-changed before-rename)))
                     (for ([result (in-list (list (await old-result) (await new-result)))])
-                      (check-eq? 'unobserved (Source-View-state (Source-Result-view result)))
+                      (check-eq? 'unknown (Source-View-content-state (Source-Result-view result)))
                       (check-false (Source-Result-snapshot result)))
                     (release! old-read "obsolete old")
                     (release! new-read "obsolete destination")

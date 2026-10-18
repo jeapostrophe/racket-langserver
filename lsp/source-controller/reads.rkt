@@ -49,12 +49,13 @@
     (file->string path)))
 
 (define (refresh! controller source reply)
-  (define origin (Source-View-origin (source-controller-view controller source)))
+  (define view (source-controller-view controller source))
   (complete! reply
-             (case origin
-               [(buffer) (current-result controller source)]
-               [(closed) (current-result controller source (Source-Failure 'closed))]
-               [(disk) (completion-evt (next-read-batch! controller source))])))
+             (match view
+               [#f (current-result controller source (Source-Failure 'closed))]
+               [(struct* Source-View ([origin 'buffer])) (current-result controller source)]
+               [(struct* Source-View ([origin 'disk]))
+                (completion-evt (next-read-batch! controller source))])))
 
 (define (next-read-batch! controller source)
   (define lanes (controller-lanes controller))
@@ -89,14 +90,14 @@
   (define lanes (controller-lanes controller))
   (define lane (hash-ref lanes (source-id source) #f))
   (when (and lane (eq? attempt (Read-Lane-active lane)))
-    (define-values (state text error)
+    (define-values (content-state text error)
       (match result
-        [(? string? text) (values 'present text #f)]
-        [(Disk-Missing) (values 'missing #f #f)]
-        [(? Source-Failure? failure) (values 'unavailable #f failure)]
-        [_ (values 'unavailable #f (Source-Failure result))]))
+        [(? string? text) (values 'text-available text #f)]
+        [(Disk-Missing) (values 'file-not-found #f #f)]
+        [(? Source-Failure? failure) (values 'unknown #f failure)]
+        [_ (values 'unknown #f (Source-Failure result))]))
     (define ticket (Read-Attempt-ticket attempt))
-    (source-store-observe! (Source-Controller-store controller) ticket state text)
+    (source-store-observe! (Source-Controller-store controller) ticket content-state text)
     ;; A new disk view stops jobs captured under the view it replaced.
     ;; An unchanged reread keeps the ticket and its jobs.
     (unless (eq? ticket (source-controller-view controller source))
@@ -117,7 +118,7 @@
 
 ;; Open, close, and invalidate abandon the in-flight read. Answer both the
 ;; active batch and the queued batch with the current view, which may be
-;; unobserved. The abandoned read must not stay pending or be installed.
+;; unknown. The abandoned read must not stay pending or be installed.
 (define (invalidate-reads! controller source)
   (define lanes (controller-lanes controller))
   (define lane (hash-ref lanes (source-id source) #f))

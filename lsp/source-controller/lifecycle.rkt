@@ -1,7 +1,8 @@
 #lang racket/base
 
-;; Buffer authority transitions: open, edit, close, and invalidation. Each one
-;; replaces the source revision and stops work captured under the old one.
+;; Buffer authority transitions and file invalidation. Changes replace or
+;; remove the current view and stop work captured under it; virtual
+;; invalidation does nothing.
 (require racket/class
          "../../common/source.rkt"
          "../../doclib/doc.rkt"
@@ -54,15 +55,15 @@
   (remove-retained! controller source)
   (invalidate-jobs! controller source))
 
-;; Close drops buffer authority without a read. Files become unobserved;
-;; virtual sources become closed and have no disk fallback.
+;; Close drops buffer authority without a read. File content becomes unknown;
+;; virtual sources are removed because they have no disk fallback.
 (define (source-controller-close! controller source safe-doc)
   (define uri
     (with-write-safedoc safe-doc
       (lambda (sd)
         (define available (SafeDoc-available sd))
         (define closed-view (source-store-close! (Source-Controller-store controller) source))
-        (when (and (eq? 'disk (Source-View-origin closed-view)) available
+        (when (and closed-view available
                    (eq? (Source-Snapshot-revision (Available-Analysis-snapshot available))
                         (Source-View-revision (SafeDoc-source-view sd))))
           (doc-detach-analysis! (SafeDoc-doc sd))

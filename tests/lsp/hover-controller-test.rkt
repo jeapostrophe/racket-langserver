@@ -115,7 +115,7 @@
         (check-false (sync/timeout 0 gates))
         (close! session b)
         (barrier session)
-        (check-eq? (Source-View-state (view session b)) 'unobserved)
+        (check-eq? (Source-View-content-state (view session b)) 'unknown)
         (request session 3 a)
         (release! (await gates))
         (define restored (check-hover session 3 "(define shared 1)"))

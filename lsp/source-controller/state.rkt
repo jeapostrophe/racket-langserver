@@ -37,8 +37,10 @@
   ([reason any/c])
   #:transparent)
 
+;; Refresh of an absent virtual source has no view or snapshot and reports
+;; Source-Failure 'closed. File results always have a view, even on read failure.
 (struct/contract Source-Result
-  ([view Source-View?]
+  ([view (or/c #f Source-View?)]
    [snapshot (or/c #f Source-Snapshot?)]
    [error (or/c #f Source-Failure?)])
   #:transparent)
@@ -70,7 +72,7 @@
   #:mutable)
 
 (struct/contract Source-Controller
-  ([store (and/c hash? (not/c immutable?))]
+  ([store Source-Store?]
    [events async-channel?]
    [shutdown semaphore?]
    [notify (-> string? any/c any/c)]
@@ -131,8 +133,9 @@
   (eq? job (hash-ref (controller-jobs controller) (job-key job) #f)))
 
 (define (job-current-source? controller job)
-  (eq? (Source-Snapshot-revision (Job-snapshot job))
-       (Source-View-revision (source-controller-view controller (job-source job)))))
+  (define view (source-controller-view controller (job-source job)))
+  (and view (eq? (Source-Snapshot-revision (Job-snapshot job))
+                 (Source-View-revision view))))
 
 (define (forget-job! controller job)
   (when (current-job? controller job)
