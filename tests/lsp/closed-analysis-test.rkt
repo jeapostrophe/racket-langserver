@@ -13,10 +13,7 @@
          "../../common/json-util.rkt"
          "../../common/path-util.rkt"
          "../../common/settings.rkt"
-         "../../doclib/doc.rkt"
          "../../lsp/analysis.rkt"
-         "../../lsp/lsp.rkt"
-         "../../lsp/safedoc.rkt"
          "../../lsp/source-controller.rkt"
          "../../workspace/source-store.rkt"
          (submod "source-controller-test.rkt" test-support))
@@ -27,7 +24,7 @@
     (async-channel-put gates release)
     (case (async-channel-get release)
       [(fail) (raise 'refresh-failed)]
-      [(unsuccessful)
+      [(errors)
        (define product (analyze-source snapshot))
        (Analysis-Product #f #f (list (hasheq 'message "fresh analysis error"))
                          (Analysis-Product-trace product) #f)]
@@ -40,9 +37,10 @@
 (define (await-analysis event)
   (await event 90))
 
-(define (acquire session path)
-  (owner session (lambda (c) (source-controller-acquire-analysis!
-                               c (source-controller-snapshot c (path->source path))))))
+(define (available session path)
+  (define snapshot (Source-Result-snapshot (observation session path)))
+  (Analysis-Acquisition-available
+    (await (source-controller-analysis-evt (Session-controller session) snapshot))))
 
 (define (query session path id method [position (Pos 3 0)])
   (async-channel-put (Session-clients session)
@@ -106,7 +104,7 @@
   (test-case "cache eviction leaves live documents usable and makes an evicted reopen cold"
     (define gates (make-async-channel))
     (define text "#lang racket/base\n(define value 1)\nvalue\n")
-    (with-session (make-source-controller #:analyze (analyzer gates) #:resyntax #f #:retained-limit 1)
+    (with-session (make-source-controller #:analyze (analyzer gates) #:resyntax #f #:closed-analysis-limit 1)
                   (lambda (session)
                     (define a (build-path scratch "eviction-a.rkt"))
                     (define b (build-path scratch "eviction-b.rkt"))
@@ -121,8 +119,7 @@
                     (open! session a text)
                     (define cold (await gates))
                     (barrier session)
-                    (check-false (owner session (lambda (_) (with-read-safedoc
-                                                              (lsp-get-doc (path->uri a)) SafeDoc-available))))
+                    (check-false (available session a))
                     (release! cold)
                     (await-analysis (acquire session a))
                     (open! session b text)
@@ -134,8 +131,8 @@
                     (for ([path (in-list (list a b live))]) (close! session path))
                     (barrier session))))
 
-  (for ([failure (in-list '(fail unsuccessful))])
-    (test-case (format "refresh ~a clears exact availability and cannot be retained as success" failure)
+  (for ([failure (in-list '(fail errors))])
+    (test-case (format "refresh ~a cannot be retained as success" failure)
       (define gates (make-async-channel))
       (define text "#lang racket/base\n(define value 1)\nvalue\n")
       (with-session (make-source-controller #:analyze (analyzer gates) #:resyntax #f)
@@ -154,18 +151,15 @@
                       (check-true (pair? (hash-ref (query session path 430 "textDocument/semanticTokens/full") 'data)))
                       (release! held failure)
                       (check-eq? (Analysis-Outcome-state (await-analysis fresh))
-                                 (if (eq? failure 'fail) 'failed 'unsuccessful))
-                      (check-false (owner session (lambda (_) (with-read-safedoc
-                                                                (lsp-get-doc (path->uri path)) SafeDoc-available))))
-                      (when (eq? failure 'unsuccessful)
+                                 (if (eq? failure 'fail) 'failed 'errors))
+                      (when (eq? failure 'errors)
                         (check-equal? (query session path 431 "textDocument/semanticTokens/full") (hasheq 'data '())))
                       (close! session path)
                       (barrier session)
                       (open! session path text)
                       (await gates)
                       (barrier session)
-                      (check-false (owner session (lambda (_) (with-read-safedoc
-                                                                (lsp-get-doc (path->uri path)) SafeDoc-available))))
+                      (check-false (available session path))
                       (close! session path)
                       (barrier session))))))
 
@@ -270,7 +264,7 @@
                       (barrier session)
                       (check-equal? (query session path 461 "textDocument/semanticTokens/full") expected))
                     (define pending (acquire session path))
-                    (owner session (lambda (c) (source-controller-shutdown! c)))
+                    (shutdown! session)
                     (check-eq? 'stopped (Analysis-Outcome-state (await pending))))))
 
   (test-case "restoration does not start Resyntax before fresh analysis succeeds"
@@ -304,3 +298,42 @@
             (close! session path)
             (barrier session))))
       (lambda () (set-resyntax-enabled! old-enabled)))))
+
+(module+ test
+  (test-case "closed-file acquisition refreshes LRU recency while fresh analysis is held"
+    (define gates (make-async-channel))
+    (define text "#lang racket/base\n(define value 1)\nvalue\n")
+    (with-files
+      (lambda (root)
+        (define a (build-path root "lru-a.rkt"))
+        (define b (build-path root "lru-b.rkt"))
+        (define c (build-path root "lru-c.rkt"))
+        (for ([path (in-list (list a b c))])
+          (write-text path text))
+        (with-session
+          (make-source-controller #:analyze (analyzer gates) #:resyntax #f #:closed-analysis-limit 2)
+          (lambda (session)
+            (for ([path (in-list (list a b))])
+              (open! session path text)
+              (release! (await gates))
+              (barrier session)
+              (check-eq? 'succeeded (Analysis-Outcome-state (await-analysis (acquire session path))))
+              (close! session path)
+              (barrier session))
+            ;; Reading A's retained facts must protect it from eviction by C.
+            ;; Hold A's refresh so a replacement cannot supply that protection.
+            (check-pred Analysis-Facts? (available session a))
+            (define held-a (await gates))
+            (open! session c text)
+            (release! (await gates))
+            (barrier session)
+            (check-eq? 'succeeded (Analysis-Outcome-state (await-analysis (acquire session c))))
+            (close! session c)
+            (barrier session)
+            (check-pred Analysis-Facts? (available session a))
+            (check-false (available session b))
+            (define held-b (await gates))
+            (release! held-a)
+            (release! held-b)
+            (check-eq? 'succeeded (Analysis-Outcome-state (await-analysis (acquire session a))))
+            (check-eq? 'succeeded (Analysis-Outcome-state (await-analysis (acquire session b))))))))))

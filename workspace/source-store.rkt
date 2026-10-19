@@ -38,8 +38,9 @@
 ;; source: Descriptor this table retains for the id. Open stores the caller's
 ;;   URI spelling; later edits reuse that descriptor rather than the lookup
 ;;   argument.
-;; revision: Fresh each time this view is replaced, and unchanged inside one
-;;   view. Callers compare it with `eq?`.
+;; revision: Lifetime token, fresh whenever this view is replaced, even when
+;;   text is unchanged (open, close, or explicit invalidation). It is stable
+;;   within one view. Callers compare it with `eq?`.
 ;; origin: Open buffer or disk file without a buffer. Closing a file returns
 ;;   it to disk; closing a virtual source removes its view.
 ;; content-state: `text-available` means buffer or cached disk text is available.
@@ -183,15 +184,15 @@
     [(Source-Record-buffer record) (source-store-edit! store source)]
     [else (source-store-close! store source)]))
 
-;; Install a completed disk observation only while `ticket`, the view captured
-;; when the read started, is still the current disk view. Any other ticket
-;; returns `#f`, so a superseded revision cannot be revived.
+;; Install a completed disk observation only while `started-view`, the view
+;; captured when the read started, is still the current disk view. Any other
+;; view returns `#f`, so a superseded revision cannot be revived.
 ;;
 ;; `text-available` requires string text; `file-not-found` and `unknown` require
 ;; no text. Use `unknown` for a failed read, dropping any previous disk text.
 ;; Every such failure issues a fresh revision, including repeated failures;
 ;; error details belong to the caller's read result rather than this store.
-(define (source-store-observe! store ticket content-state [text #f])
+(define (source-store-observe! store started-view content-state [text #f])
   (unless (case content-state
             [(text-available) (string? text)]
             [(file-not-found unknown) (not text)]
@@ -200,11 +201,11 @@
                            (string-append "expected text-available with string text, "
                                           "or file-not-found/unknown without text")
                            "content-state" content-state "text" text))
-  (define record (record-for store (Source-View-source ticket)))
+  (define record (record-for store (Source-View-source started-view)))
   (define current (and record (Source-Record-view record)))
   (match current
     [(struct* Source-View ([origin 'disk] [content-state current-content-state]))
-     #:when (eq? ticket current)
+     #:when (eq? started-view current)
      ;; Equal successful observations preserve the current revision.
      (if (and (eq? content-state current-content-state)
               (not (eq? content-state 'unknown))

@@ -14,6 +14,7 @@
          "lsp.rkt"
          "responses.rkt"
          "source-controller.rkt"
+         (submod "source-controller.rkt" owner)
          (prefix-in text-document/ "text-document.rkt")
          (prefix-in workspace/ "workspace.rkt")
          "../workspace/current.rkt"
@@ -41,7 +42,7 @@
 ;;
 ;; Fast queries read the adjusted projection under its lock. Features needing
 ;; current analysis defer to a revision-bound job event. The consumer owns
-;; acceptance and shares one analysis per revision, with two execution slots.
+;; acceptance and shares one analysis per revision, with four execution slots.
 
 ;; Mutable variables
 (define already-initialized? #f)
@@ -66,8 +67,8 @@
 
     (define/public (get-source-controller) source-controller)
 
-    ;; Owner callbacks and deferred response threads run here, on the
-    ;; consumer, so they inherit the session controller and registry.
+    ;; Owner operations run on the consumer; deferred response threads created
+    ;; there inherit the session controller and registry.
     (define (call-with-session-params thunk)
       (parameterize ([current-source-controller source-controller]
                      [current-open-docs open-documents])

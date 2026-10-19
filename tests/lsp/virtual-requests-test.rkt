@@ -1,12 +1,12 @@
 #lang racket/base
 
-(require json
+(require "../../common/source.rkt"
+         json
          rackunit
          racket/async-channel
          "../../common/interfaces.rkt"
          "../../common/json-util.rkt"
          "../../lsp/analysis.rkt"
-         "../../lsp/lsp.rkt"
          "../../lsp/source-controller.rkt"
          (submod "source-controller-test.rkt" test-support))
 
@@ -38,7 +38,7 @@
         (open-uri! session uri)
         (barrier session)
         (await analyses)
-        (check-not-false (owner session (lambda (_) (lsp-get-doc uri #f))))
+        (check-not-false (view session (uri->source uri)))
         (notify session "textDocument/didClose" (hasheq 'textDocument (hasheq 'uri uri)))
         (barrier session))))
 

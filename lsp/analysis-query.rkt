@@ -22,49 +22,49 @@
                       (* 1000 (current-analysis-request-timeout))))
   (define controller (current-source-controller))
   (define shutdown (source-controller-shutdown-evt controller))
-  (define-values (view job immediate)
+  ;; Called only under the buffer lock, including after a completion wakes us.
+  (define (available-response sd)
+    (define available (SafeDoc-available sd))
+    (define current-view (SafeDoc-source-view sd))
+    (and available current-view
+         (eq? (Source-Snapshot-revision (Available-Analysis-snapshot available))
+              (Source-View-revision current-view))
+         (success-response id (->jsexpr (read-result (SafeDoc-doc sd))))))
+  (define-values (view completion immediate)
     (with-read-safedoc safe-doc
       (lambda (sd)
-        (define available (SafeDoc-available sd))
-        (values (SafeDoc-source-view sd) (SafeDoc-analysis sd)
-                ;; Client versions need not change on source invalidation.
-                (and available (SafeDoc-source-view sd)
-                     (eq? (Source-Snapshot-revision (Available-Analysis-snapshot available))
-                          (Source-View-revision (SafeDoc-source-view sd)))
-                     (success-response id (->jsexpr (read-result (SafeDoc-doc sd)))))))))
+        (values (SafeDoc-source-view sd) (SafeDoc-analysis-completion sd)
+                (available-response sd)))))
   (define (failed reason)
     (error-response id ErrorCode-RequestFailed reason))
   (define (cancelled)
     (error-response id ErrorCode-RequestCancelled "Document changed or closed"))
   (define (expired?)
     (>= (current-deadline-milliseconds) deadline))
-  (define (changed?)
-    (or (not view) (sync/timeout 0 (Source-View-changed view))))
   (cond
     [immediate immediate]
     [else
      (lambda ()
        (with-handlers ([(lambda (_) #t) (lambda (_) (failed "Analysis request failed"))])
-         (define outcome
-           (and job view
-                (sync job (Source-View-changed view) shutdown (deadline-evt deadline))))
-         (cond
-           [(changed?) (cancelled)]
-           [(expired?) (failed "Analysis request deadline expired")]
-           [(sync/timeout 0 shutdown) (failed "Server shut down")]
-           [(and (Analysis-Outcome? outcome)
-                 (memq (Analysis-Outcome-state outcome) '(succeeded unsuccessful)))
-            (with-read-safedoc safe-doc
-              (lambda (sd)
-                (cond
-                  [(not (eq? view (SafeDoc-source-view sd))) (cancelled)]
-                  [(expired?) (failed "Analysis request deadline expired")]
-                  [(sync/timeout 0 shutdown) (failed "Server shut down")]
-                  [else
-                   (success-response
-                     id
-                     (->jsexpr
-                       (if (eq? 'unsuccessful (Analysis-Outcome-state outcome))
-                           empty-result
-                           (read-result (SafeDoc-doc sd)))))])))]
-           [else (failed "Check Syntax did not succeed")])))]))
+         (let loop ([completion completion])
+           (define outcome
+             (and completion view
+                  (sync completion (Source-View-changed view) shutdown (deadline-evt deadline))))
+           (define result
+             (with-read-safedoc safe-doc
+               (lambda (sd)
+                 (define current-completion (SafeDoc-analysis-completion sd))
+                 (cond
+                   [(or (not view) (not (eq? view (SafeDoc-source-view sd)))) (cancelled)]
+                   [(expired?) (failed "Analysis request deadline expired")]
+                   [(sync/timeout 0 shutdown) (failed "Server shut down")]
+                   [(available-response sd) => values]
+                   ;; A same-revision refresh may finish before this waiter runs.
+                   ;; Follow its completion when the old result is no longer available.
+                   [(and current-completion (not (eq? completion current-completion)))
+                    current-completion]
+                   [(and (Analysis-Outcome? outcome)
+                         (eq? 'errors (Analysis-Outcome-state outcome)))
+                    (success-response id (->jsexpr empty-result))]
+                   [else (failed "Check Syntax did not succeed")]))))
+           (if (evt? result) (loop result) result))))]))

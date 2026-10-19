@@ -30,7 +30,7 @@
     (check-request!)
     (define result
       (let/ec finish
-        (define acquired (wait (source-controller-refresh-evt controller source)))
+        (define acquired (wait (source-controller-observe-evt controller source)))
         (define target-view (Source-Result-view acquired))
         (define changed (Source-View-changed target-view))
         (define (again) (finish 'retry))
@@ -38,11 +38,10 @@
           (when (sync/timeout 0 changed) (again)))
         (define (target-failed message detail) (failed message detail check-target!))
         (define (target-wait event) (wait (choice-evt event changed) check-target!))
-        (define (owner proc) (target-wait (source-controller-call-evt controller proc)))
         (define (validate!)
           ;; The refresh result is immutable, but the authority may have
           ;; changed before we received it. Eligibility is owner-decided.
-          (unless (owner (lambda (c) (eq? target-view (source-controller-view c source))))
+          (unless (target-wait (source-controller-current-view-evt controller target-view))
             (again)))
         (validate!)
         ;; Handle errors first: failed and abandoned reads can both leave
@@ -61,14 +60,17 @@
         (define shared? (shared-binding? target))
         (define outcome
           (if shared?
-              (target-wait
-                (owner (lambda (c) (source-controller-query-analysis! c snapshot))))
+              (let ([acquisition (target-wait (source-controller-analysis-evt controller snapshot))])
+                (define available (Analysis-Acquisition-available acquisition))
+                (if available
+                    (Analysis-Outcome 'succeeded available)
+                    (target-wait (Analysis-Acquisition-completion acquisition))))
               (legacy target target-wait)))
         ;; Validate every shared outcome, including cached success and
         ;; failed/stopped attempts. A save can make that outcome obsolete.
         ;; Legacy disk lookup retains no target-snapshot freshness guarantee.
         (when shared?
-          (define refreshed (target-wait (source-controller-refresh-evt controller source)))
+          (define refreshed (target-wait (source-controller-observe-evt controller source)))
           (unless (eq? target-view (Source-Result-view refreshed)) (again))
           (when (Source-Result-error refreshed)
             (target-failed (string-append feature " validation read failed")
@@ -79,9 +81,9 @@
               (match outcome
                 [(struct* Analysis-Outcome ([state 'succeeded] [value facts]))
                  (lookup facts target)]
-                [(struct* Analysis-Outcome ([state 'unsuccessful]))
+                [(struct* Analysis-Outcome ([state 'errors]))
                  (check-request! check-target!)
-                 (log-racket-langserver-info "~a analysis unsuccessful for ~a: ~v" feature
+                 (log-racket-langserver-info "~a analysis reported errors for ~a: ~v" feature
                                              path target)
                  (finish #f)]
                 [_ (target-failed (string-append feature " analysis did not succeed") outcome)])

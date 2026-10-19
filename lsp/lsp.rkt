@@ -8,7 +8,8 @@
          "../common/source.rkt"
          "../doclib/doc.rkt"
          "safedoc.rkt"
-         "source-controller.rkt")
+         "source-controller.rkt"
+         (submod "source-controller.rkt" owner))
 
 ;; `server%` binds a session table in `process-message` and
 ;; `process-source-event`. Deferred response threads inherit that binding;

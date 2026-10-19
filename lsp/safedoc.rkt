@@ -11,16 +11,16 @@
          racket/contract)
 
 ;; source-view is updated in the same write-lock section as doc mutations.
-;; analysis is a broadcast completion event, not the product.
-;; available holds the completed product and analyzed snapshot even while analysis is pending.
-;; Callers clear source-view, analysis, and available on close.
+;; analysis-completion is a broadcast completion event, not the product.
+;; available holds the completed product and analyzed snapshot even while fresh analysis is pending.
+;; Callers clear source-view, analysis-completion, and available on close.
 ;; Access these fields only inside with-read-safedoc / with-write-safedoc
 ;; (or with-read-doc / with-write-doc for doc alone).
 (struct/contract SafeDoc
   ([doc Doc?]
    [rwlock RWLock?]
    [source-view (or/c #f Source-View?)]
-   [analysis (or/c #f evt?)]
+   [analysis-completion (or/c #f evt?)]
    [available (or/c #f Available-Analysis?)])
   #:mutable
   #:transparent)
@@ -54,8 +54,8 @@
          set-SafeDoc-source-view!
          SafeDoc-available
          set-SafeDoc-available!
-         SafeDoc-analysis
-         set-SafeDoc-analysis!
+         SafeDoc-analysis-completion
+         set-SafeDoc-analysis-completion!
          new-safedoc
          with-read-doc
          with-write-doc

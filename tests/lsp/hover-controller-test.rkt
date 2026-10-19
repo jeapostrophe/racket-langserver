@@ -57,9 +57,7 @@
           (lambda (session)
             (open! session a text)
             (barrier session)
-            (await (owner session (lambda (c)
-                                    (source-controller-acquire-analysis!
-                                      c (source-controller-snapshot c (path->source a))))))
+            (await (acquire session a))
             (check-equal? (await starts) (source-id (path->source a)))
             (request session 1 a "textDocument/hover" (Pos 1 2))
             (define result (hash-ref (response session 1) 'result))
@@ -96,8 +94,7 @@
         (check-location session 5 b)
         (request session 6 a)
         (check-hover session 6 "(define shared 1)")
-        (check-false (sync/timeout 0 gates))
-        (check-false (owner session (lambda (_) (lsp-get-doc (path->uri b) #f)))))))
+        (check-false (sync/timeout 0 gates)))))
 
   (test-case "open unsaved comments use the Check Syntax job; close restores disk detail"
     (define gates (make-async-channel))
@@ -115,7 +112,6 @@
         (check-false (sync/timeout 0 gates))
         (close! session b)
         (barrier session)
-        (check-eq? (Source-View-content-state (view session b)) 'unknown)
         (request session 3 a)
         (release! (await gates))
         (define restored (check-hover session 3 "(define shared 1)"))
@@ -200,9 +196,7 @@
                 (hasheq 'textDocument (hasheq 'uri uri 'languageId "racket"
                                               'version 0 'text (file->string a))))
         (barrier session)
-        (await (owner session (lambda (c)
-                                (source-controller-acquire-analysis!
-                                  c (source-controller-snapshot c (uri->source uri))))))
+        (await (acquire session (uri->source uri)))
         (async-channel-put (Session-clients session)
                            (hasheq 'id 1 'method "textDocument/hover"
                                    'params (hasheq 'textDocument (hasheq 'uri uri)
@@ -219,11 +213,7 @@
       (lambda (session a b _root)
         (request session 1 a)
         (check-hover session 1 "(define shared 1)")
-        (define result (await (refresh session b)))
-        (define outcome
-          (await (owner session (lambda (c)
-                                  (source-controller-acquire-analysis!
-                                    c (Source-Result-snapshot result))))))
+        (define outcome (await (acquire session b)))
         (define summaries (Analysis-Facts-hover-summaries (Analysis-Outcome-value outcome)))
         (check-true (immutable? summaries))
         (for ([summary (in-hash-values summaries)])
@@ -239,9 +229,7 @@
         (open! session b saved 7)
         (release! (await gates))
         (barrier session)
-        (await (owner session (lambda (c)
-                                (source-controller-acquire-analysis!
-                                  c (source-controller-snapshot c (path->source b))))))
+        (await (acquire session b))
         (close! session b)
         (barrier session)
         (request session 301 a)

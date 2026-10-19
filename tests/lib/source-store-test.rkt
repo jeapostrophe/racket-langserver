@@ -1,7 +1,7 @@
 #lang racket/base
 
 ;; Source-store transitions with no controller and no disk. These checks cover
-;; observation, authority tickets, and which text the store retains.
+;; observation, views captured at read start, and which text the store retains.
 (require "../../common/source.rkt"
          "../../common/path-util.rkt"
          rackunit
@@ -105,13 +105,13 @@
     (check-true (changed? failed-again))
     (check-eq? 'text-available (Source-View-content-state recreated)))
 
-  (test-case "close discards unsaved authority and rejects old disk tickets"
+  (test-case "close discards unsaved authority and rejects an old disk view"
     (define store (make-source-store))
-    (define ticket (source-store-view store (path->source path)))
+    (define started-view (source-store-view store (path->source path)))
     (define buffer (box 'editable-text))
     (define opened (source-store-open! store (path->source path) buffer))
     (check-eq? buffer (source-store-buffer store (path->source path)))
-    (check-false (source-store-observe! store ticket 'text-available "old read"))
+    (check-false (source-store-observe! store started-view 'text-available "old read"))
     (define edited (source-store-edit! store (path->source path)))
     (check-true (changed? opened))
     (define closed (source-store-close! store (path->source path)))
@@ -119,7 +119,7 @@
     (check-eq? 'unknown (Source-View-content-state closed))
     (check-false (source-store-buffer store (path->source path)))
     (check-false (source-store-disk-snapshot store (path->source path)))
-    (check-false (source-store-observe! store ticket 'text-available "old read"))
+    (check-false (source-store-observe! store started-view 'text-available "old read"))
     (define reopened (source-store-open! store (path->source path) buffer))
     (check-not-eq? (Source-View-revision opened) (Source-View-revision reopened))
     (check-false (source-store-observe! store closed 'text-available "disk"))

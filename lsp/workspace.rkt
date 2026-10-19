@@ -19,6 +19,7 @@
          "lsp.rkt"
          "safedoc.rkt"
          "source-controller.rkt"
+         (submod "source-controller.rkt" owner)
          "../doclib/doc.rkt"
          "../common/settings.rkt"
          "../workspace/current.rkt"

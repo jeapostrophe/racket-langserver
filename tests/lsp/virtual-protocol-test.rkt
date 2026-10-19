@@ -34,12 +34,6 @@
 (define (check-error result code)
   (check-equal? (hash-ref (hash-ref result 'error) 'code) (->jsexpr code)))
 
-(define (acquire session)
-  (owner session
-         (lambda (controller)
-           (source-controller-acquire-analysis!
-             controller (source-controller-snapshot controller source)))))
-
 (define (analysis-diagnostics session)
   (hash-ref (hash-ref (await (Session-notifications session)) 'params) 'diagnostics))
 
@@ -101,7 +95,7 @@
         (check-not-eq? (Source-Snapshot-revision (Probe-snapshot initial))
                        (Source-Snapshot-revision (Probe-snapshot reopened)))
         (async-channel-put (Probe-release reopened) 'go)
-        (check-eq? 'succeeded (Analysis-Outcome-state (await (acquire session))))
+        (check-eq? 'succeeded (Analysis-Outcome-state (await (acquire session source))))
         (check-equal? (Source-Snapshot-uri (Probe-snapshot reopened)) uri)
         (close-uri! session)
         (barrier session))))
@@ -111,7 +105,7 @@
                   (lambda (session)
                     (open-uri! session "(define value 1)\nvalue\n")
                     (barrier session)
-                    (await (acquire session))
+                    (await (acquire session source))
                     (define diagnostics (analysis-diagnostics session))
                     (check-not-false
                       (for/or ([diag (in-list diagnostics)])
@@ -120,7 +114,7 @@
                             (hasheq 'textDocument (hasheq 'uri uri 'version 1)
                                     'contentChanges (list (hasheq 'text text))))
                     (barrier session)
-                    (check-eq? 'succeeded (Analysis-Outcome-state (await (acquire session))))
+                    (check-eq? 'succeeded (Analysis-Outcome-state (await (acquire session source))))
                     (check-equal? (analysis-diagnostics session) '())
                     (request! session 1 "textDocument/definition"
                               (hasheq 'position (hasheq 'line 2 'character 0)))
@@ -142,7 +136,7 @@
           (lambda (session)
             (open-uri! session)
             (barrier session)
-            (check-eq? 'succeeded (Analysis-Outcome-state (await (acquire session))))
+            (check-eq? 'succeeded (Analysis-Outcome-state (await (acquire session source))))
             (check-equal? (await starts) (list text uri))
             (analysis-diagnostics session) ; Check Syntax publication
             (check-equal? (length (analysis-diagnostics session)) 1) ; Resyntax publication

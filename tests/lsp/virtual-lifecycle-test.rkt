@@ -7,14 +7,14 @@
          "../../lsp/analysis.rkt"
          "../../lsp/safedoc.rkt"
          "../../lsp/source-controller.rkt"
+         (submod "../../lsp/source-controller.rkt" owner)
          "../../workspace/source-store.rkt"
-         (submod "../../lsp/source-controller.rkt" test-support)
          (submod "source-controller-test.rkt" test-support))
 
 (define text "#lang racket/base\n(require racket/list)\n(define value (first '(1 2)))\nvalue\n")
 
 (define (start-analysis controller source)
-  (source-controller-acquire-analysis! controller (source-controller-snapshot controller source)))
+  (source-controller-ensure-analysis! controller (source-controller-snapshot controller source)))
 
 (define (finish-analysis controller event)
   (source-controller-handle! controller (await (source-controller-events controller)))
@@ -34,11 +34,10 @@
     (check-eq? 'succeeded (Analysis-Outcome-state (finish-analysis controller first)))
     (check-true (with-read-doc sd doc-trace-latest?))
     (define edited "#lang racket/base\n(define value 2)\nvalue\n")
-    (with-write-safedoc sd
-      (lambda (sd)
-        (doc-reset! (SafeDoc-doc sd) edited)
-        (doc-update-version! (SafeDoc-doc sd) 1)
-        (source-controller-edited! controller source sd)))
+    (source-controller-edit! controller sd
+                             (lambda (doc)
+                               (doc-reset! doc edited)
+                               (doc-update-version! doc 1)))
     (define snapshot (source-controller-snapshot controller source))
     (check-equal? uri (Source-Snapshot-uri snapshot))
     (check-equal? (source-id source) (Source-Snapshot-id snapshot))
@@ -69,12 +68,12 @@
     (check-false (source-controller-view controller source))
     (check-false (source-controller-snapshot controller source))
     (check-eq? 'stopped (Analysis-Outcome-state (await waiting)))
-    (check-equal? (await (source-controller-acquire-analysis! controller old-snapshot))
+    (check-equal? (await (source-controller-ensure-analysis! controller old-snapshot))
                   (Analysis-Outcome 'stopped 'ineligible))
     (source-controller-handle! controller late-message)
     (check-false (source-controller-view controller source))
     (check-false (with-read-safedoc old SafeDoc-source-view))
-    (check-false (with-read-safedoc old SafeDoc-analysis))
+    (check-false (with-read-safedoc old SafeDoc-analysis-completion))
     (define reopened (new-safedoc uri text 7))
     (check-equal? (with-read-doc old Doc-uri) (with-read-doc reopened Doc-uri))
     (source-controller-open! controller source reopened)
@@ -82,7 +81,7 @@
                   (Source-View-id (source-controller-view controller source)))
     (check-not-eq? (Source-View-revision previous)
                    (Source-View-revision (source-controller-view controller source)))
-    (check-equal? (await (source-controller-acquire-analysis! controller old-snapshot))
+    (check-equal? (await (source-controller-ensure-analysis! controller old-snapshot))
                   (Analysis-Outcome 'stopped 'ineligible))
     (source-controller-handle! controller late-message)
     (check-equal? (length published) 1 "only close clears diagnostics")
@@ -96,25 +95,37 @@
     (source-controller-shutdown! controller))
 
   (test-case "virtual refresh never reads disk and invalidation preserves virtual revisions"
-    (with-session
-      (make-source-controller #:read (lambda (_) (error 'disk "virtual source reached disk")) #:resyntax #f)
-      (lambda (session)
-        (define source (uri->source "notebook:/project/main.rkt#cell"))
-        (define closed (await (refresh session source)))
+    ;; This thread owns lifecycle transitions and consumes the controller commands.
+    (define controller
+      (make-source-controller #:read (lambda (_) (error 'disk "virtual source reached disk"))
+                              #:resyntax #f))
+    (define source (uri->source "notebook:/project/main.rkt#cell"))
+    (define (observe)
+      (define reply (source-controller-observe-evt controller source))
+      (let loop ()
+        (unless (sync/timeout 0 reply)
+          (source-controller-handle! controller (await (source-controller-events controller)))
+          (loop)))
+      (await reply))
+    (dynamic-wind
+      void
+      (lambda ()
+        (define closed (observe))
         (check-false (Source-Result-view closed))
         (check-equal? (Source-Result-error closed) (Source-Failure 'closed))
         (check-false (Source-Result-snapshot closed))
         (define sd (new-safedoc (source-uri source) text 0))
-        (owner session (lambda (controller) (source-controller-open! controller source sd)))
-        (define before (view session source))
-        (define opened (await (refresh session source)))
+        (source-controller-open! controller source sd)
+        (define before (Source-Result-view (observe)))
+        (define opened (observe))
         (check-equal? text (Source-Snapshot-text (Source-Result-snapshot opened)))
         (check-false (Source-Result-error opened))
-        (owner session (lambda (controller) (source-controller-invalidate! controller source)))
-        (check-eq? before (view session source))
-        (owner session (lambda (controller) (source-controller-close! controller source sd)))
-        (define after-close (await (refresh session source)))
+        (source-controller-invalidate! controller source)
+        (check-eq? before (Source-Result-view (observe)))
+        (source-controller-close! controller source sd)
+        (define after-close (observe))
         (check-false (Source-Result-view after-close))
         (check-false (Source-Result-snapshot after-close))
         (check-equal? (Source-Result-error after-close) (Source-Failure 'closed))
-        (check-false (view session source))))))
+        (void))
+      (lambda () (source-controller-shutdown! controller)))))

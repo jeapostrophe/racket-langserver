@@ -19,6 +19,7 @@
          "semantic-token-lsp.rkt"
          "analysis-query.rkt"
          "source-controller.rkt"
+         (submod "source-controller.rkt" owner)
          "../common/source.rkt"
          "lsp.rkt"
          "workspace.rkt")
@@ -33,7 +34,7 @@
   (match-define (hash-table ['textDocument (^DocItem #:uri uri #:version version #:text text)]) params)
   (fetch-configuration request-client uri)
   (lsp-open-doc! uri text version)
-  (source-controller-analyze! (current-source-controller) (uri->source uri)))
+  (void))
 
 (define (did-close! params)
   (match-define (hash-table ['textDocument (DocItem-js #:uri uri)]) params)
@@ -43,26 +44,21 @@
   (match-define (hash-table ['textDocument (^DocIdentifier #:version version #:uri uri)]
                             ['contentChanges content-changes]) params)
   (define safe-doc (lsp-get-doc uri))
-  (define source (uri->source uri))
   (define content-changes*
     (cond [(eq? (json-null) content-changes) empty]
           [(list? content-changes) content-changes]
           [else (list content-changes)]))
 
-  (with-write-safedoc safe-doc
-    (λ (sd)
-      (define doc (SafeDoc-doc sd))
-      (source-controller-edited! (current-source-controller) source sd)
-      (for ([change (in-list content-changes*)])
-        (match change
-          [(^ContentChangeEvent-Incremental #:range range #:text text)
-           (doc-apply-edit! doc range text)]
-          [(^ContentChangeEvent-Full #:text text)
-           (doc-reset! doc text)]))
+  (source-controller-edit! (current-source-controller) safe-doc
+                           (λ (doc)
+                             (for ([change (in-list content-changes*)])
+                               (match change
+                                 [(^ContentChangeEvent-Incremental #:range range #:text text)
+                                  (doc-apply-edit! doc range text)]
+                                 [(^ContentChangeEvent-Full #:text text)
+                                  (doc-reset! doc text)]))
 
-      (doc-update-version! doc version)))
-
-  (source-controller-analyze! (current-source-controller) source))
+                             (doc-update-version! doc version))))
 
 (define (success-from-doc id uri proc)
   (success/enc id (with-read-doc (lsp-get-doc uri) proc)))

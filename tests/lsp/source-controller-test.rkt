@@ -16,12 +16,11 @@
          "../../main.rkt"
          "../../common/path-util.rkt"
          "../../common/time.rkt"
-         "../../doclib/doc.rkt"
-         "../../lsp/lsp.rkt"
          "../../lsp/methods.rkt"
-         "../../lsp/safedoc.rkt"
+         "../../lsp/analysis.rkt"
+         "../../lsp/analysis-query.rkt"
          "../../lsp/source-controller.rkt"
-         "../../lsp/source-controller/reads.rkt"
+         (only-in "../../lsp/source-controller/disk-reader.rkt" read-source-text)
          "../../workspace/source-store.rkt")
 
 (define-runtime-path scratch-path "../../.agent-scratch")
@@ -35,7 +34,9 @@
    [clients async-channel?]
    [responses async-channel?]
    [notifications async-channel?]
-   [pending hash?])
+   [pending (hash/c (or/c exact-integer? string?)
+                    (hash/c symbol? jsexpr? #:immutable #t)
+                    #:immutable #f)])
   #:transparent)
 
 (define (await event [timeout 5])
@@ -43,16 +44,43 @@
   (unless value (error 'await "event did not complete within ~a seconds" timeout))
   (car value))
 
-(define (owner session proc)
-  (await (source-controller-call-evt (Session-controller session) proc)))
+(define (observation session target)
+  (define result (await (refresh session target)))
+  (when (Source-Failure? result)
+    (error 'observation "source command failed: ~v" (Source-Failure-reason result)))
+  result)
 
-(define (view session path)
-  (owner session
-         (lambda (controller)
-           (source-controller-view controller (if (Source? path) path (path->source path))))))
+;; Observation of a closed file reads disk. Tests with a held read must use
+;; their captured result/view and current-view validation instead.
+(define (view session target)
+  (Source-Result-view (observation session target)))
+
+(define (acquire session target)
+  (define result (observation session target))
+  (when (Source-Result-error result)
+    (error 'acquire "source observation failed: ~v" (Source-Result-error result)))
+  (define acquisition
+    (await (source-controller-analysis-evt (Session-controller session)
+                                           (Source-Result-snapshot result))))
+  (when (Source-Failure? acquisition)
+    (error 'acquire "analysis command failed: ~v" (Source-Failure-reason acquisition)))
+  (Analysis-Acquisition-completion acquisition))
+
+;; Validation orders preceding controller commands without reading disk or
+;; starting analysis. A different store's revision can never be current in this session.
+(define barrier-view
+  (source-store-view (make-source-store) (path->source (build-path scratch "barrier.rkt"))))
+
+(define (controller-barrier session)
+  (check-false
+    (await (source-controller-current-view-evt (Session-controller session) barrier-view))))
+
+(define (shutdown! session)
+  (async-channel-put (Session-clients session) (hasheq 'id "shutdown" 'method "shutdown"))
+  (response session "shutdown"))
 
 (define (refresh session path)
-  (source-controller-refresh-evt (Session-controller session)
+  (source-controller-observe-evt (Session-controller session)
                                  (if (Source? path) path (path->source path))))
 
 (define (notify session method params)
@@ -68,7 +96,7 @@
           (hasheq 'textDocument (hasheq 'uri (path->uri path)))))
 
 ;; A client request is an ordering barrier for preceding client notifications.
-;; Owner commands are a separate queue and cannot serve that purpose.
+;; Controller commands are a separate queue and cannot serve that purpose.
 (define (barrier session)
   (async-channel-put (Session-clients session)
                      (hasheq 'id 100 'method "textDocument/hover"
@@ -92,13 +120,15 @@
   (hash-remove! pending id)
   result)
 
-(define (with-session controller proc)
+(define (with-session controller proc
+                      #:request-timeout [timeout (current-analysis-request-timeout)])
   (define custodian (make-custodian))
   (define clients (make-async-channel))
   (define responses (make-async-channel))
   (define notifications (make-async-channel))
   (define session (Session controller clients responses notifications (make-hash)))
-  (parameterize ([current-custodian custodian])
+  (parameterize ([current-custodian custodian]
+                 [current-analysis-request-timeout timeout])
     (define server
       (new server%
         [source-controller controller]
@@ -110,7 +140,8 @@
     void
     (lambda () (proc session) (void))
     (lambda ()
-      (owner session (lambda (controller) (source-controller-shutdown! controller)))
+      (unless (sync/timeout 0 (source-controller-shutdown-evt controller))
+        (shutdown! session))
       (custodian-shutdown-all custodian))))
 
 (define (controlled-controller probes #:timeout [timeout 90])
@@ -136,7 +167,8 @@
   (dynamic-wind void (lambda () (proc root)) (lambda () (delete-directory/files root))))
 
 (module+ test-support
-  (provide await owner view refresh notify open! close! barrier response with-session
+  (provide await observation acquire view refresh notify open! close! barrier controller-barrier
+           shutdown! response with-session
            scratch (struct-out Session)))
 
 (module+ test
@@ -158,21 +190,6 @@
         (delete-file path)
         (check-true (Disk-Missing? (read-source-text path))))))
 
-  (test-case "SafeDoc source-view mutations enforce their contract"
-    (with-session (make-source-controller)
-                  (lambda (session)
-                    (define path (build-path scratch "contract-buffer.rkt"))
-                    (open! session path "#lang racket/base\n")
-                    (barrier session)
-                    (owner session
-                           (lambda (_)
-                             (with-write-safedoc (lsp-get-doc (path->uri path))
-                               (lambda (sd)
-                                 (define before (SafeDoc-source-view sd))
-                                 (check-exn exn:fail:contract?
-                                            (lambda () (set-SafeDoc-source-view! sd 'invalid)))
-                                 (check-eq? before (SafeDoc-source-view sd)))))))))
-
   (test-case "ordered refresh barriers cannot reuse a read started before the command"
     (define probes (make-async-channel))
     (with-session (controlled-controller probes)
@@ -182,17 +199,17 @@
                     (define read-1 (await probes))
                     (define second (refresh session path))
                     (define third (refresh session path))
-                    (owner session void) ; internal FIFO has accepted both pending refreshes
+                    (controller-barrier session) ; internal FIFO has accepted both pending refreshes
                     (release! read-1 "old")
                     (check-equal? "old" (result-text (await first)))
-                    (define old-view (view session path))
+                    (define old-view (Source-Result-view (await first)))
                     (define read-2 (await probes))
                     (check-false (sync/timeout 0 second))
                     (release! read-2 "new")
                     (define result-2 (await second))
                     (define result-3 (await third))
                     (check-eq? result-2 (await second)
-                               "a completed batch is observable without consumption")
+                               "a completed read is observable without consumption")
                     (check-eq? result-2 (await third) "peers share the exact write-once result")
                     (check-equal? "new" (result-text result-2))
                     (check-eq? (Source-Result-view result-2) (Source-Result-view result-3))
@@ -231,11 +248,6 @@
                     (define local (response session 101))
                     (check-equal? (hash-ref (hash-ref local 'result) 'uri) (path->uri a))
                     (check-not-false (sync/timeout 0 (Source-View-changed old-view)))
-                    (check-equal? (owner session
-                                         (lambda (_)
-                                           (with-read-doc (lsp-get-doc (path->uri a))
-                                             Doc-version)))
-                                  1)
                     (define c-result (refresh session (build-path scratch "independent-c.rkt")))
                     (define c-read (await probes))
                     (release! c-read "independent")
@@ -262,8 +274,9 @@
                                   (result-text (await (refresh session path))))
                     (close! session path)
                     (barrier session)
-                    (define closed (view session path))
-                    (check-eq? 'unknown (Source-View-content-state closed))
+                    (check-false
+                      (await (source-controller-current-view-evt
+                               (Session-controller session) opened)))
                     (check-not-false (sync/timeout 0 (Source-View-changed opened)))
                     (check-false (sync/timeout 0 probes) "close starts no read")
                     (define saved-result (refresh session path))
@@ -315,12 +328,13 @@
                     (define deleted (refresh session path))
                     (define read-1 (await probes))
                     (define recreated (refresh session path))
-                    (owner session void)
+                    (controller-barrier session)
                     (release! read-1 (Disk-Missing))
                     (check-eq? 'file-not-found (Source-View-content-state (Source-Result-view (await deleted))))
                     (release! (await probes) "recreated")
                     (check-equal? "recreated" (result-text (await recreated)))
-                    (check-eq? 'text-available (Source-View-content-state (view session path))))))
+                    (check-eq? 'text-available
+                               (Source-View-content-state (Source-Result-view (await recreated)))))))
 
   (test-case "arbitrary raise and premature reader exit settle and permit another refresh"
     (define probes (make-async-channel))
@@ -337,7 +351,7 @@
                     (release! (await probes) "recovered")
                     (check-equal? "recovered" (result-text (await retry))))))
 
-  (test-case "read timeout settles the batch and starts its pending refresh"
+  (test-case "read timeout settles the active read and starts its pending refresh"
     (define probes (make-async-channel))
     (with-session (controlled-controller probes #:timeout 0.1)
                   (lambda (session)
@@ -345,7 +359,7 @@
                     (define first (refresh session path))
                     (await probes)
                     (define queued (refresh session path))
-                    (owner session void)
+                    (controller-barrier session)
                     (check-equal? 'read-timeout
                                   (Source-Failure-reason (Source-Result-error (await first))))
                     (release! (await probes) "later")
@@ -392,21 +406,16 @@
                     (barrier session)
                     (define old-result (refresh session old-path))
                     (define old-read (await probes))
-                    (define before-removal (view session old-path))
                     (notify session "workspace/didChangeWorkspaceFolders"
                             (hasheq 'event (hasheq 'added '() 'removed (list folder))))
                     (barrier session)
-                    (check-eq? before-removal (view session old-path))
                     (check-false (sync/timeout 0 old-result))
                     (define new-result (refresh session new-path))
                     (define new-read (await probes))
-                    (define before-rename (view session new-path))
                     (notify session "workspace/didRenameFiles"
                             (hasheq 'files (list (hasheq 'oldUri (path->uri old-path)
                                                          'newUri (path->uri new-path)))))
                     (barrier session)
-                    (check-not-false (sync/timeout 0 (Source-View-changed before-removal)))
-                    (check-not-false (sync/timeout 0 (Source-View-changed before-rename)))
                     (for ([result (in-list (list (await old-result) (await new-result)))])
                       (check-eq? 'unknown (Source-View-content-state (Source-Result-view result)))
                       (check-false (Source-Result-snapshot result)))
@@ -416,17 +425,13 @@
                     (release! (await probes) "renamed")
                     (check-equal? "renamed" (result-text (await next))))))
 
-  (test-case "captured SafeDoc view changes under edit/close and close signals every waiter"
+  (test-case "captured source view changes under edit/close and close signals every waiter"
     (with-session (make-source-controller)
                   (lambda (session)
                     (define path (build-path scratch "captured.rkt"))
                     (open! session path "#lang racket/base\n" 4)
                     (barrier session)
-                    (define captured
-                      (owner session
-                             (lambda (_)
-                               (with-read-safedoc (lsp-get-doc (path->uri path))
-                                 SafeDoc-source-view))))
+                    (define captured (view session path))
                     (check-eq? captured (view session path))
                     (notify session "textDocument/didSave"
                             (hasheq 'textDocument (hasheq 'uri (path->uri path)) 'text "disk text"))
@@ -438,33 +443,21 @@
                                     (list (hasheq 'text "#lang racket/base\n; edit\n"))))
                     (barrier session)
                     (check-not-false (sync/timeout 0 (Source-View-changed captured)))
-                    (define-values (edited old-doc)
-                      (apply values
-                             (owner session
-                                    (lambda (_)
-                                      (define doc (lsp-get-doc (path->uri path)))
-                                      (with-read-safedoc doc
-                                        (lambda (sd)
-                                          (list (SafeDoc-source-view sd) sd)))))))
+                    (define edited (view session path))
                     (close! session path)
                     (barrier session)
                     (check-not-false (sync/timeout 0 (Source-View-changed edited)))
-                    (check-false (with-read-safedoc old-doc SafeDoc-source-view))
                     (define query-path (build-path scratch "close-query.rkt"))
-                    (define pending
-                      (owner session
-                             (lambda (_)
-                               (define doc
-                                 (lsp-open-doc! (path->uri query-path) "#lang racket/base\n" 0))
-                               (with-read-safedoc doc
-                                 (lambda (sd) (Source-View-changed (SafeDoc-source-view sd)))))))
+                    (open! session query-path "#lang racket/base\n")
+                    (barrier session)
+                    (define pending (Source-View-changed (view session query-path)))
                     (close! session query-path)
                     (barrier session)
                     (check-not-false (await pending))
                     ;; The broadcast stays ready for a second waiter after close.
                     (check-not-false (await pending)))))
 
-  (test-case "shutdown settles held, queued, and subsequent owner operations"
+  (test-case "shutdown settles held, queued, and subsequent observations"
     (define probes (make-async-channel))
     (with-session (controlled-controller probes)
                   (lambda (session)
@@ -472,13 +465,10 @@
                     (define held (refresh session path))
                     (await probes)
                     (define queued (refresh session path))
-                    (owner session void)
+                    (controller-barrier session)
                     (async-channel-put (Session-clients session)
                                        (hasheq 'id "shutdown" 'method "shutdown"))
                     (response session "shutdown")
                     (for ([event (in-list (list held queued
-                                                (source-controller-call-evt
-                                                  (Session-controller session)
-                                                  void)
                                                 (refresh session path)))])
                       (check-equal? (Source-Failure 'shutdown) (await event)))))))

@@ -1,127 +1,118 @@
 #lang racket/base
 
-;; Per-session owner of source records, ordered disk reads, shared analysis
-;; jobs, bounded execution and result acceptance. The session consumer applies
-;; every mutation and table read. Other threads submit commands and wait on
-;; reply or change events; disk reads and analysis run on private workers.
-;; Descriptors retain source addresses; tables key on their stable IDs.
+;; Public command interface for the source controller. Request threads submit
+;; named commands and wait; the consumer dispatches them to the private source
+;; owner. No source state or subsystem handle is exposed here.
 (require racket/async-channel
          racket/contract
          racket/match
          "../common/source.rkt"
-         "../doclib/external/resyntax.rkt"
          "../workspace/source-store.rkt"
-         "analysis.rkt"
-         "resyntax-place.rkt"
-         "source-controller/completion.rkt"
-         "source-controller/jobs.rkt"
-         "source-controller/lifecycle.rkt"
-         "source-controller/reads.rkt"
-         "source-controller/state.rkt")
+         "source-controller/completion-event.rkt"
+         "source-controller/source-owner.rkt")
 
 (provide make-source-controller
          Source-Controller?
          current-source-controller
          source-controller-events
-         source-controller-call-evt
-         source-controller-refresh-evt
-         source-controller-handle!
-         source-controller-view
-         source-controller-snapshot
-         source-controller-open!
-         source-controller-edited!
-         source-controller-close!
-         source-controller-invalidate!
-         source-controller-analyze!
-         source-controller-query-analysis!
-         source-controller-acquire-analysis!
-         source-controller-set-notifier!
+         source-controller-observe-evt
+         source-controller-analysis-evt
+         source-controller-current-view-evt
          source-controller-shutdown-evt
-         source-controller-shutdown!
+         (struct-out Analysis-Acquisition)
          (struct-out Source-Result)
          (struct-out Source-Failure)
          (struct-out Disk-Missing))
 
-(define (make-source-controller #:read [read read-source-text]
-                                #:read-timeout [read-timeout 90]
-                                #:analyze [analyze analyze-source]
-                                #:analysis-slots [slots 2]
-                                #:analysis-timeout [analysis-timeout 90]
-                                #:retained-limit [retained-limit 32]
-                                #:resyntax [resyntax (and (resyntax-available?)
-                                                          run-resyntax/in-place)])
-  (Source-Controller (make-source-store) (make-async-channel) (make-semaphore 0)
-                     (lambda (_method _params) (void))
-                     (Disk-Reads read read-timeout (make-hash))
-                     (Runner analyze resyntax analysis-timeout slots (make-hash) '())
-                     (Retained-Cache retained-limit '())))
+;; These operations run only on the session consumer. Request threads use the
+;; named commands above.
+(module+ owner
+  (provide source-controller-handle!
+           source-controller-open!
+           source-controller-edit!
+           source-controller-close!
+           source-controller-invalidate!
+           source-controller-set-notifier!
+           source-controller-shutdown!
+           source-controller-view
+           source-controller-snapshot
+           source-controller-ensure-analysis!
+           source-controller-refresh-analysis!))
 
-(define current-source-controller (make-parameter (make-source-controller)))
+;; Commands on `events`, beside worker completions. Request threads never
+;; construct these records; the functions below submit them.
+;;
+;; reply: The submitter's one-shot wait, completed by the consumer in
+;;   `answer!`. Shared by every command below.
 
-(define (source-controller-set-notifier! controller notify)
-  (set-Source-Controller-notify! controller notify))
-
-(define (source-controller-events controller)
-  (Source-Controller-events controller))
-
-(struct/contract Owner-Call
-  ([proc (-> Source-Controller? any/c)]
-   [reply Completion?])
-  #:transparent)
-
-(struct/contract Refresh
+;; Current source knowledge. The consumer may complete `reply` with a
+;; `Source-Result`, or with a further read completion that the observe
+;; wrapper waits through.
+(struct/contract Observe
   ([source Source?]
-   [reply Completion?])
+   [reply Completion-Event?])
   #:transparent)
 
+;; Start or join analysis for `snapshot`. Completes `reply` with
+;; `Analysis-Acquisition`.
+(struct/contract Acquire-Analysis
+  ([snapshot Source-Snapshot?]
+   [reply Completion-Event?])
+  #:transparent)
+
+;; Whether `view` is still this source's current view. Completes `reply` with
+;; a boolean. Does not read disk.
+(struct/contract Validate-View
+  ([view Source-View?]
+   [reply Completion-Event?])
+  #:transparent)
+
+;; Puts the command on the consumer queue immediately. The returned event is
+;; the reply, or `Source-Failure` `'shutdown` if the controller stops first.
 (define (submit controller make-command)
-  (define reply (make-completion))
-  (async-channel-put (Source-Controller-events controller) (make-command reply))
-  (choice-evt (completion-evt reply)
+  (define reply (make-completion-event))
+  (async-channel-put (source-controller-events controller) (make-command reply))
+  (choice-evt reply
               (wrap-evt (source-controller-shutdown-evt controller)
                         (lambda (_) (Source-Failure 'shutdown)))))
 
-(define (source-controller-call-evt controller proc)
-  (submit controller (lambda (reply) (Owner-Call proc reply))))
+;; Current source knowledge. An open buffer replies with a `Source-Result`. A
+;; virtual source with no open buffer replies with a `Source-Result` whose
+;; `error` is `closed`. A disk file replies with the completion for its read:
+;; this command cannot join a read that started before the consumer accepted
+;; it, so overlapping observers share the next read. `replace-evt` waits
+;; through that inner event.
+(define (source-controller-observe-evt controller source)
+  (replace-evt (submit controller (lambda (reply) (Observe source reply)))
+               (lambda (result) (if (Completion-Event? result) result (ready-evt result)))))
 
-;; Each refresh is a barrier: it cannot join a read that started before the
-;; owner accepted the command. Pending callers share the next ordered read.
-(define (source-controller-refresh-evt controller source)
-  (replace-evt (submit controller (lambda (reply) (Refresh source reply)))
-               (lambda (result) (if (evt? result) result (ready-evt result)))))
+;; Start or join analysis for `snapshot`. The reply is `Analysis-Acquisition`:
+;; optional reusable facts plus the fresh attempt's completion event.
+(define (source-controller-analysis-evt controller snapshot)
+  (submit controller (lambda (reply) (Acquire-Analysis snapshot reply))))
 
+;; Whether `view` is still this source's current view. Does not read disk.
+(define (source-controller-current-view-evt controller view)
+  (submit controller (lambda (reply) (Validate-View view reply))))
+
+;; Complete `reply` with `proc`'s value. Shutdown and uncaught exceptions both
+;; become `Source-Failure`, so request threads never see a raised owner error.
+(define (answer! controller reply proc)
+  (resolve-completion! reply
+                       (if (source-controller-stopped? controller)
+                           (Source-Failure 'shutdown)
+                           (with-handlers ([(lambda (_) #t) Source-Failure])
+                             (proc)))))
+
+;; One dispatch finishes its source transition before queued analysis starts.
+;; Worker completions use the same owner and acceptance ordering as commands.
 (define (source-controller-handle! controller event)
   (match event
-    [(Owner-Call proc reply)
-     (complete! reply
-                (if (stopped? controller)
-                    (Source-Failure 'shutdown)
-                    (with-handlers ([(lambda (_) #t) Source-Failure])
-                      (proc controller))))]
-    [(Refresh source reply)
-     (if (stopped? controller)
-         (complete! reply (Source-Failure 'shutdown))
-         (refresh! controller source reply))]
-    [(Read-Done source attempt result)
-     (finish-read! controller source attempt result)]
-    [(Job-Done job result)
-     (finish-job! controller job result)])
-  (pump-jobs! controller))
-
-(define (source-controller-shutdown! controller)
-  (unless (stopped? controller)
-    (semaphore-post (Source-Controller-shutdown controller))
-    (define jobs (controller-jobs controller))
-    (for ([job (in-list (hash-values jobs))])
-      (settle-job! controller job (Analysis-Outcome 'stopped 'shutdown)))
-    (hash-clear! jobs)
-    (set-Runner-queue! (Source-Controller-runner controller) '())
-    (define lanes (controller-lanes controller))
-    (for ([lane (in-hash-values lanes)])
-      (abandon-lane! lane (Source-Failure 'shutdown)))
-    (hash-clear! lanes)
-    (set-Retained-Cache-entries! (Source-Controller-retained controller) '())))
-
-(module+ test-support
-  ;; Replay a captured runner message to exercise terminal-attempt rejection.
-  (provide Job-Done Job-Done-job))
+    [(Observe source reply)
+     (answer! controller reply (lambda () (source-controller-observe! controller source)))]
+    [(Acquire-Analysis snapshot reply)
+     (answer! controller reply (lambda () (source-controller-acquire-analysis! controller snapshot)))]
+    [(Validate-View view reply)
+     (answer! controller reply (lambda () (source-controller-current-view? controller view)))]
+    [_ (source-controller-handle-completion! controller event)])
+  (source-controller-pump! controller))

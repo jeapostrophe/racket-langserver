@@ -9,11 +9,8 @@
          "../../common/interfaces.rkt"
          "../../common/json-util.rkt"
          "../../common/path-util.rkt"
-         "../../doclib/doc.rkt"
          "../../doclib/internal-types.rkt"
          "../../lsp/analysis.rkt"
-         "../../lsp/lsp.rkt"
-         "../../lsp/safedoc.rkt"
          "../../lsp/source-controller.rkt"
          "../../workspace/api.rkt"
          "../../workspace/current.rkt"
@@ -28,11 +25,7 @@
           (hasheq 'textDocument (hasheq 'uri uri 'languageId "racket" 'version 0 'text text))))
 
 (define (analyzed session uri)
-  (define event
-    (owner session
-           (lambda (controller)
-             (source-controller-acquire-analysis!
-               controller (source-controller-snapshot controller (uri->source uri))))))
+  (define event (acquire session (uri->source uri)))
   (check-eq? 'succeeded (Analysis-Outcome-state (await event))))
 
 (define (feature session id method uri [extra (hasheq)])
@@ -107,10 +100,6 @@
             (for ([uri (in-list (list a b))]
                   [name (in-list '(alpha beta))])
               (check-false
-                (owner session
-                       (lambda (_)
-                         (with-read-doc (lsp-get-doc uri) Doc-contribution))))
-              (check-false
                 (workspace-definition-location current-workspace
                                                (Module-Binding file-path '() 0 name)))
               (check-local-results session uri))
@@ -127,8 +116,8 @@
             (barrier session)
             (check-equal? (hash-ref (await (Session-notifications session)) 'params)
                           (hasheq 'uri a 'diagnostics '()))
-            (check-false (owner session (lambda (_) (lsp-get-doc a #f))))
-            (check-not-false (owner session (lambda (_) (lsp-get-doc b #f))))
+            (check-false (view session (uri->source a)))
+            (check-not-false (view session (uri->source b)))
             (check-not-false (workspace-definition-location current-workspace live-binding))
             (check-local-results session b)
             (for ([uri (in-list (list file-uri b))])
@@ -193,9 +182,8 @@
                                            'removed '())))
             (unchanged)
             (check-false (sync/timeout 0 analyses))
-            (check-equal? (owner session
-                                 (lambda (_)
-                                   (with-read-doc (lsp-get-doc virtual-uri) doc-get-text)))
+            (check-equal? (Source-Snapshot-text
+                            (Source-Result-snapshot (observation session virtual-source)))
                           (module-text 'alpha))
             (check-local-results session virtual-uri)
             (for ([uri (in-list (list file-uri virtual-uri))])
