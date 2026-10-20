@@ -2819,6 +2819,35 @@ END
       (check-false (send collector get-contribution)))))
 
 (module+ test
+  (test-case "virtual expansion resolves neighbors from existing URI parent directories"
+    (define root (make-temporary-file "virtual-import~a" 'directory))
+    (dynamic-wind
+      void
+      (lambda ()
+        (parameterize ([current-directory root])
+          (make-directory "deps space")
+          (define main-path (build-path root "deps space" "missing-main.rkt"))
+          (call-with-output-file (build-path root "deps space" "neighbor.rkt")
+            (lambda (out)
+              (display "#lang racket/base\n(provide value)\n(define value 42)\n" out)))
+          (define text "#lang racket/base\n(require \"neighbor.rkt\")\nvalue\n")
+          (define file-uri (path->uri main-path))
+          (define uris
+            (append
+              (for/list ([scheme (in-list '("git:" "notebook:" "custom:"))])
+                (string-append (regexp-replace #rx"^file:" file-uri scheme) "?rev=one#cell"))
+              '("custom:deps%20space/missing-main.rkt?rev=two#cell")))
+          (check-false (file-exists? main-path))
+          (for ([uri (in-list uris)])
+            (define doc (make-doc uri text))
+            (check-true (doc-expand! doc) uri)
+            (check-equal? (Doc-uri doc) uri)
+            (check-false (source-file-path (Doc-source doc)))
+            (check-equal? (source-syntax-source (Doc-source doc)) uri)
+            (check-false (Doc-contribution doc)))))
+      (lambda () (delete-directory/files root)))))
+
+(module+ test
   (test-case "virtual Typed Racket syntax sources retain inferred hover and type diagnostics"
     (when (typed-racket-available?)
       (define uri "git:/project/typed.rkt?rev=one#cell")
