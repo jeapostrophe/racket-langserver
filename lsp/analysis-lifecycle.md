@@ -39,7 +39,8 @@ a buffer during a pending disk read may complete acquisition with buffer text;
 once acquired, that view must remain eligible through the query's final check.
 Missing files, Check Syntax errors, and absent bindings supply no feature detail.
 Read/worker failures end the request. Changing or closing the requesting document
-cancels it; deadlines and shutdown end it without cancelling shared analysis.
+ends it with ContentModified (-32801), including pending exact inlay-hint and
+semantic-token requests. Deadlines and shutdown end it without cancelling shared analysis.
 
 Binding lookup preserves the full path, submodule list, phase+space, and identifier.
 There is no query restriction on submodules or phase+space: matching Check Syntax

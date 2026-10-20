@@ -110,6 +110,7 @@
   [ServerNotInitialized -32002]
   [UnknownErrorCode -32001]
   [RequestCancelled -32800]
+  [ContentModified -32801]
   [RequestFailed -32803])
 
 (define-json-struct Diagnostic

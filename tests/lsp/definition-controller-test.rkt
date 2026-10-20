@@ -365,7 +365,7 @@
             (define held (await gates))
             (if (eq? operation 'edit) (edit! session a (file->string a)) (close! session a))
             (barrier session)
-            (check-error session 1 ErrorCode-RequestCancelled)
+            (check-error session 1 ErrorCode-ContentModified)
             (release! held))))))
 
   (test-case "opening B ends obsolete analysis; later queries use buffer then disk"
@@ -535,7 +535,7 @@
         (define deferred (capture 0))
         (lsp-close-doc! (path->uri a))
         (check-equal? (hash-ref (hash-ref (deferred) 'error) 'code)
-                      (->jsexpr ErrorCode-RequestCancelled)))))
+                      (->jsexpr ErrorCode-ContentModified)))))
 
   (test-case "one waiter expiring leaves the shared job available to its peer"
     (define gates (make-async-channel))
@@ -595,7 +595,7 @@
         (request session 2 c)
         (edit! session a (file->string a))
         (barrier session)
-        (check-error session 1 ErrorCode-RequestCancelled)
+        (check-error session 1 ErrorCode-ContentModified)
         (release! held)
         (check-location session 2 b)
         (check-false (sync/timeout 0 gates))

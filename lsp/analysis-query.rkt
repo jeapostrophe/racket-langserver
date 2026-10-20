@@ -8,7 +8,7 @@
 ;;
 ;; After the wait, an `Analysis-Outcome` of `errors` becomes a success
 ;; response carrying `empty-result`. A changed or closed document becomes
-;; `RequestCancelled`. Deadline expiry, shutdown, and any other unsuccessful
+;; `ContentModified`. Deadline expiry, shutdown, and any other unsuccessful
 ;; wake become `RequestFailed`.
 (require "../common/debug.rkt"
          "../common/interfaces.rkt"
@@ -72,7 +72,7 @@
         (define current-completion (SafeDoc-analysis-completion locked-safe-doc))
         (cond
           [(or (not request-view) (not (eq? request-view (SafeDoc-source-view locked-safe-doc))))
-           (error-response request-id ErrorCode-RequestCancelled "Document changed or closed")]
+           (error-response request-id ErrorCode-ContentModified "Document changed or closed")]
           [(>= (current-deadline-milliseconds) deadline-ms)
            (error-response request-id ErrorCode-RequestFailed "Analysis request deadline expired")]
           [(sync/timeout 0 shutdown-evt)

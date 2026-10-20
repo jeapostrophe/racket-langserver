@@ -158,7 +158,7 @@
           (define held (await gates))
           (if (eq? operation 'edit) (edit! session a (file->string a)) (close! session a))
           (barrier session)
-          (check-error session 1 ErrorCode-RequestCancelled)
+          (check-error session 1 ErrorCode-ContentModified)
           (release! held)))))
 
   (test-case "missing and unsuccessful targets retain A's annotation"

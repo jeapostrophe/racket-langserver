@@ -42,7 +42,7 @@
                                          [feature feature] [shutdown shutdown])) request)
   (cond
     [(or (not view) (sync/timeout 0 (Source-View-changed view)))
-     (error-response id ErrorCode-RequestCancelled "Document changed or closed")]
+     (error-response id ErrorCode-ContentModified "Document changed or closed")]
     [(>= (current-deadline-milliseconds) deadline)
      (error-response id ErrorCode-RequestFailed (string-append feature " request deadline expired"))]
     [(sync/timeout 0 shutdown)

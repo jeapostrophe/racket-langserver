@@ -199,7 +199,7 @@
                            'contentChanges (list (hasheq 'range (->jsexpr (Range (Pos 2 14) (Pos 2 15)))
                                                          'text "2"))))
             (check-equal? (hash-ref (hash-ref (response 8) 'error) 'code)
-                          (->jsexpr ErrorCode-RequestCancelled))
+                          (->jsexpr ErrorCode-ContentModified))
             (query "textDocument/definition" 11 a-uri (Pos 3 14))
             (check-equal? (result 11)
                           (->jsexpr (Location a-uri (Range (Pos 2 8) (Pos 2 13)))))
