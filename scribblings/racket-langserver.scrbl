@@ -244,6 +244,31 @@ from @tt{racket-langserver/json-util}. Nested struct values are encoded recursiv
   The @tt{location} field gives the symbol's source location.
 }
 
+@defstruct*[DocumentSymbol ([name string?]
+                            [kind SymbolKind?]
+                            [range Range?]
+                            [selectionRange Range?]
+                            [children (listof DocumentSymbol?)])
+            #:transparent]{
+  One node in a hierarchical document outline.
+  The @tt{range} field spans the whole form; @tt{selectionRange} covers the name.
+  The @tt{children} field holds nested symbols.
+}
+
+@defthing[InlayHintKind? flat-contract?]{
+  Predicate for the @tt{InlayHintKind} JSON enum.
+  The values are @racket[1] for a type hint and @racket[2] for a parameter hint.
+}
+
+@defstruct*[InlayHint ([position Pos?]
+                       [label string?]
+                       [kind InlayHintKind?]
+                       [tooltip string?])
+            #:transparent]{
+  An inlay hint at @tt{position}, with display text @tt{label}, a hint
+  @tt{kind}, and explanatory @tt{tooltip} text.
+}
+
 @defstruct*[CodeAction ([title string?]
                         [kind string?]
                         [diagnostics (listof Diagnostic?)]
@@ -305,6 +330,14 @@ from @tt{racket-langserver/json-util}. Nested struct values are encoded recursiv
 }
 
 @subsection{Formatting Options}
+
+@defproc[(Fmt-Settings? [v any/c]) boolean?]{
+  Returns @racket[#t] if @tt{v} is a @tt{Fmt-Settings} value for the
+  @racket['fmt] backend. Its @tt{indent}, @tt{max-blank-lines}, and @tt{width}
+  fields accept exact nonnegative integers or @tt{Nothing} for an omitted
+  setting. The JSON field for @tt{max-blank-lines} is @tt{maxBlankLines}.
+  Omitted settings preserve the formatter's defaults.
+}
 
 @defstruct*[FormattingOptions ([tab-size exact-nonnegative-integer?]
                                [insert-spaces boolean?]
@@ -382,6 +415,37 @@ from @tt{racket-langserver/json-util}. Nested struct values are encoded recursiv
   @tabular[#:sep @hspace[2]
     (list (list @bold{Name}       @bold{Value})
           (list @tt{definition}   @racket["definition"]))]
+}
+
+@subsection{Source Identity}
+
+@defmodule[racket-langserver/common/source]
+
+@defproc[(Source-Id? [v any/c]) boolean?]{
+  Returns @racket[#t] if @tt{v} is an opaque source identity. Source identities
+  support @racket[equal?] and hashing. File sources use their exact decoded
+  paths; virtual sources use their complete URIs, including query and fragment.
+}
+
+@subsection{Check Syntax Compatibility}
+
+@defmodule[racket-langserver/doclib/check-syntax-compat]
+
+@defproc[(phase+space-shift? [v any/c]) boolean?]{
+  Returns @racket[#t] if @tt{v} represents a phase and binding-space shift:
+  an exact integer or @racket[#f], or a pair of such a phase and either
+  @racket[#f] or an interned symbol naming a binding space.
+  Uses Racket's predicate when supported by the Check Syntax callbacks and a
+  compatible fallback on older versions.
+}
+
+@subsection{Formatter Defaults}
+
+@defmodule[racket-langserver/doclib/formatter/fmt]
+
+@defthing[empty-fmt-settings Fmt-Settings?]{
+  A formatter settings value with all fields omitted, so @tt{raco fmt} uses
+  its own defaults.
 }
 
 @section{Doc Library}
@@ -840,17 +904,6 @@ Exceptions are noted in individual entries.
   Does not require an up-to-date trace. For non-sexp language bodies (for example
   Rhombus or Scribble), returns an empty list because paren-based form extents
   would be unreliable.
-}
-
-@defstruct*[DocumentSymbol ([name string?]
-                            [kind SymbolKind?]
-                            [range Range?]
-                            [selectionRange Range?]
-                            [children (listof DocumentSymbol?)])
-            #:transparent]{
-  One node in a hierarchical document outline.
-  The @tt{range} field spans the whole form; @tt{selectionRange} covers the name.
-  The @tt{children} field holds nested symbols.
 }
 
 @defproc[(doc-inlay-hints [doc Doc?]
