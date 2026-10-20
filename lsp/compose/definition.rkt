@@ -1,8 +1,7 @@
 #lang racket/base
 
 ;; textDocument/definition. A local location, or no binding, is returned
-;; immediately. A shared module binding is resolved by `target-query`. Any
-;; other module binding has no location.
+;; immediately. A module binding is resolved by `target-query`.
 (require "../../common/interfaces.rkt"
          "../../common/time.rkt"
          "../../doclib/doc.rkt"
@@ -25,11 +24,10 @@
       (lambda (sd)
         (values (SafeDoc-source-view sd) (doc-definition (SafeDoc-doc sd) uri pos)))))
   (cond
-    [(and (Module-Binding? target) (shared-binding? target))
+    [(Module-Binding? target)
      (target-query id controller deadline view target "Definition"
                    (lambda (facts binding)
                      (hash-ref (Analysis-Summary-definition-ranges facts) binding #f))
                    (lambda (snapshot range)
                      (and range (Location (Source-Snapshot-uri snapshot) range))))]
-    [(Module-Binding? target) (success/enc id #f)]
     [else (success/enc id target)]))

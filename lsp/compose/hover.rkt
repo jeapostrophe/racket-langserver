@@ -1,6 +1,6 @@
 #lang racket/base
 
-;; textDocument/hover. The card comes from the requesting document. A shared
+;; textDocument/hover. The card comes from the requesting document. A module
 ;; binding may add a source summary from the target file. A hover is returned
 ;; only when that card opens.
 (require "../../common/interfaces.rkt"
@@ -41,9 +41,9 @@
           card))
     (and (hover-card-opens? joined)
          (Hover #:contents (render-hover-card joined) #:range range)))
-  ;; Only a shared module binding uses `target-query`. Every other position
+  ;; A module binding uses `target-query`. Every other position
   ;; skips the cross-file lookup and runs `compose` with no added summary.
-  (if (and (Module-Binding? target) (shared-binding? target))
+  (if (Module-Binding? target)
       (target-query id controller deadline view target "Hover"
                     (lambda (facts binding)
                       (hash-ref (Analysis-Summary-hover-summaries facts) binding #f))

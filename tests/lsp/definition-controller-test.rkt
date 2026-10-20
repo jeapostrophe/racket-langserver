@@ -3,10 +3,13 @@
 ;; Cross-file definition requests use the production serial consumer. Gates
 ;; mark actual reads and target analysis starts; no sleep establishes ordering.
 (require "../../common/source.rkt"
+         drracket/check-syntax
          json
          rackunit
          racket/async-channel
+         racket/class
          racket/file
+         racket/match
          racket/path
          racket/string
          "../../common/debug.rkt"
@@ -196,6 +199,48 @@
            (struct-out Gate)))
 
 (module+ test
+  ;; Supply query inputs independently of upstream callback accuracy. Equal
+  ;; identifiers in other submodules/phases/spaces must never be a fallback.
+  (for ([binding-spec (in-list '((() 1)
+                                 (() -1)
+                                 (() #f)
+                                 ((inner) 0)
+                                 ((outer inner) (0 . custom))
+                                 ((inner) (1 . custom))))])
+    (match-define (list submods phase+space) binding-spec)
+    (test-case (format "definition queries preserve submodules ~s and phase+space ~s"
+                       submods phase+space)
+      (define binding #f)
+      (define expected-range (Range (Pos 2 8) (Pos 2 14)))
+      (with-local-definition
+        (lambda (a b _reads capture run _drive _accept-command!)
+          (set! binding (Module-Binding b submods phase+space 'shared))
+          (define (supply-jump! target-submods)
+            (with-write-safedoc (lsp-get-doc (path->uri a))
+              (lambda (sd)
+                (define start (doc-pos->abs-pos (SafeDoc-doc sd) (Pos 3 6)))
+                (define trace
+                  (Analysis-Product-trace (Available-Analysis-product (SafeDoc-available sd))))
+                (send trace syncheck:add-jump-to-definition/phase-level+space
+                      a start (+ start 6) 'shared b target-submods phase+space))))
+          (supply-jump! submods)
+          (check-equal? (hash-ref (run (capture 90)) 'result)
+                        (->jsexpr (Location (path->uri b) expected-range)))
+          (supply-jump! '(missing))
+          (check-equal? (hash-ref (run (capture 90)) 'result) (json-null)))
+        #:analyze
+        (lambda (snapshot)
+          (define product (analyze-source snapshot))
+          (if binding
+              (struct-copy Analysis-Product product
+                [summary
+                 (Analysis-Summary
+                   (hash binding expected-range
+                         (Module-Binding (Module-Binding-filepath binding) '() 0 'shared)
+                         (Range (Pos 0 0) (Pos 0 1)))
+                   (hash))])
+              product)))))
+
   (test-case "closed targets share/reuse outside folders and publish nothing"
     (define gates (make-async-channel))
     (with-example
@@ -441,13 +486,20 @@
         (release! (await reads))
         (check-location session 3 b))))
 
-  (test-case "for-syntax binding returns no location and does not analyze the target"
+  (test-case "for-syntax binding queries target analysis regardless of upstream identity accuracy"
     (define gates (make-async-channel))
     (with-example
       (gated-analyzer gates)
-      (lambda (session a _b _root)
+      (lambda (session a b _root)
         (request session 1 a (Pos 3 12))
-        (check-equal? (hash-ref (response session 1) 'result) (json-null))
+        (release! (await gates))
+        ;; Upstream versions may disagree on the jump and target phases.
+        ;; A matching identity resolves; a mismatch remains absent.
+        (define result (hash-ref (response session 1) 'result))
+        (check-true
+          (or (equal? result (json-null))
+              (equal? result
+                      (->jsexpr (Location (path->uri b) (Range (Pos 2 8) (Pos 2 14)))))))
         (check-false (sync/timeout 0 gates)))
       (string-append
         "#lang racket/base\n"

@@ -40,6 +40,14 @@ Missing files, Check Syntax errors, and absent bindings supply no feature detail
 Read/worker failures end the request. Changing or closing the requesting document
 cancels it; deadlines and shutdown end it without cancelling shared analysis.
 
+Binding lookup preserves the full path, submodule list, phase+space, and identifier.
+There is no query restriction on submodules or phase+space: matching Check Syntax
+jump and definition-target callbacks suffice, including after upstream fixes.
+Missing or inconsistent upstream binding information gives no detail; the query
+does not fall back to a different submodule or phase. Target observation uses
+`path->source`, which preserves the exact binding path as source identity and
+constructs the URI separately; no URI round-trip check is needed.
+
 The `owner` submodule exports operations for the session consumer only. Open
 registers the buffer, restores matching retained analysis, and schedules fresh
 analysis. Edit takes the registered buffer selected by the incoming URI, owns

@@ -7,7 +7,6 @@
          racket/match
          "../../common/debug.rkt"
          "../../common/interfaces.rkt"
-         "../../common/path-util.rkt"
          "../../common/source.rkt"
          "../../common/time.rkt"
          "../../doclib/internal-types.rkt"
@@ -16,18 +15,7 @@
          "../responses.rkt"
          "../source-controller.rkt")
 
-(provide shared-binding? target-query)
-
-;; Whether shared analysis can answer this binding. The route accepts no
-;; submodules and phase+space 0, and the filepath must be unchanged by
-;; `path->uri` then `uri->path`, because the source controller identifies
-;; the target by that exact path. Callers must not pass any other binding
-;; to `target-query`.
-(define (shared-binding? binding)
-  (match-define (struct* Module-Binding ([filepath path] [submods submods]
-                                         [phase+space phase]))
-    binding)
-  (and (null? submods) (equal? phase 0) (equal? path (uri->path (path->uri path)))))
+(provide target-query)
 
 ;; Immutable inputs for one request. The requesting view governs cancellation;
 ;; the target view is acquired separately and governs obsolescence.
