@@ -599,9 +599,10 @@
 (define max-hover-source-characters 1000)
 
 ;; Apply `max-hover-source-lines` and `max-hover-source-characters`.
+;; Return the retained text and whether the excerpt omitted source.
 ;; `truncated-after?` is true when detail ranges end before `source-end`, even
 ;; if the buffer read itself is shorter.
-(define (source-text->hover-excerpt text #:truncated-after? [truncated-after? #f])
+(define (bound-hover-source text #:truncated-after? [truncated-after? #f])
   (define newline-positions
     (regexp-match-positions* #px"\n" text))
   (define source-line-end
@@ -615,12 +616,31 @@
   (define truncated?
     (or truncated-after?
         (< source-character-end (string-length text))))
-  ;; Append indented `...` only at the end. Do not add a leading marker or fake
-  ;; closing delimiters for a truncated form.
-  (and (not (string=? retained-text ""))
-       (if truncated?
-           (string-append retained-text "\n  ...")
-           retained-text)))
+  (values retained-text truncated?))
+
+;; Ranges begin at a form/comment token, not at its physical line start.
+;; Restore its column before measuring the shared indent. Tabs count as one
+;; whitespace character. Dedenting is display-only and also applies to
+;; continuation lines inside multiline literals.
+(define (hover-source-lines doc start text)
+  (define column (Pos-char (doc-abs-pos->pos doc start)))
+  (string-split (string-append (make-string column #\space) text)
+                "\n" #:trim? #f))
+
+(define (hover-line-indentation line)
+  (string-length (car (regexp-match #px"^[ \t]*" line))))
+
+(define (hover-common-indentation lines)
+  (define indentations
+    (for/list ([line (in-list lines)]
+               ;; Ignore blank lines so their whitespace does not constrain the shared indent.
+               #:unless (regexp-match? #px"^[ \t\r]*$" line))
+      (hover-line-indentation line)))
+  (if (null? indentations) 0 (apply min indentations)))
+
+(define (dedent-hover-line line indentation)
+  ;; Short blank lines can have less whitespace than the shared indent.
+  (substring line (min indentation (hover-line-indentation line))))
 
 (define (hover-comment-line-in-bounds? line doc-end)
   (define line-start (Hover-Comment-Line-start line))
@@ -632,28 +652,11 @@
   (for/and ([line (in-list comment-lines)])
     (hover-comment-line-in-bounds? line doc-end)))
 
-(define (hover-comment-line->text doc line)
+(define (hover-comment-line->lines doc line)
   (define line-start (Hover-Comment-Line-start line))
   (define line-end (Hover-Comment-Line-end line))
   (define line-text (send (Doc-text doc) get-text line-start line-end))
-  (if (Hover-Comment-Line-truncated? line)
-      (string-append line-text "...")
-      line-text))
-
-;; Read leading-comment lines from the live buffer. Return #f when any stored
-;; range is past the end of the document.
-(define (hover-detail->comment-excerpt doc detail)
-  (define comment-lines (Hover-Detail-comment-lines detail))
-  (define doc-end (doc-end-abs-pos doc))
-  (and (pair? comment-lines)
-       (hover-comment-lines-in-bounds? comment-lines doc-end)
-       (string-join
-         (append (for/list ([line (in-list comment-lines)])
-                   (hover-comment-line->text doc line))
-                 (if (Hover-Detail-comments-truncated? detail)
-                     (list "...")
-                     '()))
-         "\n")))
+  (hover-source-lines doc line-start line-text))
 
 (define (hover-detail-ranges-valid? detail doc-end)
   (define source-start (Hover-Detail-source-start detail))
@@ -671,28 +674,56 @@
   (or (< read-end display-end)
       (< display-end source-end)))
 
-(define (hover-detail->code-excerpt doc detail)
+(define (hover-detail->code-lines doc detail)
   (define display-start (Hover-Detail-display-start detail))
   (define display-end (Hover-Detail-display-end detail))
   (define read-end (min display-end
                         (+ display-start max-hover-source-characters)))
   (define source-text (send (Doc-text doc) get-text display-start read-end))
-  (source-text->hover-excerpt
-    source-text
-    #:truncated-after? (hover-detail-truncated-after? detail read-end)))
+  (define-values (retained-text truncated?)
+    (bound-hover-source
+      source-text
+      #:truncated-after? (hover-detail-truncated-after? detail read-end)))
+  (values (hover-source-lines doc display-start retained-text) truncated?))
 
 (define (hover-detail->summary doc detail)
   (define doc-end (doc-end-abs-pos doc))
   (and (hover-detail-ranges-valid? detail doc-end)
-       (let ([code-excerpt (hover-detail->code-excerpt doc detail)])
-         (and code-excerpt
-              (Hover-Code-Summary
-                (string-join
-                  (filter values
-                          (list (hover-detail->comment-excerpt doc detail)
-                                code-excerpt))
-                  "\n")
-                (Hover-Detail-fence-language detail))))))
+       (let ()
+         (define-values (code-lines code-truncated?)
+           (hover-detail->code-lines doc detail))
+         (define stored-comment-lines (Hover-Detail-comment-lines detail))
+         (define comment-lines
+           (if (hover-comment-lines-in-bounds? stored-comment-lines doc-end)
+               stored-comment-lines
+               '()))
+         (define comment-line-groups
+           (for/list ([line (in-list comment-lines)])
+             (hover-comment-line->lines doc line)))
+         ;; Measure retained source only. Generated markers must not set the minimum.
+         (define indentation
+           (hover-common-indentation (append (append* comment-line-groups) code-lines)))
+         (Hover-Code-Summary
+           (string-join
+             (append
+               (for/list ([line (in-list comment-lines)]
+                          [lines (in-list comment-line-groups)])
+                 (string-append
+                   (string-join
+                     (for/list ([comment-line (in-list lines)])
+                       (dedent-hover-line comment-line indentation))
+                     "\n")
+                   (if (Hover-Comment-Line-truncated? line) "..." "")))
+               (if (and (pair? comment-lines) (Hover-Detail-comments-truncated? detail))
+                   (list "...")
+                   '())
+               (for/list ([line (in-list code-lines)])
+                 (dedent-hover-line line indentation))
+               ;; A truncated code excerpt ends with its own indented marker.
+               ;; Do not add a leading marker or invent closing delimiters.
+               (if code-truncated? (list "  ...") '()))
+             "\n")
+           (Hover-Detail-fence-language detail)))))
 
 ;; Find same-file detail through the resolved binding. Keep the use span
 ;; even when no stored detail exists yet, so annotation-range fallback works.

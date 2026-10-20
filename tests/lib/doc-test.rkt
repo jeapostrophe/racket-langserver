@@ -2157,7 +2157,7 @@ END
       (Hover-contents (doc-hover d (Pos 5 9)))
       (string-append
         "**Source**\n"
-        "```racket\n(fib\n         n)\n```\n\n"
+        "```racket\n(fib\n n)\n```\n\n"
         "**Mouse-over status**\n\n"
         "1 bound occurrence"))
     ;; A complete one-line declaration stays complete.
@@ -2267,6 +2267,91 @@ END
         "```racket\n(struct RopeNode\n  (left\n   right\n   chars\n   newlines\n   height)\n  #:transparent)\n```\n\n"
         "**Mouse-over status**\n\n"
         "no bound occurrences")))
+
+  (test-case
+    "Document hover dedents nested source and comments by their shared minimum"
+    (define d
+      (make-doc
+        "file:///tmp/hover-detail-indent.rkt"
+        (string-append
+          "#lang racket\n(let ()\n"
+          "    ;; A nested structure.\n"
+          "  (struct Nested\n    (left\n     right)\n    #:transparent)\n"
+          "  Nested)\n")))
+    (check-true (doc-expand! d))
+    (check-true
+      (string-contains?
+        (Hover-contents (doc-hover d (Pos 3 11)))
+        (string-append
+          "```racket\n  ;; A nested structure.\n"
+          "(struct Nested\n  (left\n   right)\n  #:transparent)\n```"))))
+
+  (test-case
+    "Document hover ignores blank lines and keeps first-line relative indentation"
+    (define d
+      (make-doc
+        "file:///tmp/hover-detail-indent-minimum.rkt"
+        (string-append
+          "#lang racket\n(define (combine\n \n    first\n  second)\n"
+          "  (list first second))\n")))
+    (check-true (doc-expand! d))
+    (check-true
+      (string-contains?
+        (Hover-contents (doc-hover d (Pos 3 5)))
+        "```racket\n      (combine\n\n  first\nsecond)\n```")))
+
+  (test-case
+    "Document hover dedents before adding collapsed-source markers"
+    (define d
+      (make-doc
+        "file:///tmp/hover-detail-indent-marker.rkt"
+        "#lang racket\n(let ()\n    (define (identity value)\n      value)\n    identity)\n"))
+    (check-true (doc-expand! d))
+    (check-true
+      (string-contains?
+        (Hover-contents (doc-hover d (Pos 4 5)))
+        "```racket\n(define (identity value)\n  ...\n```")))
+
+  (test-case
+    "Document hover counts tabs as one indentation character"
+    (define d
+      (make-doc
+        "file:///tmp/hover-detail-indent-tabs.rkt"
+        "#lang racket\n(define (tabbed\n\t  arg)\n  arg)\n"))
+    (check-true (doc-expand! d))
+    (check-true
+      (string-contains?
+        (Hover-contents (doc-hover d (Pos 2 3)))
+        "```racket\n     (tabbed\narg)\n```")))
+
+  (test-case
+    "Document hover dedents continuation lines inside multiline literals"
+    (define d
+      (make-doc
+        "file:///tmp/hover-detail-indent-literal.rkt"
+        (string-append
+          "#lang racket\n(let ()\n"
+          "  (define\n    message\n    \"first\n      second\")\n"
+          "  message)\n")))
+    (check-true (doc-expand! d))
+    (check-true
+      (string-contains?
+        (Hover-contents (doc-hover d (Pos 6 3)))
+        "```racket\n(define\n  message\n  \"first\n    second\")\n```")))
+
+  (test-case
+    "Document hover reads comment lines from the live buffer after an edit"
+    (define d
+      (make-doc
+        "file:///tmp/hover-detail-indent-stale-comment.rkt"
+        "#lang racket\n  ;; alpha beta\n  (define value 1)\n  value\n"))
+    (check-true (doc-expand! d))
+    (doc-apply-edit! d (Range (Pos 1 10) (Pos 1 10)) "\n  ;;")
+    (doc-update-version! d 1)
+    (check-true
+      (string-contains?
+        (Hover-contents (doc-hover d (Pos 4 3)))
+        "```racket\n;; alpha\n;; beta\n(define value 1)\n```")))
 
   (test-case
     "Document hover keeps imported symbols out of same-file source detail"
