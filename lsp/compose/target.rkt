@@ -1,9 +1,9 @@
 #lang racket/base
 
-;; Cross-file binding lookup for definition and hover. A `shared-binding?`
-;; target is answered from that file's analysis summary. Any other binding
-;; uses the caller's legacy lookup. A changed target is acquired again until
-;; the request stops. `target-query` states the caller contract.
+;; Cross-file binding lookup for definition and hover. The target must
+;; satisfy `shared-binding?`. The answer comes from that file's analysis
+;; summary. A changed target is acquired again until the request stops.
+;; `target-query` states the caller contract.
 (require json
          racket/contract
          racket/match
@@ -21,10 +21,11 @@
 
 (provide shared-binding? target-query)
 
-;; Whether shared analysis answers this binding. The route accepts no
-;; submodules and phase+space 0. The filepath must also be unchanged by
-;; `path->uri` then `uri->path`: the source controller identifies the target
-;; by that exact path, so a different path stays on the legacy lookup.
+;; Whether shared analysis can answer this binding. The route accepts no
+;; submodules and phase+space 0, and the filepath must be unchanged by
+;; `path->uri` then `uri->path`, because the source controller identifies
+;; the target by that exact path. Callers must not pass any other binding
+;; to `target-query`.
 (define (shared-binding? binding)
   (match-define (struct* Module-Binding ([filepath path] [submods submods]
                                          [phase+space phase]))
@@ -109,7 +110,7 @@
           (Source-View-changed (Target-Request-view request))))
   (check-live! request target-view)
   (when (Source-Failure? result)
-    (raise (Target-Failure "source or lookup failed" (Source-Failure-reason result))))
+    (raise (Target-Failure "source or analysis failed" (Source-Failure-reason result))))
   result)
 
 ;; Ask the owner whether `view` is still current, and retry when it is not.
@@ -180,16 +181,6 @@
     [outcome
      (target-failed! request view "analysis did not succeed" outcome)]))
 
-;; `legacy` calls `wait` in the scope that afterwards shuts its worker down.
-;; Pass `wait-live`, so cancellation and target changes leave that scope and
-;; the shutdown still runs. The lookup does not use the acquired snapshot,
-;; so validate the view before accepting its detail.
-(define (resolve-legacy request view legacy)
-  (define detail
-    (legacy (Target-Request-target request) (lambda (event) (wait-live request event view))))
-  (validate-target! request view)
-  (checked-detail request view detail))
-
 ;; Fail a read error before the caller looks at content state. Unknown
 ;; content with no error is an invalidated observation; `resolve-target`
 ;; retries it. A missing file is not a read error.
@@ -209,7 +200,7 @@
 ;; Acquire the target's current view and resolve this request against it.
 ;; `Target-Retry` repeats the acquisition. Unknown content has no trusted
 ;; text, so it retries. A missing file returns no snapshot and no detail.
-(define (resolve-target request lookup legacy)
+(define (resolve-target request lookup)
   (let loop ()
     (with-handlers ([Target-Retry? (lambda (_) (loop))])
       (define acquired (observe-target request))
@@ -219,10 +210,7 @@
         [(file-not-found) (check-live! request view) (values #f #f)]
         [else
          (define snapshot (Source-Result-snapshot acquired))
-         (values snapshot
-                 (if (shared-binding? (Target-Request-target request))
-                     (resolve-shared request view snapshot lookup)
-                     (resolve-legacy request view legacy)))]))))
+         (values snapshot (resolve-shared request view snapshot lookup))]))))
 
 (define (failure-response request stage detail)
   (define message (string-append (Target-Request-feature request) " " stage))
@@ -242,31 +230,27 @@
 
 ;; Turn every raised failure, including an unexpected exception, into one
 ;; protocol response. `compose` runs only when resolution returns.
-(define (execute-target-query request lookup legacy compose)
+(define (execute-target-query request lookup compose)
   (with-handlers ([(lambda (_) #t) (lambda (reason) (query-error-response request reason))])
-    (define-values (snapshot detail) (resolve-target request lookup legacy))
+    (define-values (snapshot detail) (resolve-target request lookup))
     (define value (compose snapshot detail))
     (check-live! request)
     (success/enc (Target-Request-id request) value)))
 
 ;; Return a thunk that resolves `target` and produces an encoded response.
-;; The caller has already captured `view` and `deadline`; running the thunk
-;; does not take the requesting document's lock.
+;; The caller has already captured `view` and `deadline`, and `target` must
+;; satisfy `shared-binding?`. Running the thunk does not take the requesting
+;; document's lock.
 ;;
-;; lookup: Called as `(lookup summary binding)` when `target` satisfies
-;;   `shared-binding?`. Returns the feature detail, or #f when the summary
-;;   has none.
-;; legacy: Called as `(legacy binding wait)` for every other target, or #f.
-;;   `wait` takes an event and returns its value, or escapes when the request
-;;   stops or the target view changes. Pass #f only when `target` satisfies
-;;   `shared-binding?`.
+;; lookup: Called as `(lookup summary binding)`. Returns the feature detail,
+;;   or #f when the summary has none.
 ;; compose: Called as `(compose snapshot detail)` after resolution finishes,
 ;;   including when detail is absent. A missing file passes #f for both. An
 ;;   absent detail can still have a snapshot. A present detail always has a
 ;;   snapshot. The result is the success payload. Failures skip `compose`.
-(define (target-query id controller deadline view target feature lookup legacy compose)
+(define (target-query id controller deadline view target feature lookup compose)
   (lambda ()
     (execute-target-query
       (Target-Request id controller deadline view target feature
                       (source-controller-shutdown-evt controller))
-      lookup legacy compose)))
+      lookup compose)))

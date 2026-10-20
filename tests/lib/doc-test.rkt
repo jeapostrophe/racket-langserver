@@ -648,43 +648,6 @@
     (check-equal? (LexerEntry-text comment-token) "#| comment \nfoo\n"))
 
   (test-case
-    "Get definition"
-    (define tmp-file (make-temporary-file "test~a.rkt"))
-    (define text "#lang racket\n(define x 1)\nx")
-    (with-output-to-file tmp-file #:exists 'replace (lambda () (display text)))
-
-    (define def-range (doc-get-definition-by-id tmp-file '() 'x))
-    (check-pred Range? def-range)
-
-    (delete-file tmp-file))
-
-  (test-case
-    "Get definition distinguishes equal ids across submodules"
-    (define tmp-file (make-temporary-file "binding-identity~a.rkt"))
-    (define text
-      (string-append
-        "#lang racket/base\n"
-        "(module first racket/base\n"
-        "  (define same 1))\n"
-        "(module second racket/base\n"
-        "  (require (for-syntax racket/base))\n"
-        "  (begin-for-syntax\n"
-        "    (define same 2)))\n"))
-    (with-output-to-file tmp-file
-      #:exists 'replace
-      (lambda ()
-        (display text)))
-
-    (define first-range
-      (doc-get-definition-by-id tmp-file '(first) 'same))
-    (define second-range
-      (doc-get-definition-by-id tmp-file '(second) 'same))
-    (check-equal? first-range (Range (Pos 2 10) (Pos 2 14)))
-    (check-equal? second-range (Range (Pos 6 12) (Pos 6 16)))
-
-    (delete-file tmp-file))
-
-  (test-case
     "doc-definition captures a for-syntax import without resolving the target"
     (define temp-dir (make-temporary-file "import-shift~a" 'directory))
     (dynamic-wind
@@ -715,36 +678,6 @@
                       (Module-Binding lib-path '() (if phase+space-callbacks? 1 0) 'foo)))
       (lambda ()
         (delete-directory/files temp-dir))))
-
-  (test-case
-    "Get definition returns #f when the target file has no span for the id"
-    (define tmp-file (make-temporary-file "missing-def~a.rkt"))
-    (define text "#lang racket/base\n(define foo 1)\n")
-    (with-output-to-file tmp-file
-      #:exists 'replace
-      (lambda ()
-        (display text)))
-    (check-false (doc-get-definition-by-id tmp-file '() 'missing))
-    (delete-file tmp-file))
-
-  (test-case
-    "Get definition keeps the last span when one submodule reuses the id"
-    (define tmp-file (make-temporary-file "ambiguous-def~a.rkt"))
-    (define text
-      (string-append
-        "#lang racket/base\n"
-        "(require (for-syntax racket/base))\n"
-        "(provide foo (for-syntax foo))\n"
-        "(define foo 1)\n"
-        "(begin-for-syntax\n"
-        "  (define foo 2))\n"))
-    (with-output-to-file tmp-file
-      #:exists 'replace
-      (lambda ()
-        (display text)))
-    (check-equal? (doc-get-definition-by-id tmp-file '() 'foo)
-                  (Range (Pos 5 10) (Pos 5 13)))
-    (delete-file tmp-file))
 
   (test-case
     "binding identity distinguishes equal symbols across submodules and phases"

@@ -7,11 +7,17 @@
 ;; blocked edits after the prototype changes those behaviors.
 
 (require json
+         racket/class
          racket/match
+         drracket/check-syntax
          "../../common/interfaces.rkt"
          "../../common/json-util.rkt"
          "../../common/path-util.rkt"
+         "../../common/source.rkt"
+         "../../doclib/check-syntax.rkt"
+         "../../doclib/check-syntax-compat.rkt"
          "../../doclib/doc.rkt"
+         "../../doclib/editor.rkt"
          "../../doclib/internal-types.rkt"
          "../../lsp/lsp.rkt"
          "../../lsp/safedoc.rkt"
@@ -80,6 +86,29 @@
 (define (params uri pos)
   (hasheq 'textDocument (hasheq 'uri uri) 'position (->jsexpr pos)))
 
+;; Private copy of the removed production disk lookup. This script still
+;; measures that old handler: expand the target and key by submodule path
+;; and id. The phase at the use is not part of the key.
+(define (baseline-definition-range path submods id)
+  (define collector
+    (new (class (check-syntax-annotations-mixin object%)
+           (define defs (make-hash))
+           (define/public (get submods id)
+             (hash-ref defs (list submods id) #f))
+           (define/override (syncheck:add-definition-target/phase-level+space
+                              _source-obj start end id submods _phase+space)
+             (hash-set! defs (list submods id) (cons start end)))
+           (super-new))))
+  (define doc-text (new lsp-editor%))
+  (send doc-text load-file path)
+  (define in (open-input-string (send doc-text get-text)))
+  (expand-source (path->source path) in collector)
+  (match (send collector get submods id)
+    [(cons start end)
+     (Range (abs-pos->Pos doc-text start)
+            (abs-pos->Pos doc-text end))]
+    [_ #f]))
+
 ;; Preserve the characterized pre-Step-4 handler after production migrates.
 ;; Its imported lookup deliberately runs inside A's read lock.
 (define (baseline-definition id params)
@@ -90,7 +119,7 @@
       (lambda (doc)
         (match (doc-definition doc uri pos)
           [(struct* Module-Binding ([filepath path] [submods submods] [id name]))
-           (define range (doc-get-definition-by-id path submods name))
+           (define range (baseline-definition-range path submods name))
            (and range (Location (path->uri path) range))]
           [local local]))))
   (hasheq 'jsonrpc "2.0" 'id id 'result (if location (->jsexpr location) (json-null))))

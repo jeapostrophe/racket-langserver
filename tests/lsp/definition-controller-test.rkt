@@ -434,15 +434,18 @@
         (release! (await reads))
         (check-location session 3 b))))
 
-  (test-case "for-syntax excluded binding resolves through deferred legacy lookup"
-    (with-example plain-controller
-                  (lambda (session a b _root)
-                    (request session 1 a (Pos 3 12))
-                    (check-location session 1 b))
-                  (string-append
-                    "#lang racket/base\n"
-                    "(require (for-syntax racket/base \"b.rkt\"))\n"
-                    "(begin-for-syntax\n  (define y shared))\n")))
+  (test-case "for-syntax binding returns no location and does not analyze the target"
+    (define gates (make-async-channel))
+    (with-example
+      (gated-analyzer gates)
+      (lambda (session a _b _root)
+        (request session 1 a (Pos 3 12))
+        (check-equal? (hash-ref (response session 1) 'result) (json-null))
+        (check-false (sync/timeout 0 gates)))
+      (string-append
+        "#lang racket/base\n"
+        "(require (for-syntax racket/base \"b.rkt\"))\n"
+        "(begin-for-syntax\n  (define y shared))\n")))
 
   (test-case "request deadline covers held reads"
     (define reads (make-async-channel))

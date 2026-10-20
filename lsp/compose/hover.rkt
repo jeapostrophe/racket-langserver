@@ -47,5 +47,5 @@
       (target-query id controller deadline view target "Hover"
                     (lambda (facts binding)
                       (hash-ref (Analysis-Summary-hover-summaries facts) binding #f))
-                    #f compose)
+                    compose)
       (success/enc id (compose #f #f))))

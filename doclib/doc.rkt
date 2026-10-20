@@ -10,7 +10,6 @@
          "../common/source.rkt"
          "lazy-cache.rkt"
          "doc-trace.rkt"
-         "check-syntax-compat.rkt"
          "formatting.rkt"
          (only-in "formatter/fmt.rkt" empty-fmt-settings)
          "internal-types.rkt"
@@ -42,7 +41,6 @@
          "external/resyntax.rkt"
          "docs-helpers.rkt"
          "documentation-parser.rkt"
-         drracket/check-syntax
          racket/format)
 
 (struct/contract Doc
@@ -386,46 +384,6 @@
 
 (define (doc-body-forest doc)
   (lexer-state-body-forest (doc-lexer-state doc)))
-
-;; definition BEG ;;
-
-;; Cross-file Go to Definition expands the defining file and looks up a span
-;; by submodule path and defining id. Check Syntax jump also reports
-;; phase+space, but that value is the import shift at the use, not the
-;; definition phase in the target file. Do not put it in this key.
-(define (get-def path doc-text submods id)
-  (define collector
-    (new (class (check-syntax-annotations-mixin object%)
-           (define defs (make-hash))
-           (define/public (get submods id)
-             (hash-ref defs (list submods id) #f))
-           (define/override (syncheck:add-definition-target/phase-level+space
-                              _source-obj start end id submods _phase+space)
-             ;; Last one wins when one submodule defines the same id at more
-             ;; than one phase or space. Jump cannot tell those spans apart:
-             ;; it does not pass identifier-binding source-phase. Chosen over
-             ;; returning #f: Go to Definition should still land somewhere.
-             ;; Same last-wins table as DrRacket's syncheck:add-definition-target,
-             ;; which keys only (id, submods).
-             (hash-set! defs (list submods id) (cons start end)))
-           (super-new))))
-  (define in (open-input-string (send doc-text get-text)))
-
-  ;; expand-source handles traversal and adding syntax to collector
-  (expand-source (path->source path) in collector)
-  (send collector get submods id))
-
-(define/contract (doc-get-definition-by-id path submods id)
-  (-> path? (listof symbol?) symbol? (or/c Range? #f))
-  (define doc-text (new lsp-editor%))
-  (send doc-text load-file path)
-  (match (get-def path doc-text submods id)
-    [(cons start end)
-     (Range (abs-pos->Pos doc-text start)
-            (abs-pos->Pos doc-text end))]
-    [_ #f]))
-
-;; definition END ;;
 
 ;; formatting ;;
 
@@ -993,8 +951,9 @@
   (CompletionList #:isIncomplete #t
                   #:items result))
 
-;; Document-local capture only. Imported bindings are resolved by LSP composition
-;; after releasing this document's lock.
+;; Document-local capture only. A cross-file import is returned as a
+;; `Module-Binding`. LSP composition turns that binding into a location only
+;; on the shared analysis route, after this document's lock is released.
 (define/contract (doc-definition doc uri pos)
   (-> Doc? string? Pos? (or/c Location? Module-Binding? #f))
   (define definition-range (doc-definition-at doc pos))
@@ -1279,7 +1238,6 @@
          doc-line-start-abs-pos
          doc-line-end-abs-pos
          doc-find-containing-paren
-         doc-get-definition-by-id
          doc-format-edits
          doc-on-type-format-edits
          doc-range-tokens
