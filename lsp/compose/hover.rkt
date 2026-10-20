@@ -37,6 +37,6 @@
   (if (and (Module-Binding? target) (shared-binding? target))
       (target-query id controller deadline view target "Hover"
                     (lambda (facts binding)
-                      (hash-ref (Analysis-Facts-hover-summaries facts) binding #f))
+                      (hash-ref (Analysis-Summary-hover-summaries facts) binding #f))
                     #f (lambda (_snapshot summary) summary) compose)
       (success/enc id (compose #f))))

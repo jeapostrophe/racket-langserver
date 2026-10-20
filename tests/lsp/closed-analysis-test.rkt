@@ -39,7 +39,7 @@
 
 (define (available session path)
   (define snapshot (Source-Result-snapshot (observation session path)))
-  (Analysis-Acquisition-available
+  (Analysis-Handle-reusable-summary
     (await (source-controller-analysis-evt (Session-controller session) snapshot))))
 
 (define (query session path id method [position (Pos 3 0)])
@@ -322,7 +322,7 @@
               (barrier session))
             ;; Reading A's retained facts must protect it from eviction by C.
             ;; Hold A's refresh so a replacement cannot supply that protection.
-            (check-pred Analysis-Facts? (available session a))
+            (check-pred Analysis-Summary? (available session a))
             (define held-a (await gates))
             (open! session c text)
             (release! (await gates))
@@ -330,7 +330,7 @@
             (check-eq? 'succeeded (Analysis-Outcome-state (await-analysis (acquire session c))))
             (close! session c)
             (barrier session)
-            (check-pred Analysis-Facts? (available session a))
+            (check-pred Analysis-Summary? (available session a))
             (check-false (available session b))
             (define held-b (await gates))
             (release! held-a)

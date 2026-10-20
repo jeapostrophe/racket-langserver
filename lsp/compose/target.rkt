@@ -61,10 +61,10 @@
         (define outcome
           (if shared?
               (let ([acquisition (target-wait (source-controller-analysis-evt controller snapshot))])
-                (define available (Analysis-Acquisition-available acquisition))
+                (define available (Analysis-Handle-reusable-summary acquisition))
                 (if available
                     (Analysis-Outcome 'succeeded available)
-                    (target-wait (Analysis-Acquisition-completion acquisition))))
+                    (target-wait (Analysis-Handle-completion-evt acquisition))))
               (legacy target target-wait)))
         ;; Validate every shared outcome, including cached success and
         ;; failed/stopped attempts. A save can make that outcome obsolete.

@@ -57,7 +57,7 @@
   (if (Module-Binding? target)
       (target-query id controller deadline view target "Definition"
                     (lambda (facts binding)
-                      (hash-ref (Analysis-Facts-definitions facts) binding #f))
+                      (hash-ref (Analysis-Summary-definition-ranges facts) binding #f))
                     legacy-definition
                     (lambda (snapshot range)
                       (Location (Source-Snapshot-uri snapshot) range)))

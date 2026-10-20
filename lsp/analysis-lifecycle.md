@@ -15,8 +15,8 @@ same revision creates a new attempt.
   reuse a disk read started before the consumer accepted that command. Concurrent
   observations share the next read. Open buffers require no disk read.
 - `source-controller-analysis-evt` starts or joins analysis for a snapshot and
-  replies with `Analysis-Acquisition`. Its `available` field contains optional
-  reusable immutable facts; its `completion` event belongs to the fresh attempt.
+  replies with `Analysis-Handle`. Its `reusable-summary` field contains optional
+  reusable immutable facts; its `completion-evt` belongs to the fresh attempt.
   A completed current success reuses its original completion event. A ready
   outcome takes precedence over reusable facts, including failure and stop.
 - `source-controller-current-view-evt` asks the consumer whether a captured view

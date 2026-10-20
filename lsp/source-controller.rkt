@@ -19,7 +19,7 @@
          source-controller-analysis-evt
          source-controller-current-view-evt
          source-controller-shutdown-evt
-         (struct-out Analysis-Acquisition)
+         (struct-out Analysis-Handle)
          (struct-out Source-Result)
          (struct-out Source-Failure)
          (struct-out Disk-Missing))
@@ -54,7 +54,7 @@
   #:transparent)
 
 ;; Start or join analysis for `snapshot`. Completes `reply` with
-;; `Analysis-Acquisition`.
+;; `Analysis-Handle`.
 (struct/contract Acquire-Analysis
   ([snapshot Source-Snapshot?]
    [reply Completion-Event?])
@@ -86,7 +86,7 @@
   (replace-evt (submit controller (lambda (reply) (Observe source reply)))
                (lambda (result) (if (Completion-Event? result) result (ready-evt result)))))
 
-;; Start or join analysis for `snapshot`. The reply is `Analysis-Acquisition`:
+;; Start or join analysis for `snapshot`. The reply is `Analysis-Handle`:
 ;; optional reusable facts plus the fresh attempt's completion event.
 (define (source-controller-analysis-evt controller snapshot)
   (submit controller (lambda (reply) (Acquire-Analysis snapshot reply))))

@@ -214,7 +214,7 @@
         (request session 1 a)
         (check-hover session 1 "(define shared 1)")
         (define outcome (await (acquire session b)))
-        (define summaries (Analysis-Facts-hover-summaries (Analysis-Outcome-value outcome)))
+        (define summaries (Analysis-Summary-hover-summaries (Analysis-Outcome-value outcome)))
         (check-true (immutable? summaries))
         (for ([summary (in-hash-values summaries)])
           (check-true (immutable? (Hover-Code-Summary-text summary)))

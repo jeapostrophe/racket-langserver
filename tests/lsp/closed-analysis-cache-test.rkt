@@ -14,7 +14,7 @@
     (define snapshot (Source-Snapshot source (gensym 'revision) 'disk text))
     (define product (analyze-source snapshot))
     (check-true (Analysis-Product-succeeded? product))
-    (define outcome (Analysis-Outcome 'succeeded (Analysis-Product-facts product)))
+    (define outcome (Analysis-Outcome 'succeeded (Analysis-Product-summary product)))
     (Available-Analysis snapshot product (wrap-evt always-evt (lambda (_) outcome))))
 
   (define a (make-analysis "retained-a.rkt"))
@@ -35,8 +35,8 @@
     (check-equal? (source-id alias) (source-id a-source))
     (check-false (eq? (source-id alias) (source-id a-source)))
     (check-eq? (find-closed-analysis! cache snapshot) a)
-    (check-eq? (Available-Analysis-completion (find-closed-analysis! cache snapshot))
-               (Available-Analysis-completion a)))
+    (check-eq? (Available-Analysis-completion-evt (find-closed-analysis! cache snapshot))
+               (Available-Analysis-completion-evt a)))
 
   (test-case "matching lookup protects an older insertion from LRU eviction"
     (define cache (make-closed-analysis-cache 2))
@@ -62,7 +62,7 @@
 
   (test-case "replacement occupies one slot and becomes most recently used"
     (define cache (make-closed-analysis-cache 2))
-    (define replacement (struct-copy Available-Analysis a [completion #f]))
+    (define replacement (struct-copy Available-Analysis a [completion-evt #f]))
     (store-closed-analysis! cache a)
     (store-closed-analysis! cache b)
     (store-closed-analysis! cache replacement)
@@ -109,7 +109,7 @@
   (test-case "eviction preserves completion events held by existing waiters"
     (define cache (make-closed-analysis-cache 1))
     (store-closed-analysis! cache a)
-    (define completion (Available-Analysis-completion (find-closed-analysis! cache a-snapshot)))
+    (define completion (Available-Analysis-completion-evt (find-closed-analysis! cache a-snapshot)))
     (store-closed-analysis! cache b)
     (check-false (find-closed-analysis! cache a-snapshot))
     (define outcome (sync/timeout 0 completion))

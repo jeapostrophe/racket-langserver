@@ -64,7 +64,7 @@
                                            (Source-Result-snapshot result))))
   (when (Source-Failure? acquisition)
     (error 'acquire "analysis command failed: ~v" (Source-Failure-reason acquisition)))
-  (Analysis-Acquisition-completion acquisition))
+  (Analysis-Handle-completion-evt acquisition))
 
 ;; Validation orders preceding controller commands without reading disk or
 ;; starting analysis. A different store's revision can never be current in this session.

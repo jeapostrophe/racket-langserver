@@ -50,7 +50,7 @@
 ;; findings cannot apply to a restored product or a later accepted attempt.
 (define (publish-document-resyntax! publisher sd parent-completion results)
   (define available (SafeDoc-available sd))
-  (when (and available (eq? parent-completion (Available-Analysis-completion available)))
+  (when (and available (eq? parent-completion (Available-Analysis-completion-evt available)))
     (define doc (SafeDoc-doc sd))
     (doc-update-resyntax-result! doc results)
     (publish-diagnostics! publisher (Doc-uri doc) (->jsexpr (doc-diagnostics doc)))))

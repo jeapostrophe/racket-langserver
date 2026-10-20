@@ -44,7 +44,7 @@
     (check-false parent)
     (check-false (evt-ready? completion))
     (check-true (Analysis-Product-succeeded? product))
-    (Analysis-Outcome 'succeeded (Analysis-Product-facts product)))
+    (Analysis-Outcome 'succeeded (Analysis-Product-summary product)))
 
   (test-case "FIFO capacity, shared requests, and acceptance before completion"
     (with-scheduler

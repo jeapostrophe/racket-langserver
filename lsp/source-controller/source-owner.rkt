@@ -45,7 +45,7 @@
          source-controller-snapshot
          source-controller-ensure-analysis!
          source-controller-refresh-analysis!
-         (struct-out Analysis-Acquisition)
+         (struct-out Analysis-Handle)
          (struct-out Source-Result)
          (struct-out Source-Failure)
          (struct-out Disk-Missing))
@@ -200,7 +200,7 @@
   (and available
        (eq? (Source-Snapshot-revision snapshot)
             (Source-Snapshot-revision (Available-Analysis-snapshot available)))
-       (Available-Analysis-completion available)))
+       (Available-Analysis-completion-evt available)))
 
 (define (source-controller-ensure-analysis! controller snapshot #:refresh? [refresh? #f])
   (cond
@@ -221,8 +221,8 @@
 (define (source-controller-acquire-analysis! controller snapshot)
   (define event (source-controller-ensure-analysis! controller snapshot))
   (define available (and (not (evt-ready? event)) (available-analysis controller snapshot)))
-  (Analysis-Acquisition
-    (and available (Analysis-Product-facts (Available-Analysis-product available))) event))
+  (Analysis-Handle
+    (and available (Analysis-Product-summary (Available-Analysis-product available))) event))
 
 (define (source-controller-refresh-analysis! controller source)
   (define snapshot (source-controller-snapshot controller source))
@@ -241,7 +241,7 @@
   (define contribution (Analysis-Product-contribution product))
   ;; Validate injected executor products at acceptance for both destinations.
   (when (and succeeded?
-             (not (and (Analysis-Product-facts product)
+             (not (and (Analysis-Product-summary product)
                        (if (source-file-path source) contribution (not contribution)))))
     (error 'record-analysis! "successful analysis requires facts and a file-only contribution"))
   (define buffer (source-buffer controller source))
@@ -254,7 +254,7 @@
     [(and succeeded? (eq? 'disk (Source-Snapshot-origin snapshot)))
      (store-closed-analysis! (Source-Controller-closed-analysis controller)
                              (Available-Analysis snapshot product completion))])
-  (Analysis-Outcome (if succeeded? 'succeeded 'errors) (Analysis-Product-facts product)))
+  (Analysis-Outcome (if succeeded? 'succeeded 'errors) (Analysis-Product-summary product)))
 
 ;; A handled acceptance failure clears exact eligibility before the scheduler
 ;; broadcasts failure. Mutable traces are never returned to request threads.
