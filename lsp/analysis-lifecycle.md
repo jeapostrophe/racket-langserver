@@ -25,8 +25,20 @@ same revision creates a new attempt.
 Constructing a command event submits work immediately. Cancelling a request's
 wait does not cancel shared work. Request callers must check cancellation before
 submission and validate the target after waiting, including when using available
-facts. Disk validation requires another observation. A source revision certifies
-the server's accepted observation, not an atomic filesystem transaction.
+facts. A source revision certifies the server's accepted observation, not an
+atomic filesystem transaction.
+
+Cross-file definition and hover observe the target once per request. They use
+that snapshot's analysis and perform a final owner view check without rereading
+disk. An observed target change or invalidated acquisition ends the request with
+RequestFailed; the query does not reacquire or retry. A subsequent query observes
+the target again. An external disk change that the server has not observed may
+therefore leave an in-flight query answering from its original snapshot. Opening
+a buffer during a pending disk read may complete acquisition with buffer text;
+once acquired, that view must remain eligible through the query's final check.
+Missing files, Check Syntax errors, and absent bindings supply no feature detail.
+Read/worker failures end the request. Changing or closing the requesting document
+cancels it; deadlines and shutdown end it without cancelling shared analysis.
 
 The `owner` submodule exports operations for the session consumer only. Open
 registers the buffer, restores matching retained analysis, and schedules fresh
@@ -127,7 +139,7 @@ old completion events and Resyntax findings are never restored.
 
 Closed-target definition and hover requests observe saved text before acquisition.
 They may use matching retained facts while fresh analysis runs, then perform final
-disk and view validation. Text equality does not establish dependency freshness:
+view validation. Text equality does not establish dependency freshness:
 retained dependency information can remain stale until fresh analysis replaces it.
 Neither current revisions nor fresh completion track external dependency changes.
 

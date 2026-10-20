@@ -167,8 +167,8 @@
             (query "textDocument/definition" 6)
             (check-definition 6)
             (check-equal? (- (count root) dependency-count) 1)
-            ;; Start a new revision, save again while held, and let the same request
-            ;; discover/reacquire it through its post-analysis refresh.
+            ;; A save during analysis leaves this request on its acquired
+            ;; snapshot. The next query observes the new disk text.
             (delete-file (build-path root "entered"))
             (delete-file (build-path root "release"))
             (write-text b (target-text root 2))
@@ -176,7 +176,10 @@
             (wait-entered root)
             (write-text b (target-text root 3))
             (write-text (build-path root "release") "")
-            (check-hover 7 3)
+            (check-hover 7 2)
+            (check-equal? (- (count root) dependency-count) 2)
+            (query "textDocument/hover" 70)
+            (check-hover 70 3)
             (check-equal? (- (count root) dependency-count) 3)
             ;; B stays held while an independent C completes Check Syntax and local
             ;; queries. An edit to A cancels its imported request before release.
@@ -214,7 +217,7 @@
             (check-eq? (sync/timeout 5 frame-reader) frame-reader)
             (check-false frame-failure)
             (check-false (hash-ref diagnostics b-uri #f))
-            (printf "Transport: unchanged target +1 expansion; save/reacquire +2; cancellation and independent queries precede gate release.\n"))
+            (printf "Transport: unchanged target +1 expansion; each changed snapshot +1; cancellation and independent queries precede gate release.\n"))
           (lambda ()
             (subprocess-kill server #t)
             (subprocess-wait server)

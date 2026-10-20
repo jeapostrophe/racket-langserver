@@ -122,7 +122,7 @@
     (lambda () (delete-directory/files root))))
 
 ;; This fixture owns its controller on the test thread. Tests that control
-;; independent request budgets use the handler directly; feature
+;; independent request budgets or buffer transitions use the handler directly; feature
 ;; integration tests above and below use the production serial consumer.
 (define (with-local-definition proc #:analyze [analyzer analyze-source]
                                #:analysis-slots [slots 2])
@@ -147,6 +147,8 @@
       (if (eq? (car next) 'result)
           (cdr next)
           (begin (source-controller-handle! controller (cdr next)) (loop)))))
+  (define (accept-command!)
+    (source-controller-handle! controller (await (source-controller-events controller))))
   (define (capture timeout)
     (parameterize ([current-analysis-request-timeout timeout])
       (text-document/definition
@@ -168,7 +170,7 @@
                      (drive (source-controller-ensure-analysis!
                               controller (source-controller-snapshot controller (path->source a)))))
                    'succeeded)
-        (proc a b reads capture run drive)))
+        (proc a b reads capture run drive accept-command!)))
     (lambda ()
       (source-controller-shutdown! controller)
       (delete-directory/files root))))
@@ -256,7 +258,7 @@
                                   (->jsexpr (Location (path->uri b) (Range (Pos 1 25) (Pos 1 31)))))
                     (check-not-eq? before (view session b)))))
 
-  (test-case "save during analysis is detected by final refresh and reacquired"
+  (test-case "save during analysis affects the next query, not the acquired snapshot"
     (define gates (make-async-channel))
     (with-example
       (gated-analyzer gates)
@@ -265,31 +267,34 @@
         (define old (await gates))
         (write-text b unsaved)
         (release! old)
+        (check-location session 1 b)
+        (check-false (sync/timeout 0 gates))
+        (request session 2 a)
         (define next (await gates))
         (check-equal? (Source-Snapshot-text (Gate-input next)) unsaved)
         (release! next)
-        (check-location session 1 b 4)
-        (check-false (sync/timeout 0 gates)))))
+        (check-location session 2 b 4))))
 
-  (test-case "completed cache hit still refreshes at validation and rejects a save in between"
+  (test-case "new and cached queries each observe disk exactly once"
     (define reads (make-async-channel))
     (with-example
       (gated-reader reads)
       (lambda (session a b _root)
         (request session 1 a)
         (release! (await reads))
-        (release! (await reads))
         (check-location session 1 b)
+        (check-false (sync/timeout 0 reads))
+        (write-text b unsaved)
         (request session 2 a)
         (release! (await reads))
-        (define validation (await reads))
-        (write-text b unsaved)
-        (release! validation)
+        (check-location session 2 b 4)
+        (check-false (sync/timeout 0 reads))
+        (request session 3 a)
         (release! (await reads))
-        (release! (await reads))
-        (check-location session 2 b 4))))
+        (check-location session 3 b 4)
+        (check-false (sync/timeout 0 reads)))))
 
-  (test-case "peer discovery wakes an old analysis waiter before the old worker is released"
+  (test-case "peer discovery ends an obsolete query without restarting it"
     (define gates (make-async-channel))
     (with-example
       (gated-analyzer gates)
@@ -299,8 +304,8 @@
         (write-text b unsaved)
         (request session 2 a)
         (define next (await gates))
+        (check-error session 1 ErrorCode-RequestFailed "Definition target changed")
         (release! next)
-        (check-location session 1 b 4)
         (check-location session 2 b 4)
         (check-false (sync/timeout 0 gates)))))
 
@@ -318,7 +323,7 @@
             (check-error session 1 ErrorCode-RequestCancelled)
             (release! held))))))
 
-  (test-case "opening B uses unsaved analysis; close returns to lazy disk authority"
+  (test-case "opening B ends obsolete analysis; later queries use buffer then disk"
     (define gates (make-async-channel))
     (define read-count 0)
     (with-example
@@ -335,8 +340,8 @@
         (barrier session)
         (check-eq? (Source-Snapshot-origin (Gate-input buffer-gate)) 'buffer)
         (define count-at-open read-count)
+        (check-error session 1 ErrorCode-RequestFailed "Definition target changed")
         (release! buffer-gate)
-        (check-location session 1 b 4)
         (request session 2 a)
         (check-location session 2 b 4)
         (check-equal? read-count count-at-open)
@@ -349,37 +354,41 @@
         (release! disk-gate)
         (check-location session 3 b))))
 
-  (test-case "reopening B with reused version rejects old facts"
-    (define gates (make-async-channel))
-    (with-example
-      (gated-analyzer gates)
-      (lambda (session a b _root)
-        (open! session b unsaved 7)
-        (await gates)
-        (request session 1 a)
-        (barrier session)
-        (close! session b)
-        (open! session b (string-append "\n" unsaved) 7)
-        (define reopened (await gates))
-        (release! reopened)
-        (check-location session 1 b 5)
-        (close! session b)
-        (barrier session))))
-
-  (test-case "closing held B reacquires disk without accepting discarded edits"
-    (define gates (make-async-channel))
-    (with-example
-      (gated-analyzer gates)
-      (lambda (session a b _root)
-        (open! session b unsaved)
-        (await gates)
-        (request session 1 a)
-        (barrier session)
-        (close! session b)
-        (define disk (await gates))
-        (check-equal? (Source-Snapshot-text (Gate-input disk)) saved)
-        (release! disk)
-        (check-location session 1 b))))
+  (for ([operation (in-list '(close reopen))])
+    (test-case (format "~a after buffer acquisition ends the query without reacquiring" operation)
+      (define gates (make-async-channel))
+      (define target #f)
+      (with-local-definition
+        (lambda (_a b reads capture run drive accept-command!)
+          (set! target b)
+          (lsp-open-doc! (path->uri b) unsaved 7)
+          (await gates)
+          (define obsolete (start-deferred (capture 90)))
+          ;; This test owns the consumer. Accept observation and analysis
+          ;; acquisition before closing; a client-notification barrier cannot
+          ;; establish that a deferred request has acquired the buffer.
+          (accept-command!)
+          (accept-command!)
+          (lsp-close-doc! (path->uri b))
+          (define reopened
+            (and (eq? operation 'reopen)
+                 (begin
+                   (lsp-open-doc! (path->uri b) (string-append "\n" unsaved) 7)
+                   (await gates))))
+          (define error (hash-ref (drive obsolete) 'error))
+          (check-equal? (hash-ref error 'code) (->jsexpr ErrorCode-RequestFailed))
+          (check-equal? (hash-ref error 'message) "Definition target changed")
+          (check-false (sync/timeout 0 reads))
+          (check-false (sync/timeout 0 gates))
+          (when reopened
+            (release! reopened)
+            (check-equal? (hash-ref (run (capture 90)) 'result)
+                          (->jsexpr (Location (path->uri b) (Range (Pos 5 8) (Pos 5 14)))))
+            (lsp-close-doc! (path->uri b))))
+        #:analyze (lambda (snapshot)
+                    (if target
+                        ((controlled-analyzer target gates) snapshot)
+                        (analyze-source snapshot))))))
 
   (for ([failure (in-list '(raise die))])
     (test-case (format "runner ~a fails; later requests retry" failure)
@@ -423,14 +432,12 @@
       (lambda (session a b _root)
         (request session 1 a)
         (release! (await reads))
-        (release! (await reads))
         (check-location session 1 b)
         (request session 2 a)
         (release! (await reads) 'raise)
         (check-error session 2 ErrorCode-RequestFailed "Definition source read failed")
         (check-failure-log logs b "read-failed")
         (request session 3 a)
-        (release! (await reads))
         (release! (await reads))
         (check-location session 3 b))))
 
@@ -460,7 +467,7 @@
 
   (test-case "expired before thunk invocation starts no target work"
     (with-local-definition
-      (lambda (_a _b reads capture _run _drive)
+      (lambda (_a _b reads capture _run _drive _accept-command!)
         (define deferred (capture 0))
         ;; Invocation has a generous parameter; the captured budget still wins.
         (define result (parameterize ([current-analysis-request-timeout 90]) (deferred)))
@@ -470,7 +477,7 @@
 
   (test-case "cancellation wins over ready deadline and cache"
     (with-local-definition
-      (lambda (a b _reads capture run _drive)
+      (lambda (a b _reads capture run _drive _accept-command!)
         (check-equal? (hash-ref (run (capture 90)) 'result)
                       (->jsexpr (Location (path->uri b) (Range (Pos 2 8) (Pos 2 14)))))
         (define deferred (capture 0))
@@ -482,7 +489,7 @@
     (define gates (make-async-channel))
     (define target #f)
     (with-local-definition
-      (lambda (_a b _reads capture _run drive)
+      (lambda (_a b _reads capture _run drive _accept-command!)
         (set! target b)
         (define short (start-deferred (capture 0.2)))
         (define held (drive gates))
@@ -547,7 +554,7 @@
     (define gates (make-async-channel))
     (define held-paths '())
     (with-local-definition
-      (lambda (a b _reads capture _run drive)
+      (lambda (a b _reads capture _run drive _accept-command!)
         (define c (build-path (path-only a) "c.rkt"))
         (set! held-paths (list b c))
         (lsp-open-doc! (path->uri c) "#lang racket/base\n(define other 1)\n" 0)
@@ -586,7 +593,23 @@
         (rename-file-or-directory b renamed)
         (notify session "workspace/didRenameFiles"
                 (hasheq 'files (list (hasheq 'oldUri (path->uri b) 'newUri (path->uri renamed)))))
-        (check-equal? (hash-ref (response session 1) 'result) (json-null)))))
+        (check-error session 1 ErrorCode-RequestFailed "Definition target changed")
+        (request session 2 a)
+        (check-equal? (hash-ref (response session 2) 'result) (json-null)))))
+
+  (test-case "rename during acquisition fails without starting another read"
+    (define reads (make-async-channel))
+    (with-example
+      (gated-reader reads)
+      (lambda (session a b root)
+        (request session 1 a)
+        (await reads)
+        (define renamed (build-path root "renamed.rkt"))
+        (rename-file-or-directory b renamed)
+        (notify session "workspace/didRenameFiles"
+                (hasheq 'files (list (hasheq 'oldUri (path->uri b) 'newUri (path->uri renamed)))))
+        (check-error session 1 ErrorCode-RequestFailed "Definition target changed")
+        (check-false (sync/timeout 0 reads)))))
 
   (test-case "ordinary relative imports use shared disk and unsaved buffer analysis"
     (with-example plain-controller

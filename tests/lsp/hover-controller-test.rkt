@@ -117,23 +117,36 @@
         (define restored (check-hover session 3 "(define shared 1)"))
         (check-false (string-contains? (hash-ref restored 'contents) "Unsaved")))))
 
-  (test-case "hover final validation detects changed cached source"
+  (test-case "hover observes changed disk text on the next query without a final reread"
     (define reads (make-async-channel))
     (with-example
       (gated-reader reads)
       (lambda (session a b _root)
         (request session 1 a)
         (release! (await reads))
-        (release! (await reads))
         (check-hover session 1 "(define shared 1)")
+        (check-false (sync/timeout 0 reads))
+        (display-to-file unsaved b #:exists 'truncate)
         (request session 2 a)
         (release! (await reads))
-        (define validation (await reads))
-        (display-to-file unsaved b #:exists 'truncate)
-        (release! validation)
-        (release! (await reads))
-        (release! (await reads))
-        (check-hover session 2 ";; Unsaved\n(define shared 2)"))))
+        (check-hover session 2 ";; Unsaved\n(define shared 2)")
+        (check-false (sync/timeout 0 reads)))))
+
+  (test-case "opening the target ends an obsolete hover without waiting for new analysis"
+    (define gates (make-async-channel))
+    (with-example
+      (gated-analyzer gates)
+      (lambda (session a b _root)
+        (request session 1 a)
+        (await gates)
+        (open! session b unsaved)
+        (define fresh (await gates))
+        (check-error session 1 ErrorCode-RequestFailed "Hover target changed")
+        (release! fresh)
+        (request session 2 a)
+        (check-hover session 2 ";; Unsaved\n(define shared 2)")
+        (close! session b)
+        (barrier session))))
 
   (for ([operation (in-list '(edit close))])
     (test-case (format "A ~a cancels hover before held analysis is released" operation)
