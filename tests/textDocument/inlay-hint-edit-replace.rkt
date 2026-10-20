@@ -73,19 +73,15 @@ END
                           '(6 6 "w ")
                           '(6 8 "h ")))
 
-      ;; Each incomplete revision must return empty hints independently.
+      ;; While the buffer stays syntactically invalid, inlay hints stay empty.
       (replace! 1 1 0 1 0 "(define\n")
       (check-empty)
 
-      ;; Rename a field of `point`, one character for one. The document is the
-      ;; same length as before, so it neither expands nor contracts, but the
-      ;; call no longer fills the fields the hints name.
+      ;; Further edits on the broken buffer also yield empty hints (not separate
+      ;; same-length or length-changing adjustment cases).
       (replace! 2 3 15 3 16 "z")
       (check-empty)
 
-      ;; Rewrite the whole declaration of `size` with a longer one. The
-      ;; characters it gains arrive at the end of the form, which is where
-      ;; typing after the form would put them too.
       (replace! 3 4 0 4 19 "(struct size (a b c))")
       (check-empty)
 

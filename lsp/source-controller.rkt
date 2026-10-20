@@ -87,7 +87,7 @@
                (lambda (result) (if (Completion-Event? result) result (ready-evt result)))))
 
 ;; Start or join analysis for `snapshot`. The reply is `Analysis-Handle`:
-;; optional reusable facts plus the fresh attempt's completion event.
+;; optional reusable facts plus the completion event for the joined attempt.
 (define (source-controller-analysis-evt controller snapshot)
   (submit controller (lambda (reply) (Acquire-Analysis snapshot reply))))
 

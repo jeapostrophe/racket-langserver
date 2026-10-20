@@ -63,7 +63,8 @@
 ;;   for a virtual source with no open buffer.
 ;; snapshot: Frozen text when buffer or disk text is available; otherwise `#f`.
 ;; error: Failure of this observation (`closed`, `reader-exited`, `read-timeout`,
-;;   `shutdown`, or a raised reader error). A missing file is `file-not-found`
+;;   or a raised reader error). Shutdown is reported as a bare `Source-Failure`
+;;   on the command reply, not in this field. A missing file is `file-not-found`
 ;;   on the view, with no error.
 (struct/contract Source-Result
   ([view (or/c #f Source-View?)]

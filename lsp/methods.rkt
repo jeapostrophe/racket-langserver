@@ -41,8 +41,9 @@
 ;; is correct.
 ;;
 ;; Fast queries read the adjusted projection under its lock. Features needing
-;; current analysis defer to a revision-bound job event. The consumer owns
-;; acceptance and shares one analysis per revision, with four execution slots.
+;; current analysis wait on `SafeDoc-analysis-completion` or
+;; `Analysis-Handle-completion-evt`. The consumer owns acceptance and shares
+;; one analysis per revision, with four execution slots.
 
 ;; Mutable variables
 (define already-initialized? #f)

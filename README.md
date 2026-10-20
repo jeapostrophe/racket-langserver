@@ -159,38 +159,6 @@ environment. Debug messages include document text received from the client.
 See [Racket's logging documentation](https://docs.racket-lang.org/reference/logging.html)
 for details.
 
-## Imported definition and hover
-
-Direct phase-zero imports use shared background analysis for definition locations
-and hover source/comment detail. Open targets use their current unsaved buffer;
-closed targets refresh saved text before answering. These queries also work
-outside workspace folders. Hover keeps the importing document's type,
-annotation, documentation, and occurrence range. Unchanged target revisions
-reuse the same analysis across both features.
-
-This freshness guarantee covers the target's own source text. Changes to its
-imported dependencies or macro environment do not yet invalidate cached analysis.
-Submodules and other phases retain the legacy definition lookup and local hover
-information.
-
-## Virtual documents
-
-Non-file URIs (including untitled buffers, notebook cells, and Git snapshots)
-are analyzed from client-supplied text. Each complete URI has independent state,
-including its query and fragment. Local expansion-based features, diagnostics,
-formatting, and edits use the original URI. Virtual documents do not contribute
-to workspace indexes or merge workspace references. Definitions requiring
-another file's analysis return no location. Closing a virtual document releases
-its buffer and cancels pending analysis without reading a disk fallback.
-
-Virtual expansion uses the complete URI as its syntax source, without inventing
-a filesystem path. Collection imports such as `racket/list` work; a project
-directory is not inferred from the URI or workspace, so relative project imports
-may be unavailable.
-Readers and macros can still load files during expansion. Notebook cells need
-the same language headers as other documents; the server does not inject headers
-or share definitions between cells.
-
 ## Development
 
 See [CONTRIBUTING.md](CONTRIBUTING.md).

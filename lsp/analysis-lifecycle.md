@@ -16,9 +16,10 @@ same revision creates a new attempt.
   observations share the next read. Open buffers require no disk read.
 - `source-controller-analysis-evt` starts or joins analysis for a snapshot and
   replies with `Analysis-Handle`. Its `reusable-summary` field contains optional
-  reusable immutable facts; its `completion-evt` belongs to the fresh attempt.
-  A completed current success reuses its original completion event. A ready
-  outcome takes precedence over reusable facts, including failure and stop.
+  reusable immutable facts while the completion event is still pending. Its
+  `completion-evt` is a newly scheduled attempt, or the installed result's
+  completion when a current success is reused. A ready outcome takes precedence
+  over reusable facts, including failure and stop.
 - `source-controller-current-view-evt` asks the consumer whether a captured view
   is still current. It does not observe the filesystem.
 
@@ -114,7 +115,8 @@ create an isolated LSP session; the request layer must use that same workspace.
 ## Available results and fresh completion
 
 `SafeDoc-available` holds a completed product and the snapshot it analyzed.
-`SafeDoc-analysis-completion` is the current fresh attempt's broadcast event.
+`SafeDoc-analysis-completion` is the broadcast event for the attempt being
+joined—either a newly scheduled one or a reused completed success's event.
 Available analysis may answer queries while that event is pending. Restoring a
 product never completes that event or starts Resyntax.
 

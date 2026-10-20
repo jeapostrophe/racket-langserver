@@ -65,8 +65,8 @@
 ;; A completed product installed for one snapshot. Queries may read it while
 ;; a later attempt is still running.
 ;;
-;; snapshot: The analyzed snapshot. Queries compare its revision with the
-;;   current source view.
+;; snapshot: The analyzed snapshot. Live-buffer exact queries compare its
+;;   revision with the current source view; closed-file reuse compares text.
 ;; completion-evt: Broadcast event of the attempt that produced this product
 ;;   in the current source lifetime. `#f` when the product was restored from
 ;;   a closed file. Restoration leaves the fresh attempt, scheduled by open,

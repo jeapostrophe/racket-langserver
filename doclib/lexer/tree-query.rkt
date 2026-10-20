@@ -40,7 +40,7 @@
     (search-node node '())))
 
 ;; Search the forest for a specific node `target` (compared via eq?) and
-;; return the list of nodes from root to `target` inclusive, or #f if not
+;; return the list of nodes from `target` to root inclusive, or #f if not
 ;; found.
 (define (token-forest-node-path forest target)
   (define ancestors (token-forest-ancestors-at-pos forest (token-node-start target)))

@@ -13,7 +13,14 @@
                               workspace-contains?
                               workspace-set-contribution!
                               workspace-remove-path!
-                              workspace-reference-sources)))
+                              workspace-reference-sources
+                              workspace-definition-location)
+                     (only-in (file "../common/source.rkt")
+                              Source-Id?)
+                     (only-in (file "../doclib/check-syntax-compat.rkt")
+                              phase+space-shift?)
+                     (only-in (file "../doclib/hover.rkt")
+                              Hover-Card)))
 
 @title{racket-langserver}
 
@@ -126,31 +133,28 @@ from @tt{racket-langserver/json-util}. Nested struct values are encoded recursiv
   @itemlist[
     @item{Optional Typed Racket type in a @tt{racket} fence. Labeled @tt{Type},
           or @tt{Type (stale)} when the type comes from a retained trace.}
-    @item{Optional fenced definition. For a current same-file trace with local
-          declaration detail, this shows code around the bound declaration.
-          Local uses share that stored detail; each use does not rebuild it.
-          Own-line leading comments above the form may also appear. Usually this
-          slot shows the outermost same-line form (a compact binding clause,
-          a one-line header collapsed with @tt{...}, or a complete one-line
-          form). When no form on the identifier line fits, the full nearest
-          enclosing form is shown. Without same-file detail, a Scribble bluebox
-          signature may fill this slot instead. Racket-family forms use a
-          @tt{racket} fence. Rhombus forms use a @tt{rhombus} fence. A lone
-          definition fence is unlabeled. When a type precedes it, the fence is
-          labeled @tt{Source} or @tt{Signature}.}
-    @item{Optional documentation after a @tt{---} separator when earlier slots
-          are also present: an online link and/or a locally installed docs
-          excerpt. Link comes before body.}
-    @item{Optional check-syntax mouse-over text as a plain unlabeled note, only
-          when it is the sole content (no type, definition, or docs link). The
-          text is unchanged.}
+    @item{Optional fenced definition, labeled @tt{Source} or @tt{Signature}.
+          For a current same-file trace with local declaration detail, this shows
+          code around the bound declaration. Local uses share that stored detail;
+          each use does not rebuild it. Own-line leading comments above the form
+          may also appear. Usually this slot shows the outermost same-line form
+          (a compact binding clause, a one-line header collapsed with @tt{...},
+          or a complete one-line form). When no form on the identifier line fits,
+          the full nearest enclosing form is shown. Without same-file detail, a
+          Scribble bluebox signature may fill this slot instead. Racket-family
+          forms use a @tt{racket} fence. Rhombus forms use a @tt{rhombus} fence.}
+    @item{The winning annotation, labeled @tt{Mouse-over status} or
+          @tt{Log tooltip}. Check-syntax text is unchanged.}
+    @item{Optional documentation excerpt/link, labeled @tt{Documentation}. An
+          online link may appear in the heading; body text follows when present.}
   ]
 
   When a trace is old, same-file source detail still comes from the current
   buffer and retained types remain visible as stale. These results can be
   useful, but the binding link or type may be wrong until expansion finishes.
-  Imports and cross-file bindings do not get same-file source snippets. Their
-  cards use documentation when available, otherwise check-syntax text alone.
+  Document-local @racket[doc-hover] does not read imported files. The LSP
+  handler may add a @tt{Source} summary from a shared background analysis for
+  module-backed bindings when documentation does not already fill the card.
 
   The @tt{range} field comes from the inferred-type interval when present,
   including literal and expression-delimiter intervals. Otherwise it comes
@@ -234,7 +238,7 @@ from @tt{racket-langserver/json-util}. Nested struct values are encoded recursiv
                                [kind SymbolKind?]
                                [location Location?])
             #:transparent]{
-  One symbol entry in document/workspace symbol results.
+  One symbol entry in flat @racket[doc-symbols] results.
   The @tt{name} field is the symbol display name.
   The @tt{kind} field is a @tt{SymbolKind} enum value (an LSP symbol kind integer code).
   The @tt{location} field gives the symbol's source location.
@@ -412,12 +416,15 @@ without touching the network or a thread scheduler, making them suitable for dir
 }
 
 @defstruct*[Doc-Contribution ([path path?]
-                              [references (hash/c Module-Binding? (listof Location?))])
+                              [references (hash/c Module-Binding? (listof Location?) #:immutable #t)]
+                              [definitions (hash/c Module-Binding? Location? #:immutable #t)])
             #:transparent]{
   Immutable cross-file facts from one successful document analysis.
   The @tt{path} field is the contributing file.
   The @tt{references} field maps each @racket[Module-Binding] cited by that
   file to the @racket[Location] values in that file.
+  The @tt{definitions} field maps each @racket[Module-Binding] defined in that
+  file to its declaration @racket[Location].
   Workspace stores this value; it does not store the live trace.
 }
 
@@ -539,10 +546,12 @@ These functions manage check-syntax expansion and the resulting trace.
 
 @defproc[(doc-update-trace! [doc Doc?]
                              [new-trace (is-a?/c build-trace%)]
+                             [new-contribution (or/c #f Doc-Contribution?)]
                              [new-version exact-nonnegative-integer?])
          void?]{
-  Replaces the document's trace with a freshly computed one. Called internally by
-  @racket[doc-expand!] but also useful when a scheduler provides a new trace externally.
+  Replaces the document's trace with a freshly computed one and stores
+  @tt{new-contribution}. Called internally by @racket[doc-expand!] but also
+  useful when a scheduler provides a new trace externally.
 }
 
 @defproc[(doc-trace-latest? [doc Doc?]) boolean?]{
@@ -638,7 +647,8 @@ responses over bulk snapshot enumeration.}
   and @tt{modifiers} (all absolute character offsets or enum values).
   The caller is responsible for encoding these into the LSP 3.17 delta format
   before sending them on the wire.
-  Requires an up-to-date trace.
+  Combines trace tokens with current lexer-derived sexp-comment tokens, so
+  useful results are available even when the trace version lags the buffer.
 }
 
 @defproc[(doc-token-at [doc Doc?]
@@ -665,9 +675,10 @@ Exceptions are noted in individual entries.
 @defproc[(doc-hover [doc Doc?]
                     [pos Pos?])
          (or/c Hover? #f)]{
-  Returns hover info at @tt{pos}, or @racket[#f] when check-syntax mouse-over
-  status, Typed Racket type text, and same-file source detail are all missing.
-  A docs link alone does not open a hover card.
+  Returns hover info at @tt{pos}, or @racket[#f] when the hover card would be
+  empty: no type, no opening annotation (mouse-over status or log tooltip), and
+  no same-file @tt{Source} definition detail. A docs link or signature-only
+  definition alone does not open a hover card.
 
   When present, @tt{contents} follows the fixed @tt{Hover-Card} stack:
   @itemlist[
@@ -679,8 +690,8 @@ Exceptions are noted in individual entries.
 
   This document-local read does not acquire imported files. The LSP handler
   additionally composes source/comment summaries from a shared background
-  analysis for supported direct phase-zero imports, keeping this document's
-  type, annotation, documentation, and occurrence range. Open targets use their
+  analysis for module-backed bindings, keeping this document's type,
+  annotation, documentation, and occurrence range. Open targets use their
   unsaved buffer; closed targets refresh disk text before answering.
   When documentation is available, source snippets are omitted and the LSP
   handler skips target acquisition, disk reads, and background analysis.
@@ -704,16 +715,25 @@ Exceptions are noted in individual entries.
 @defproc[(doc-definition [doc Doc?]
                          [uri string?]
                          [pos Pos?])
-         (or/c Location? #f)]{
-  Resolves the definition location for the identifier at @tt{pos}.
-  Returns a @racket[Location] in the same file for local bindings, a @racket[Location]
-  in the external file for required identifiers (triggering a cross-file check-syntax
-  expansion), or @racket[#f] if not found.
+         (or/c Location? Module-Binding? #f)]{
+  Resolves the definition for the identifier at @tt{pos}.
+  Returns a @racket[Location] in the same file for local bindings, a
+  @racket[Module-Binding] for a module-backed import (workspace composition
+  resolves it to a location after this document's lock is released), or
+  @racket[#f] if not found.
+}
+
+@defproc[(doc-hover-data [doc Doc?]
+                         [pos Pos?])
+         (values Hover-Card? (or/c Range? #f))]{
+  Returns the structured hover card at @tt{pos} and its inferred range without
+  rendering Markdown. The LSP layer uses this value to compose cross-file source
+  summaries before calling @racket[render-hover-card].
 }
 
 @defstruct*[Module-Binding ([filepath path?]
                             [submods (listof symbol?)]
-                            [phase+space any/c]
+                            [phase+space phase+space-shift?]
                             [id symbol?])
             #:transparent]{
   Unique identity for a module-backed binding.
@@ -724,11 +744,11 @@ Exceptions are noted in individual entries.
   Document queries produce this value; workspace uses it as a lookup key.
 }
 
-@defstruct*[Reference-Source ([path path?]
+@defstruct*[Reference-Source ([id Source-Id?]
                               [locations (listof Location?)])
             #:transparent]{
   Reference locations supplied by exactly one document.
-  The @tt{path} field is that document's filesystem path.
+  The @tt{id} field identifies the contributing source.
   The @tt{locations} field is the list of @racket[Location] values in that document.
   A live query builds one source for the request document; workspace returns
   one source per accepted contributing file.
@@ -784,8 +804,9 @@ Exceptions are noted in individual entries.
 @defproc[(doc-signature-help [doc Doc?]
                              [pos Pos?])
          (or/c SignatureHelp? #f)]{
-  Returns signature help for the function call enclosing @tt{pos} by scanning
-  backward for the nearest opening parenthesis, or @racket[#f] if not inside a call.
+  Returns signature help for the s-expression form enclosing @tt{pos} by locating
+  the form head through the structural lexer forest, or @racket[#f] if not inside
+  a call or no signature is known.
 }
 
 @defproc[(doc-code-action [doc Doc?]
@@ -811,6 +832,32 @@ Exceptions are noted in individual entries.
   Returns all lexer-visible symbol, string, and constant occurrences in the document
   as @racket[SymbolInformation] values with their source locations.
   Does not require an up-to-date trace; runs the lexer directly over the current text.
+}
+
+@defproc[(doc-symbols-hierarchical [doc Doc?])
+         (listof DocumentSymbol?)]{
+  Returns a hierarchical document outline from the structural lexer forest.
+  Does not require an up-to-date trace. For non-sexp language bodies (for example
+  Rhombus or Scribble), returns an empty list because paren-based form extents
+  would be unreliable.
+}
+
+@defstruct*[DocumentSymbol ([name string?]
+                            [kind SymbolKind?]
+                            [range Range?]
+                            [selectionRange Range?]
+                            [children (listof DocumentSymbol?)])
+            #:transparent]{
+  One node in a hierarchical document outline.
+  The @tt{range} field spans the whole form; @tt{selectionRange} covers the name.
+  The @tt{children} field holds nested symbols.
+}
+
+@defproc[(doc-inlay-hints [doc Doc?]
+                          [range Range?])
+         (listof InlayHint?)]{
+  Returns inlay hints from the current trace for spans intersecting @tt{range}.
+  Requires a successful expansion that recorded hints for the current revision.
 }
 
 
@@ -928,4 +975,12 @@ are the shared contract. This module provides them, and so does
          (listof Reference-Source?)]{
   Returns accepted reference locations for @tt{module-binding}, grouped by
   contributing document.
+}
+
+@defproc[(workspace-definition-location [workspace Workspace?]
+                                        [module-binding Module-Binding?])
+         (or/c Location? #f)]{
+  Returns the accepted declaration @racket[Location] for @tt{module-binding} from
+  workspace contributions, or @racket[#f] when no contributing file has recorded
+  that definition.
 }

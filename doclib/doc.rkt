@@ -471,10 +471,8 @@
                        #:formatting-options opts)]
     [else '()]))
 
-;; get the tokens whose range are contained in interval [pos-start, pos-end)
-;; the tokens whose range intersects the given range is included.
-;; the previous token of the first token in the result is defined as a zero length fake token which
-;; has line number 0 and character position 0.
+;; Return semantic tokens whose spans intersect [pos-start, pos-end), merging
+;; trace tokens with current lexer-derived sexp-comment tokens.
 (define/contract (doc-range-tokens doc range)
   (-> Doc? Range? (listof SemanticToken?))
   (define pos-start (clamped-abs-pos doc (Range-start range)))

@@ -9,8 +9,9 @@
          "../doclib/external/resyntax.rkt")
 
 ;; Runs resyntax in one reusable place so callers avoid extra startup cost and
-;; return empty results if Resyntax is unavailable. Executor failures propagate
-;; to the coordinator, which discards them without publishing a candidate.
+;; return empty results if Resyntax is unavailable. Executor failures become a
+;; failed analysis outcome in the scheduler; acceptance discards them without
+;; publishing a candidate.
 
 ;; Prefab so the place can send the failure value.
 (struct Resyntax-Failure (message) #:prefab)
