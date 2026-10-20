@@ -4,51 +4,39 @@
          "../../common/interfaces.rkt"
          "../../doclib/internal-types.rkt"
          "../../workspace/state.rkt"
-         racket/contract
-         racket/list
-         racket/path)
+         racket/contract)
 
-(provide merge-reference-sources
-         reference-sources->locations)
+(provide reference-locations)
 
-;; Merge the request document's live source with other workspace sources.
-(define/contract (merge-reference-sources workspace document-result include-declaration?)
-  (-> Workspace? Document-Reference-Result? boolean? (listof Reference-Source?))
+;; Locations for one references request.
+;;
+;; Order: the live document's locations, then the declaration when
+;; `include-declaration?` is true and that file is a different source, then
+;; locations from the other workspace sources.
+;;
+;; Keep each source's location order and duplicates. This function does not
+;; sort sources against each other. Leave the live source out of the
+;; workspace lists: its locations come from the request, and the index may
+;; still hold older text for that document. The live source matches by exact
+;; `Source-Id` equality.
+(define/contract (reference-locations workspace document-result include-declaration?)
+  (-> Workspace? Document-Reference-Result? boolean? (listof Location?))
   (define live-source (Document-Reference-Result-source document-result))
   (define module-binding (Document-Reference-Result-module-binding document-result))
-  ;; Last successful workspace contributions for this binding (may include
-  ;; a stale same-path snapshot, filtered out below).
+  (define live-id (Reference-Source-id live-source))
   (define workspace-sources
     (if module-binding
         (workspace-reference-sources workspace module-binding)
         '()))
-  (define live-id (Reference-Source-id live-source))
-  (define sources-by-key
-    (for/hash ([source (in-list workspace-sources)]
-               #:unless (equal? (Reference-Source-id source) live-id))
-      (values (Reference-Source-id source) source)))
   (define definition
-    (and module-binding
-         include-declaration?
-         (not (equal? (source-id
-                        (path->source (simple-form-path (Module-Binding-filepath module-binding))))
+    (and include-declaration?
+         module-binding
+         (not (equal? (source-id (path->source (Module-Binding-filepath module-binding)))
                       live-id))
          (workspace-definition-location workspace module-binding)))
-  (define merged-sources-by-key
-    (if definition
-        (hash-update
-          sources-by-key
-          (source-id (path->source (Module-Binding-filepath module-binding)))
-          (lambda (source)
-            (Reference-Source
-              (Reference-Source-id source)
-              (cons definition (Reference-Source-locations source))))
-          (lambda ()
-            (Reference-Source
-              (source-id (path->source (Module-Binding-filepath module-binding))) '())))
-        sources-by-key))
-  (cons live-source (hash-values merged-sources-by-key)))
-
-(define/contract (reference-sources->locations sources)
-  (-> (listof Reference-Source?) (listof Location?))
-  (append-map Reference-Source-locations sources))
+  (append (Reference-Source-locations live-source)
+          (if definition (list definition) '())
+          (for*/list ([source (in-list workspace-sources)]
+                      #:unless (equal? (Reference-Source-id source) live-id)
+                      [location (in-list (Reference-Source-locations source))])
+            location)))

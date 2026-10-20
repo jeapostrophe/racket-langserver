@@ -7,6 +7,7 @@
          "../../doclib/internal-types.rkt"
          "../../lsp/compose/references.rkt"
          "../../workspace/api.rkt"
+         racket/list
          racket/file
          racket/path
          rackunit)
@@ -48,16 +49,10 @@
                   (hash-keys
                     (Doc-Contribution-references (Doc-contribution client-doc)))))
 
-        (define sources
-          (merge-reference-sources workspace document-result #t))
-        (check-equal? (map Reference-Source-id sources)
-                      (list (source-id
-                              (path->source (Doc-Contribution-path (Doc-contribution lib-doc))))
-                            (source-id
-                              (path->source
-                                (Doc-Contribution-path (Doc-contribution client-doc))))))
+        (define locations
+          (reference-locations workspace document-result #t))
         (check-equal?
-          (reference-sources->locations sources)
+          locations
           (list
             (Location lib-uri (Range (Pos 2 9) (Pos 2 12)))
             (Location lib-uri (Range (Pos 1 9) (Pos 1 12)))
@@ -68,8 +63,7 @@
         (define client-result
           (doc-references client-doc client-uri (Pos 2 1) #t))
         (check-equal?
-          (reference-sources->locations
-            (merge-reference-sources workspace client-result #t))
+          (reference-locations workspace client-result #t)
           (list
             (Location client-uri (Range (Pos 2 1) (Pos 2 4)))
             (Location lib-uri (Range (Pos 2 9) (Pos 2 12)))
@@ -78,8 +72,7 @@
         (define client-uses-only-result
           (doc-references client-doc client-uri (Pos 2 1) #f))
         (check-equal?
-          (reference-sources->locations
-            (merge-reference-sources workspace client-uses-only-result #f))
+          (reference-locations workspace client-uses-only-result #f)
           (list
             (Location client-uri (Range (Pos 2 1) (Pos 2 4)))
             (Location lib-uri (Range (Pos 1 9) (Pos 1 12)))))
@@ -91,29 +84,22 @@
         (define shifted-result
           (doc-references lib-doc lib-uri (Pos 3 9) #t))
         (check-eq? (Doc-contribution lib-doc) accepted-lib-contribution)
-        (define shifted-sources
-          (merge-reference-sources workspace shifted-result #t))
-        (check-equal? (map Reference-Source-id shifted-sources)
-                      (list (source-id
-                              (path->source (Doc-Contribution-path accepted-lib-contribution)))
-                            (source-id
-                              (path->source
-                                (Doc-Contribution-path (Doc-contribution client-doc))))))
+        (define shifted-locations
+          (reference-locations workspace shifted-result #t))
         (check-equal?
-          (Reference-Source-locations (car shifted-sources))
+          (take shifted-locations 2)
           (list
             (Location lib-uri (Range (Pos 3 9) (Pos 3 12)))
             (Location lib-uri (Range (Pos 2 9) (Pos 2 12)))))
         (define shifted-uses-only-result
           (doc-references lib-doc lib-uri (Pos 3 9) #f))
         (check-equal?
-          (reference-sources->locations
-            (merge-reference-sources workspace shifted-uses-only-result #f))
+          (reference-locations workspace shifted-uses-only-result #f)
           (list
             (Location lib-uri (Range (Pos 2 9) (Pos 2 12)))
             (Location client-uri (Range (Pos 2 1) (Pos 2 4)))))
         (check-equal?
-          (reference-sources->locations shifted-sources)
+          shifted-locations
           (list
             (Location lib-uri (Range (Pos 3 9) (Pos 3 12)))
             (Location lib-uri (Range (Pos 2 9) (Pos 2 12)))

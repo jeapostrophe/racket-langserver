@@ -127,11 +127,7 @@
          (λ (doc) (doc-references doc uri pos include-decl?))))
      (define result
        (and document-result
-            (reference-sources->locations
-              (merge-reference-sources
-                current-workspace
-                document-result
-                include-decl?))))
+            (reference-locations current-workspace document-result include-decl?)))
      (success/enc id result)]
     [_
      (error-response id ErrorCode-InvalidParams "textDocument/references failed")]))
