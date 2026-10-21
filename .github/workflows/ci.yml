@@ -33,7 +33,7 @@ jobs:
       - name: Checking the package dependency of racket-langserver
         run: raco setup -j "$(getconf _NPROCESSORS_ONLN)" --check-pkg-deps --pkgs racket-langserver
       - name: Testing racket-langserver
-        run: raco test -j "$(getconf _NPROCESSORS_ONLN)" -c racket-langserver/tests
+        run: raco test --timeout 60 -j "$(getconf _NPROCESSORS_ONLN)" -c racket-langserver/tests
 
   resyntax:
     name: "Resyntax integration on Racket '${{ matrix.racket-version }}' (${{ matrix.racket-variant }})"
