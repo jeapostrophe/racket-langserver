@@ -59,7 +59,7 @@
    [attempt Read-Attempt?]
    [result (or/c string? Disk-Missing? Disk-Read-Failure?)]))
 
-(define (make-disk-reader events #:read [read read-source-text] #:timeout [timeout 90])
+(define (make-disk-reader events #:read [read read-source-text] #:timeout [timeout 3])
   (Disk-Reader events read timeout (make-hash) #f #f))
 
 ;; POSIX ENOENT/ENOTDIR; Windows FILE_NOT_FOUND/PATH_NOT_FOUND.

@@ -23,7 +23,7 @@
 (provide analysis-query current-analysis-request-timeout)
 
 ;; Seconds allowed for one query, measured from the call to `analysis-query`.
-(define current-analysis-request-timeout (make-parameter 90))
+(define current-analysis-request-timeout (make-parameter 30))
 
 (define (analysis-failed-response request-id message reason)
   (log-racket-langserver-info "Analysis request ~a failed: ~a: ~v" request-id message reason)

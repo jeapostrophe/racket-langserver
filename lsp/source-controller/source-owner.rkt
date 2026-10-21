@@ -88,7 +88,7 @@
 ;; closed-file retention; #f Resyntax disables its follow-on work.
 (define (make-source-controller #:workspace [workspace current-workspace]
                                 #:read [read read-source-text]
-                                #:read-timeout [read-timeout 90]
+                                #:read-timeout [read-timeout 3]
                                 #:analyze [analyze analyze-source]
                                 #:analysis-slots [slots 4]
                                 #:analysis-timeout [analysis-timeout 90]
