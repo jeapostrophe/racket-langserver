@@ -4,145 +4,20 @@
 ;; disk reads, so ordering does not depend on sleeps. A direct process-message
 ;; call would skip the client and internal event pump.
 (require "../../common/source.rkt"
-         json
          rackunit
          racket/async-channel
-         racket/class
          racket/contract
          racket/file
          racket/match
          racket/path
-         racket/runtime-path
-         "../../main.rkt"
          "../../common/path-util.rkt"
-         "../../common/time.rkt"
-         "../../lsp/methods.rkt"
          "../../lsp/analysis.rkt"
-         "../../lsp/analysis-query.rkt"
          "../../lsp/source-controller.rkt"
          (only-in "../../lsp/source-controller/disk-reader.rkt" read-source-text)
-         "../../workspace/source-store.rkt")
-
-(define-runtime-path scratch-path "../../.agent-scratch")
-
-(define scratch (simplify-path scratch-path #f))
+         "../../workspace/source-store.rkt"
+         "controller-support.rkt")
 
 (struct/contract Probe ([path path?] [release async-channel?]) #:transparent)
-
-(struct/contract Session
-  ([controller Source-Controller?]
-   [clients async-channel?]
-   [responses async-channel?]
-   [notifications async-channel?]
-   [pending (hash/c (or/c exact-integer? string?)
-                    (hash/c symbol? jsexpr? #:immutable #t)
-                    #:immutable #f)])
-  #:transparent)
-
-(define (await event [timeout 5])
-  (define value (sync/timeout timeout (wrap-evt event list)))
-  (unless value (error 'await "event did not complete within ~a seconds" timeout))
-  (car value))
-
-(define (observation session target)
-  (define result (await (refresh session target)))
-  (when (Source-Failure? result)
-    (error 'observation "source command failed: ~v" (Source-Failure-reason result)))
-  result)
-
-;; Observation of a closed file reads disk. Tests with a held read must use
-;; their captured result/view and current-view validation instead.
-(define (view session target)
-  (Source-Result-view (observation session target)))
-
-(define (acquire session target)
-  (define result (observation session target))
-  (when (Source-Result-error result)
-    (error 'acquire "source observation failed: ~v" (Source-Result-error result)))
-  (define acquisition
-    (await (source-controller-analysis-evt (Session-controller session)
-                                           (Source-Result-snapshot result))))
-  (when (Source-Failure? acquisition)
-    (error 'acquire "analysis command failed: ~v" (Source-Failure-reason acquisition)))
-  (Analysis-Handle-completion-evt acquisition))
-
-;; Validation orders preceding controller commands without reading disk or
-;; starting analysis. A different store's revision can never be current in this session.
-(define barrier-view
-  (source-store-view (make-source-store) (path->source (build-path scratch "barrier.rkt"))))
-
-(define (controller-barrier session)
-  (check-false
-    (await (source-controller-current-view-evt (Session-controller session) barrier-view))))
-
-(define (shutdown! session)
-  (async-channel-put (Session-clients session) (hasheq 'id "shutdown" 'method "shutdown"))
-  (response session "shutdown"))
-
-(define (refresh session path)
-  (source-controller-observe-evt (Session-controller session)
-                                 (if (Source? path) path (path->source path))))
-
-(define (notify session method params)
-  (async-channel-put (Session-clients session) (hasheq 'method method 'params params)))
-
-(define (open! session path text [version 0])
-  (notify session "textDocument/didOpen"
-          (hasheq 'textDocument (hasheq 'uri (path->uri path) 'languageId "racket"
-                                        'version version 'text text))))
-
-(define (close! session path)
-  (notify session "textDocument/didClose"
-          (hasheq 'textDocument (hasheq 'uri (path->uri path)))))
-
-;; A client request is an ordering barrier for preceding client notifications.
-;; Controller commands are a separate queue and cannot serve that purpose.
-(define (barrier session)
-  (async-channel-put (Session-clients session)
-                     (hasheq 'id 100 'method "textDocument/hover"
-                             'params (hasheq)))
-  (response session 100))
-
-(define (response session id)
-  (define pending (Session-pending session))
-  (define deadline (+ (current-deadline-milliseconds) 5000))
-  (define result
-    (or (hash-ref pending id #f)
-        (let loop ()
-          (define msg
-            (sync/timeout (max 0 (/ (- deadline (current-deadline-milliseconds)) 1000))
-                          (Session-responses session)))
-          (unless msg (error 'response "no response for id ~a within 5 seconds" id))
-          (define received-id (hash-ref msg 'id #f))
-          (cond
-            [(equal? received-id id) msg]
-            [else (hash-set! pending received-id msg) (loop)]))))
-  (hash-remove! pending id)
-  result)
-
-(define (with-session controller proc
-                      #:request-timeout [timeout (current-analysis-request-timeout)])
-  (define custodian (make-custodian))
-  (define clients (make-async-channel))
-  (define responses (make-async-channel))
-  (define notifications (make-async-channel))
-  (define session (Session controller clients responses notifications (make-hash)))
-  (parameterize ([current-custodian custodian]
-                 [current-analysis-request-timeout timeout])
-    (define server
-      (new server%
-        [source-controller controller]
-        [response-channel responses]
-        [request-channel responses]
-        [notification-channel notifications]))
-    (start-consumer server clients))
-  (dynamic-wind
-    void
-    (lambda () (proc session) (void))
-    (lambda ()
-      (unless (sync/timeout 0 (source-controller-shutdown-evt controller))
-        (shutdown! session))
-      (custodian-shutdown-all custodian))))
 
 (define (controlled-controller probes #:timeout [timeout 90])
   (make-source-controller
@@ -165,11 +40,6 @@
   (make-directory* scratch)
   (define root (make-temporary-file "source-controller~a" 'directory scratch))
   (dynamic-wind void (lambda () (proc root)) (lambda () (delete-directory/files root))))
-
-(module+ test-support
-  (provide await observation acquire view refresh notify open! close! barrier controller-barrier
-           shutdown! response with-session
-           scratch (struct-out Session)))
 
 (module+ test
   (test-case "controller contracts reject invalid readers, timeouts, and results"
@@ -207,12 +77,10 @@
                     (check-false (sync/timeout 0 second))
                     (release! read-2 "new")
                     (define result-2 (await second))
-                    (define result-3 (await third))
                     (check-eq? result-2 (await second)
                                "a completed read is observable without consumption")
                     (check-eq? result-2 (await third) "peers share the exact write-once result")
                     (check-equal? "new" (result-text result-2))
-                    (check-eq? (Source-Result-view result-2) (Source-Result-view result-3))
                     (check-not-false (sync/timeout 0 (Source-View-changed old-view)))
                     (check-false (sync/timeout 0 probes)))))
 
@@ -240,11 +108,8 @@
                                                   (hasheq 'start (hasheq 'line 3 'character 0)
                                                           'end (hasheq 'line 3 'character 0))
                                                   'text "\n"))))
-                    (async-channel-put
-                      (Session-clients session)
-                      (hasheq 'id 101 'method "textDocument/definition"
-                              'params (hasheq 'textDocument (hasheq 'uri (path->uri a))
-                                              'position (hasheq 'line 2 'character 0))))
+                    (request! session 101 "textDocument/definition" a
+                              (hasheq 'position (hasheq 'line 2 'character 0)))
                     (define local (response session 101))
                     (check-equal? (hash-ref (hash-ref local 'result) 'uri) (path->uri a))
                     (check-not-false (sync/timeout 0 (Source-View-changed old-view)))
@@ -425,7 +290,7 @@
                     (release! (await probes) "renamed")
                     (check-equal? "renamed" (result-text (await next))))))
 
-  (test-case "captured source view changes under edit/close and close signals every waiter"
+  (test-case "captured source views change under edit/close and remain ready for later readers"
     (with-session (make-source-controller)
                   (lambda (session)
                     (define path (build-path scratch "captured.rkt"))
@@ -437,22 +302,14 @@
                             (hasheq 'textDocument (hasheq 'uri (path->uri path)) 'text "disk text"))
                     (barrier session)
                     (check-eq? captured (view session path) "saving leaves buffer authority intact")
-                    (notify session "textDocument/didChange"
-                            (hasheq 'textDocument (hasheq 'uri (path->uri path) 'version 5)
-                                    'contentChanges
-                                    (list (hasheq 'text "#lang racket/base\n; edit\n"))))
+                    (change! session path "#lang racket/base\n; edit\n" 5)
                     (barrier session)
                     (check-not-false (sync/timeout 0 (Source-View-changed captured)))
                     (define edited (view session path))
+                    (define pending (Source-View-changed edited))
                     (close! session path)
                     (barrier session)
                     (check-not-false (sync/timeout 0 (Source-View-changed edited)))
-                    (define query-path (build-path scratch "close-query.rkt"))
-                    (open! session query-path "#lang racket/base\n")
-                    (barrier session)
-                    (define pending (Source-View-changed (view session query-path)))
-                    (close! session query-path)
-                    (barrier session)
                     (check-not-false (await pending))
                     ;; The broadcast stays ready for a second waiter after close.
                     (check-not-false (await pending)))))

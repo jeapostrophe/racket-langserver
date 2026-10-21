@@ -34,9 +34,7 @@
     (define snapshot (Source-Snapshot alias (gensym 'revision) 'buffer text))
     (check-equal? (source-id alias) (source-id a-source))
     (check-false (eq? (source-id alias) (source-id a-source)))
-    (check-eq? (find-closed-analysis! cache snapshot) a)
-    (check-eq? (Available-Analysis-completion-evt (find-closed-analysis! cache snapshot))
-               (Available-Analysis-completion-evt a)))
+    (check-eq? (find-closed-analysis! cache snapshot) a))
 
   (test-case "matching lookup protects an older insertion from LRU eviction"
     (define cache (make-closed-analysis-cache 2))

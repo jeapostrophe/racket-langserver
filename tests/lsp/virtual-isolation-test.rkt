@@ -15,23 +15,17 @@
          "../../workspace/api.rkt"
          "../../workspace/current.rkt"
          "../../workspace/source-store.rkt"
-         (submod "source-controller-test.rkt" test-support))
+         "controller-support.rkt")
 
 (define (module-text name)
   (format "#lang racket/base\n(require racket/list)\n(define (~a unused) (first '(1)))\n(~a 2)\n" name name))
-
-(define (open-uri! session uri text)
-  (notify session "textDocument/didOpen"
-          (hasheq 'textDocument (hasheq 'uri uri 'languageId "racket" 'version 0 'text text))))
 
 (define (analyzed session uri)
   (define event (acquire session (uri->source uri)))
   (check-eq? 'succeeded (Analysis-Outcome-state (await event))))
 
 (define (feature session id method uri [extra (hasheq)])
-  (async-channel-put (Session-clients session)
-                     (hasheq 'id id 'method method
-                             'params (hash-set extra 'textDocument (hasheq 'uri uri))))
+  (request! session id method uri extra)
   (response session id))
 
 (define (check-local-results session uri)
@@ -87,7 +81,7 @@
             (define b (string-append virtual-prefix "?rev=two#cell"))
             (for ([uri (in-list (list file-uri a b))]
                   [name (in-list '(live alpha beta))])
-              (open-uri! session uri (module-text name)))
+              (open! session uri (module-text name)))
             (barrier session)
             (for ([uri (in-list (list file-uri a b))]) (analyzed session uri))
             (notify session "workspace/didChangeWorkspaceFolders"
@@ -109,10 +103,12 @@
                           (sort (list file-uri a b) string<?))
             (for ([msg (in-list publications)])
               (define uri (hash-ref (hash-ref msg 'params) 'uri))
-              (for ([diag (in-list (hash-ref (hash-ref msg 'params) 'diagnostics))]
-                    #:when (equal? (hash-ref diag 'message) "unused variable"))
-                (check-equal? (hash-ref diag 'source) uri)))
-            (notify session "textDocument/didClose" (hasheq 'textDocument (hasheq 'uri a)))
+              (define unused
+                (filter (lambda (diag) (equal? (hash-ref diag 'message) "unused variable"))
+                        (hash-ref (hash-ref msg 'params) 'diagnostics)))
+              (check-equal? (length unused) 1)
+              (check-equal? (hash-ref (car unused) 'source) uri))
+            (close! session a)
             (barrier session)
             (check-equal? (hash-ref (await (Session-notifications session)) 'params)
                           (hasheq 'uri a 'diagnostics '()))
@@ -121,7 +117,7 @@
             (check-not-false (workspace-definition-location current-workspace live-binding))
             (check-local-results session b)
             (for ([uri (in-list (list file-uri b))])
-              (notify session "textDocument/didClose" (hasheq 'textDocument (hasheq 'uri uri))))
+              (close! session uri))
             (barrier session))))
       (lambda () (workspace-remove-folder! current-workspace root)))))
 
@@ -145,8 +141,8 @@
             (define file-uri (path->uri path))
             (define virtual-uri (string-append (regexp-replace #rx"^file:" file-uri "notebook:") "#cell"))
             (define virtual-source (uri->source virtual-uri))
-            (open-uri! session file-uri (module-text 'live))
-            (open-uri! session virtual-uri (module-text 'alpha))
+            (open! session file-uri (module-text 'live))
+            (open! session virtual-uri (module-text 'alpha))
             (barrier session)
             (analyzed session file-uri)
             (analyzed session virtual-uri)
@@ -187,6 +183,6 @@
                           (module-text 'alpha))
             (check-local-results session virtual-uri)
             (for ([uri (in-list (list file-uri virtual-uri))])
-              (notify session "textDocument/didClose" (hasheq 'textDocument (hasheq 'uri uri))))
+              (close! session uri))
             (barrier session))))
       (lambda () (workspace-remove-folder! current-workspace root)))))

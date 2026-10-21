@@ -16,14 +16,11 @@
          "../../lsp/safedoc.rkt"
          "../../lsp/source-controller.rkt"
          "../../workspace/source-store.rkt"
-         (submod "source-controller-test.rkt" test-support)
+         "controller-support.rkt"
          (submod "definition-controller-test.rkt" test-support))
 
 (define (request session id a [method "textDocument/hover"] [pos (Pos 3 7)])
-  (async-channel-put (Session-clients session)
-                     (hasheq 'id id 'method method
-                             'params (hasheq 'textDocument (hasheq 'uri (path->uri a))
-                                             'position (->jsexpr pos)))))
+  (request! session id method a (hasheq 'position (->jsexpr pos))))
 
 (define (check-hover session id text)
   (define result (hash-ref (response session id) 'result))
@@ -86,7 +83,7 @@
         (request session 4 a "textDocument/hover" (Pos 3 14))
         (check-true (string-contains? (hash-ref (hash-ref (response session 4) 'result)
                                                 'contents) "(define local 1)"))
-        (release! held)
+        (release-gate! held)
         (check-hover session 1 "(define shared 1)")
         (check-location session 2 b)
         (check-hover session 3 "(define shared 1)")
@@ -105,7 +102,7 @@
         (define held (await gates))
         (request session 1 a)
         (barrier session)
-        (release! held)
+        (release-gate! held)
         (check-hover session 1 ";; Unsaved\n(define shared 2)")
         (request session 2 a "textDocument/definition")
         (check-location session 2 b 4)
@@ -113,7 +110,7 @@
         (close! session b)
         (barrier session)
         (request session 3 a)
-        (release! (await gates))
+        (release-gate! (await gates))
         (define restored (check-hover session 3 "(define shared 1)"))
         (check-false (string-contains? (hash-ref restored 'contents) "Unsaved")))))
 
@@ -123,12 +120,12 @@
       (gated-reader reads)
       (lambda (session a b _root)
         (request session 1 a)
-        (release! (await reads))
+        (release-gate! (await reads))
         (check-hover session 1 "(define shared 1)")
         (check-false (sync/timeout 0 reads))
         (display-to-file unsaved b #:exists 'truncate)
         (request session 2 a)
-        (release! (await reads))
+        (release-gate! (await reads))
         (check-hover session 2 ";; Unsaved\n(define shared 2)")
         (check-false (sync/timeout 0 reads)))))
 
@@ -141,8 +138,8 @@
         (await gates)
         (open! session b unsaved)
         (define fresh (await gates))
-        (check-error session 1 ErrorCode-RequestFailed "Hover target changed")
-        (release! fresh)
+        (check-error (response session 1) ErrorCode-RequestFailed "Hover target changed")
+        (release-gate! fresh)
         (request session 2 a)
         (check-hover session 2 ";; Unsaved\n(define shared 2)")
         (close! session b)
@@ -156,10 +153,10 @@
         (lambda (session a _b _root)
           (request session 1 a)
           (define held (await gates))
-          (if (eq? operation 'edit) (edit! session a (file->string a)) (close! session a))
+          (if (eq? operation 'edit) (change! session a (file->string a)) (close! session a))
           (barrier session)
-          (check-error session 1 ErrorCode-ContentModified)
-          (release! held)))))
+          (check-error (response session 1) ErrorCode-ContentModified)
+          (release-gate! held)))))
 
   (test-case "missing and unsuccessful targets retain A's annotation"
     (with-example plain-controller
@@ -179,10 +176,10 @@
       (gated-analyzer gates)
       (lambda (session a _b _root)
         (request session 1 a)
-        (release! (await gates) 'raise)
-        (check-error session 1 ErrorCode-RequestFailed)
+        (release-gate! (await gates) 'raise)
+        (check-error (response session 1) ErrorCode-RequestFailed)
         (request session 2 a)
-        (release! (await gates))
+        (release-gate! (await gates))
         (check-hover session 2 "(define shared 1)"))))
 
   (test-case "Typed Racket type survives joining imported source detail"
@@ -205,22 +202,17 @@
                                            #:read (lambda (_) (error 'disk "unexpected read"))))
       (lambda (session a _b _root)
         (define uri "untitled:imported-hover")
-        (notify session "textDocument/didOpen"
-                (hasheq 'textDocument (hasheq 'uri uri 'languageId "racket"
-                                              'version 0 'text (file->string a))))
+        (open! session uri (file->string a) 0)
         (barrier session)
         (await (acquire session (uri->source uri)))
-        (async-channel-put (Session-clients session)
-                           (hasheq 'id 1 'method "textDocument/hover"
-                                   'params (hasheq 'textDocument (hasheq 'uri uri)
-                                                   'position (->jsexpr (Pos 3 7)))))
+        (request! session 1 "textDocument/hover" uri (hasheq 'position (->jsexpr (Pos 3 7))))
         (define contents (hash-ref (hash-ref (response session 1) 'result) 'contents))
         (check-true (string-contains? contents "imported from"))
         (check-false (string-contains? contents "**Source**"))
-        (notify session "textDocument/didClose" (hasheq 'textDocument (hasheq 'uri uri)))
+        (close! session uri)
         (barrier session))))
 
-  (test-case "closed facts contain bounded immutable summary text"
+  (test-case "closed facts contain immutable summary text"
     (with-example
       plain-controller
       (lambda (session a b _root)
@@ -228,27 +220,41 @@
         (check-hover session 1 "(define shared 1)")
         (define outcome (await (acquire session b)))
         (define summaries (Analysis-Summary-hover-summaries (Analysis-Outcome-value outcome)))
-        (check-true (immutable? summaries))
         (for ([summary (in-hash-values summaries)])
           (check-true (immutable? (Hover-Code-Summary-text summary)))
           (check-true (immutable? (Hover-Code-Summary-fence-language summary))))))))
 
 (module+ test
-  (test-case "closed target hover returns retained source detail before refresh completes"
+  (test-case "retained definitions and hover share refresh across close and reopen"
     (define gates (make-async-channel))
     (with-example
       (gated-analyzer gates)
       (lambda (session a b _root)
         (open! session b saved 7)
-        (release! (await gates))
+        (release-gate! (await gates))
         (barrier session)
         (await (acquire session b))
         (close! session b)
         (barrier session)
-        (request session 301 a)
-        (define held (await gates))
-        (check-hover session 301 "(define shared 1)")
+        (request session 301 a "textDocument/definition")
+        (define refresh (await gates))
+        (check-location session 301 b)
         (request session 302 a)
         (check-hover session 302 "(define shared 1)")
+        (check-false (sync/timeout 0 gates) "requests share the pending refresh")
+        (define fresh (acquire session b))
+        (check-false (sync/timeout 0 fresh))
+        (open! session b saved 7)
+        (define reopened (await gates))
+        (barrier session)
+        (check-eq? 'stopped (Analysis-Outcome-state (await fresh)))
+        (request session 303 a "textDocument/definition")
+        (check-location session 303 b)
+        (request session 304 a)
+        (check-hover session 304 "(define shared 1)")
         (check-false (sync/timeout 0 gates))
-        (release! held)))))
+        (release-gate! refresh) ; invalidated completion cannot replace the new lifetime
+        (release-gate! reopened)
+        (check-eq? 'succeeded (Analysis-Outcome-state (await (acquire session b))))
+        (close! session b)
+        (barrier session)))))

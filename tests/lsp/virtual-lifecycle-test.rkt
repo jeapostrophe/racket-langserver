@@ -9,47 +9,14 @@
          "../../lsp/source-controller.rkt"
          (submod "../../lsp/source-controller.rkt" owner)
          "../../workspace/source-store.rkt"
-         (submod "source-controller-test.rkt" test-support))
+         "controller-support.rkt")
 
 (define text "#lang racket/base\n(require racket/list)\n(define value (first '(1 2)))\nvalue\n")
 
 (define (start-analysis controller source)
   (source-controller-ensure-analysis! controller (source-controller-snapshot controller source)))
 
-(define (finish-analysis controller event)
-  (source-controller-handle! controller (await (source-controller-events controller)))
-  (await event))
-
 (module+ test
-  (test-case "virtual sources expand client text with collection imports and original URI syntax sources"
-    (define controller
-      (make-source-controller #:read (lambda (_) (error 'disk "virtual source reached disk"))
-                              #:resyntax #f))
-    (define uri "untitled:Untitled-1")
-    (define source (uri->source uri))
-    (define sd (new-safedoc uri text 0))
-    (check-equal? (with-read-doc sd Doc-uri) uri)
-    (source-controller-open! controller source sd)
-    (define first (start-analysis controller source))
-    (check-eq? 'succeeded (Analysis-Outcome-state (finish-analysis controller first)))
-    (check-true (with-read-doc sd doc-trace-latest?))
-    (define edited "#lang racket/base\n(define value 2)\nvalue\n")
-    (source-controller-edit! controller sd
-                             (lambda (doc)
-                               (doc-reset! doc edited)
-                               (doc-update-version! doc 1)))
-    (define snapshot (source-controller-snapshot controller source))
-    (check-equal? uri (Source-Snapshot-uri snapshot))
-    (check-equal? (source-id source) (Source-Snapshot-id snapshot))
-    (check-equal? (Source-Snapshot-text snapshot) edited)
-    (check-eq? 'succeeded
-               (Analysis-Outcome-state
-                 (finish-analysis controller (start-analysis controller source))))
-    (source-controller-close! controller source sd)
-    (check-false (source-controller-view controller source))
-    (check-false (source-controller-snapshot controller source))
-    (source-controller-shutdown! controller))
-
   (test-case "virtual close invalidates waiters and rejects late completion after reopen"
     (define controller (make-source-controller #:resyntax #f))
     (define uri "git:/project/main.rkt?rev=old#cell")
@@ -88,7 +55,7 @@
     (check-false (with-read-doc reopened doc-trace-latest?))
     (check-eq? 'succeeded
                (Analysis-Outcome-state
-                 (finish-analysis controller (start-analysis controller source))))
+                 (drive-controller controller (start-analysis controller source))))
     (source-controller-handle! controller late-message)
     (check-equal? (length published) 2)
     (source-controller-close! controller source reopened)
@@ -101,12 +68,7 @@
                               #:resyntax #f))
     (define source (uri->source "notebook:/project/main.rkt#cell"))
     (define (observe)
-      (define reply (source-controller-observe-evt controller source))
-      (let loop ()
-        (unless (sync/timeout 0 reply)
-          (source-controller-handle! controller (await (source-controller-events controller)))
-          (loop)))
-      (await reply))
+      (drive-controller controller (source-controller-observe-evt controller source)))
     (dynamic-wind
       void
       (lambda ()

@@ -23,9 +23,9 @@
   (hasheq 'textDocument (hasheq 'uri racket-uri)
           'options options))
 (define range-params
-  (hasheq 'textDocument (hasheq 'uri scribble-uri)
-          'range (hasheq 'start (hasheq 'line 0 'character 0)
-                         'end (hasheq 'line 3 'character 0))
+  (hasheq 'textDocument (hasheq 'uri racket-uri)
+          'range (hasheq 'start (hasheq 'line 1 'character 0)
+                         'end (hasheq 'line 2 'character 0))
           'options options))
 (define on-type-params
   (hasheq 'textDocument (hasheq 'uri racket-uri)
@@ -108,23 +108,20 @@
   (test-case
     "range formatting uses only the indentation formatter"
     (with-open-document
-      scribble-uri
-      scribble-text
-      (Formatting-Settings 'fmt 'drracket empty-fmt-settings)
+      racket-uri
+      racket-text
+      (Formatting-Settings 'fmt 'fixw empty-fmt-settings)
       (lambda ()
-        ;; Scribble is not an s-expression language, so either formatter
-        ;; selection reaches DrRacket. The focused edits still include the
-        ;; end line of the requested range.
-        (define range-response (range-formatting! 2 range-params))
-        (check-equal? (hash-ref range-response 'result)
-                      (list (hasheq 'range
-                                    (hasheq 'start (hasheq 'line 2 'character 0)
-                                            'end (hasheq 'line 2 'character 0))
-                                    'newText " ")
-                            (hasheq 'range
-                                    (hasheq 'start (hasheq 'line 3 'character 0)
-                                            'end (hasheq 'line 3 'character 0))
-                                    'newText " "))))))
+        (parameterize ([current-fmt-runner
+                        (lambda (_arguments _text)
+                          (error 'test "fmt must not be run"))])
+          ;; The end line is included even when its requested character is zero.
+          (define range-response (range-formatting! 2 range-params))
+          (check-equal? (hash-ref range-response 'result)
+                        (list (hasheq 'range
+                                      (hasheq 'start (hasheq 'line 2 'character 0)
+                                              'end (hasheq 'line 2 'character 2))
+                                      'newText "  1)")))))))
 
   (when standard-racket-indentation?
     (test-case

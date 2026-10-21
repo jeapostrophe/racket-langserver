@@ -30,9 +30,7 @@
          "../../workspace/api.rkt"
          "../../workspace/current.rkt"
          "../../workspace/source-store.rkt"
-         (submod "source-controller-test.rkt" test-support))
-
-(struct Gate (input release) #:transparent)
+         "controller-support.rkt")
 
 (define saved "#lang racket/base\n(provide shared)\n(define shared 1)\n")
 (define unsaved "#lang racket/base\n(provide shared)\n\n;; Unsaved\n(define shared 2)\n")
@@ -41,15 +39,10 @@
 (define (write-text path text)
   (call-with-output-file path #:exists 'truncate (lambda (out) (display text out))))
 
-(define (release! gate [value 'go])
-  (async-channel-put (Gate-release gate) value))
-
 (define (controlled-analyzer path gates)
   (lambda (snapshot)
     (when (equal? (source-id (path->source path)) (Source-Snapshot-id snapshot))
-      (define release (make-async-channel))
-      (async-channel-put gates (Gate snapshot release))
-      (case (async-channel-get release)
+      (case (wait-at-gate gates snapshot)
         [(raise) (raise 'target-failed)]
         [(die)
          ;; Self-killing parallel workers can delay completion on some runtimes.
@@ -61,33 +54,18 @@
 
 (define (controlled-reader gates)
   (lambda (path)
-    (define release (make-async-channel))
-    (async-channel-put gates (Gate path release))
-    (case (async-channel-get release)
+    (case (wait-at-gate gates path)
       [(raise) (raise 'read-failed)]
       [(missing) (Disk-Missing)]
       [else (file->string path)])))
 
 (define (request session id path [pos (Pos 3 7)])
-  (async-channel-put (Session-clients session)
-                     (hasheq 'id id 'method "textDocument/definition"
-                             'params (hasheq 'textDocument (hasheq 'uri (path->uri path))
-                                             'position (->jsexpr pos)))))
-
-(define (edit! session path text)
-  (notify session "textDocument/didChange"
-          (hasheq 'textDocument (hasheq 'uri (path->uri path) 'version 1)
-                  'contentChanges (list (hasheq 'text text)))))
+  (request! session id "textDocument/definition" path (hasheq 'position (->jsexpr pos))))
 
 ;; Columns 8 through 14 span the shared identifier in the target fixtures.
 (define (check-location session id b [line 2])
   (check-equal? (hash-ref (response session id) 'result)
                 (->jsexpr (Location (path->uri b) (Range (Pos line 8) (Pos line 14))))))
-
-(define (check-error session id code [message #f])
-  (define error (hash-ref (response session id) 'error))
-  (check-equal? (hash-ref error 'code) (->jsexpr code))
-  (when message (check-equal? (hash-ref error 'message) message)))
 
 (define (check-failure-log logs path detail)
   (define message (vector-ref (await logs) 1))
@@ -140,16 +118,7 @@
                             #:read (lambda (path)
                                      (async-channel-put reads path)
                                      (file->string path))))
-  (define (drive event)
-    (let loop ()
-      (define next
-        (await (choice-evt (wrap-evt event (lambda (value) (cons 'result value)))
-                           (wrap-evt (source-controller-events controller)
-                                     (lambda (value) (cons 'event value))))
-               90))
-      (if (eq? (car next) 'result)
-          (cdr next)
-          (begin (source-controller-handle! controller (cdr next)) (loop)))))
+  (define (drive event) (drive-controller controller event 90))
   (define (accept-command!)
     (source-controller-handle! controller (await (source-controller-events controller))))
   (define (capture timeout)
@@ -158,9 +127,7 @@
         1 (hasheq 'textDocument (hasheq 'uri (path->uri a))
                   'position (->jsexpr (Pos 3 7))))))
   (define (run deferred)
-    (define responses (make-async-channel))
-    (thread (lambda () (async-channel-put responses (deferred))))
-    (drive responses))
+    (drive (start-deferred deferred)))
   (dynamic-wind
     (lambda () (write-text b saved))
     (lambda ()
@@ -195,8 +162,7 @@
 
 (module+ test-support
   (provide with-example plain-controller gated-analyzer gated-reader
-           release! edit! check-error check-location saved unsaved
-           (struct-out Gate)))
+           check-location saved unsaved))
 
 (module+ test
   ;; Supply query inputs independently of upstream callback accuracy. Equal
@@ -254,7 +220,7 @@
         (request session 3 a (Pos 3 14))
         (check-equal? (hash-ref (response session 3) 'result)
                       (->jsexpr (Location (path->uri a) (Range (Pos 2 8) (Pos 2 13)))))
-        (release! gate)
+        (release-gate! gate)
         (check-location session 1 b)
         (check-location session 2 b)
         (request session 4 a)
@@ -283,7 +249,7 @@
                                        (list (hasheq 'uri (path->uri root) 'name "example")))))
         (barrier session)
         (check-eq? before (view session b))
-        (release! gate)
+        (release-gate! gate)
         (check-location session 1 b)
         (check-false (sync/timeout 0 gates)))))
 
@@ -311,13 +277,13 @@
         (request session 1 a)
         (define old (await gates))
         (write-text b unsaved)
-        (release! old)
+        (release-gate! old)
         (check-location session 1 b)
         (check-false (sync/timeout 0 gates))
         (request session 2 a)
         (define next (await gates))
         (check-equal? (Source-Snapshot-text (Gate-input next)) unsaved)
-        (release! next)
+        (release-gate! next)
         (check-location session 2 b 4))))
 
   (test-case "new and cached queries each observe disk exactly once"
@@ -326,16 +292,16 @@
       (gated-reader reads)
       (lambda (session a b _root)
         (request session 1 a)
-        (release! (await reads))
+        (release-gate! (await reads))
         (check-location session 1 b)
         (check-false (sync/timeout 0 reads))
         (write-text b unsaved)
         (request session 2 a)
-        (release! (await reads))
+        (release-gate! (await reads))
         (check-location session 2 b 4)
         (check-false (sync/timeout 0 reads))
         (request session 3 a)
-        (release! (await reads))
+        (release-gate! (await reads))
         (check-location session 3 b 4)
         (check-false (sync/timeout 0 reads)))))
 
@@ -349,8 +315,8 @@
         (write-text b unsaved)
         (request session 2 a)
         (define next (await gates))
-        (check-error session 1 ErrorCode-RequestFailed "Definition target changed")
-        (release! next)
+        (check-error (response session 1) ErrorCode-RequestFailed "Definition target changed")
+        (release-gate! next)
         (check-location session 2 b 4)
         (check-false (sync/timeout 0 gates)))))
 
@@ -363,10 +329,10 @@
           (lambda (session a _b _root)
             (request session 1 a)
             (define held (await gates))
-            (if (eq? operation 'edit) (edit! session a (file->string a)) (close! session a))
+            (if (eq? operation 'edit) (change! session a (file->string a)) (close! session a))
             (barrier session)
-            (check-error session 1 ErrorCode-ContentModified)
-            (release! held))))))
+            (check-error (response session 1) ErrorCode-ContentModified)
+            (release-gate! held))))))
 
   (test-case "opening B ends obsolete analysis; later queries use buffer then disk"
     (define gates (make-async-channel))
@@ -385,8 +351,8 @@
         (barrier session)
         (check-eq? (Source-Snapshot-origin (Gate-input buffer-gate)) 'buffer)
         (define count-at-open read-count)
-        (check-error session 1 ErrorCode-RequestFailed "Definition target changed")
-        (release! buffer-gate)
+        (check-error (response session 1) ErrorCode-RequestFailed "Definition target changed")
+        (release-gate! buffer-gate)
         (request session 2 a)
         (check-location session 2 b 4)
         (check-equal? read-count count-at-open)
@@ -396,7 +362,7 @@
         (request session 3 a)
         (define disk-gate (await gates))
         (check-eq? (Source-Snapshot-origin (Gate-input disk-gate)) 'disk)
-        (release! disk-gate)
+        (release-gate! disk-gate)
         (check-location session 3 b))))
 
   (for ([operation (in-list '(close reopen))])
@@ -426,7 +392,7 @@
           (check-false (sync/timeout 0 reads))
           (check-false (sync/timeout 0 gates))
           (when reopened
-            (release! reopened)
+            (release-gate! reopened)
             (check-equal? (hash-ref (run (capture 90)) 'result)
                           (->jsexpr (Location (path->uri b) (Range (Pos 5 8) (Pos 5 14)))))
             (lsp-close-doc! (path->uri b))))
@@ -443,11 +409,12 @@
         (gated-analyzer gates)
         (lambda (session a b _root)
           (request session 1 a)
-          (release! (await gates) failure)
-          (check-error session 1 ErrorCode-RequestFailed "Definition analysis did not succeed")
+          (release-gate! (await gates) failure)
+          (check-error (response session 1) ErrorCode-RequestFailed
+                       "Definition analysis did not succeed")
           (check-failure-log logs b (if (eq? failure 'raise) "target-failed" "worker-exited"))
           (request session 2 a)
-          (release! (await gates))
+          (release-gate! (await gates))
           (check-location session 2 b)))))
 
   (test-case "unsuccessful/missing definitions return null; later requests retry"
@@ -476,14 +443,14 @@
       (gated-reader reads)
       (lambda (session a b _root)
         (request session 1 a)
-        (release! (await reads))
+        (release-gate! (await reads))
         (check-location session 1 b)
         (request session 2 a)
-        (release! (await reads) 'raise)
-        (check-error session 2 ErrorCode-RequestFailed "Definition source read failed")
+        (release-gate! (await reads) 'raise)
+        (check-error (response session 2) ErrorCode-RequestFailed "Definition source read failed")
         (check-failure-log logs b "read-failed")
         (request session 3 a)
-        (release! (await reads))
+        (release-gate! (await reads))
         (check-location session 3 b))))
 
   (test-case "for-syntax binding queries target analysis regardless of upstream identity accuracy"
@@ -492,7 +459,7 @@
       (gated-analyzer gates)
       (lambda (session a b _root)
         (request session 1 a (Pos 3 12))
-        (release! (await gates))
+        (release-gate! (await gates))
         ;; Upstream versions may disagree on the jump and target phases.
         ;; A matching identity resolves; a mismatch remains absent.
         (define result (hash-ref (response session 1) 'result))
@@ -513,8 +480,8 @@
       (lambda (session a _b _root)
         (request session 1 a)
         (define held (await reads))
-        (check-error session 1 ErrorCode-RequestFailed)
-        (release! held))
+        (check-error (response session 1) ErrorCode-RequestFailed)
+        (release-gate! held))
       #:request-timeout 0.1))
 
   (test-case "expired before thunk invocation starts no target work"
@@ -548,7 +515,7 @@
         (define peer (start-deferred (capture 90)))
         (check-equal? (hash-ref (hash-ref (drive short) 'error) 'code)
                       (->jsexpr ErrorCode-RequestFailed))
-        (release! held)
+        (release-gate! held)
         (check-equal? (hash-ref (drive peer) 'result)
                       (->jsexpr (Location (path->uri b) (Range (Pos 2 8) (Pos 2 14)))))
         (check-false (sync/timeout 0 gates)))
@@ -566,7 +533,7 @@
         (request session 1 a)
         (await gates)
         (shutdown! session)
-        (check-error session 1 ErrorCode-RequestFailed))))
+        (check-error (response session 1) ErrorCode-RequestFailed))))
 
   (test-case "opening B abandons a held disk read"
     (define reads (make-async-channel))
@@ -593,10 +560,10 @@
         (request session 1 a)
         (define held (await gates))
         (request session 2 c)
-        (edit! session a (file->string a))
+        (change! session a (file->string a))
         (barrier session)
-        (check-error session 1 ErrorCode-ContentModified)
-        (release! held)
+        (check-error (response session 1) ErrorCode-ContentModified)
+        (release-gate! held)
         (check-location session 2 b)
         (check-false (sync/timeout 0 gates))
         (close! session c)
@@ -616,10 +583,10 @@
         (check-equal? (hash-ref (hash-ref (drive short) 'error) 'code)
                       (->jsexpr ErrorCode-RequestFailed))
         (check-false (sync/timeout 0 gates))
-        (release! blocking)
+        (release-gate! blocking)
         (define target (drive gates))
         (check-equal? (Source-Snapshot-id (Gate-input target)) (source-id (path->source b)))
-        (release! target)
+        (release-gate! target)
         (check-equal? (hash-ref (drive peer) 'result)
                       (->jsexpr (Location (path->uri b) (Range (Pos 2 8) (Pos 2 14)))))
         (check-false (sync/timeout 0 gates))
@@ -645,7 +612,7 @@
         (rename-file-or-directory b renamed)
         (notify session "workspace/didRenameFiles"
                 (hasheq 'files (list (hasheq 'oldUri (path->uri b) 'newUri (path->uri renamed)))))
-        (check-error session 1 ErrorCode-RequestFailed "Definition target changed")
+        (check-error (response session 1) ErrorCode-RequestFailed "Definition target changed")
         (request session 2 a)
         (check-equal? (hash-ref (response session 2) 'result) (json-null)))))
 
@@ -660,7 +627,7 @@
         (rename-file-or-directory b renamed)
         (notify session "workspace/didRenameFiles"
                 (hasheq 'files (list (hasheq 'oldUri (path->uri b) 'newUri (path->uri renamed)))))
-        (check-error session 1 ErrorCode-RequestFailed "Definition target changed")
+        (check-error (response session 1) ErrorCode-RequestFailed "Definition target changed")
         (check-false (sync/timeout 0 reads)))))
 
   (test-case "ordinary relative imports use shared disk and unsaved buffer analysis"
@@ -674,36 +641,3 @@
                     (close! session b)
                     (barrier session))
                   #:relative? #t)))
-
-(module+ test
-  (test-case "closed target definitions use retained facts while one refresh is held"
-    (define gates (make-async-channel))
-    (with-example
-      (gated-analyzer gates)
-      (lambda (session a b _root)
-        (open! session b saved 7)
-        (release! (await gates))
-        (barrier session)
-        (await (acquire session b))
-        (close! session b)
-        (barrier session)
-        (request session 301 a)
-        (define refresh (await gates))
-        (check-location session 301 b)
-        (request session 302 a)
-        (check-location session 302 b)
-        (check-false (sync/timeout 0 gates) "requests share the pending refresh")
-        (define fresh (acquire session b))
-        (check-false (sync/timeout 0 fresh))
-        (open! session b saved 7)
-        (define reopened (await gates))
-        (barrier session)
-        (check-eq? 'stopped (Analysis-Outcome-state (await fresh)))
-        (request session 303 a)
-        (check-location session 303 b)
-        (check-false (sync/timeout 0 gates))
-        (release! refresh) ; invalidated completion cannot replace the new lifetime
-        (release! reopened)
-        (check-eq? 'succeeded (Analysis-Outcome-state (await (acquire session b))))
-        (close! session b)
-        (barrier session)))))

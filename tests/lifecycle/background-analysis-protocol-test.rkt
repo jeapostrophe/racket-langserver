@@ -2,33 +2,18 @@
 
 ;; End-to-end evidence for the prototype: real stdio frames and gated macro
 ;; expansion. File markers establish ordering, not elapsed sleeps.
-(require json rackunit racket/async-channel racket/file racket/match racket/port
+(require json rackunit racket/async-channel racket/file racket/port
          racket/path
          racket/runtime-path racket/string
          "../../common/path-util.rkt"
          "../../common/interfaces.rkt"
          "../../common/json-util.rkt"
          "../../common/time.rkt"
-         "../../lsp/msg-io.rkt")
+         "../../lsp/msg-io.rkt"
+         "../stdio-server.rkt")
 
-(define-runtime-path main-path "../../main.rkt")
 (define-runtime-path scratch-path "../../.agent-scratch")
 (define scratch (simplify-path scratch-path #f))
-
-(define (read-frame in)
-  (define header (read-line in 'return-linefeed))
-  (cond
-    [(eof-object? header) eof]
-    [else
-     (match-define (list _ size) (or (and (string? header)
-                                          (regexp-match #rx"^Content-Length: ([0-9]+)$" header))
-                                     (error 'read-frame "unexpected header ~v" header)))
-     (unless (equal? (read-line in 'return-linefeed) "") (error 'read-frame "separator missing"))
-     (define length (string->number size))
-     (define body (read-bytes length in))
-     (unless (and (bytes? body) (= (bytes-length body) length))
-       (error 'read-frame "incomplete body"))
-     (bytes->jsexpr body)]))
 
 (define (target-text root value)
   (string-append
@@ -77,32 +62,26 @@
         (define a-text "#lang racket/base\n(require \"b.rkt\")\n(define local 1)\n(list shared local)\n")
         (write-text a a-text)
         (write-text b (target-text root 1))
-        (define-values (server stdout stdin stderr)
-          (subprocess #f #f #f (find-executable-path "racket") "-t" (path->string main-path)))
-        (define readers (make-custodian))
-        (dynamic-wind
-          void
-          (lambda ()
+        (call-with-server-process
+          (lambda (server stdout stdin stderr)
             (define messages (make-async-channel))
             (define pending (make-hash))
             (define diagnostics (make-hash))
             (define frame-failure #f)
-            (parameterize ([current-custodian readers])
-              (thread (lambda () (copy-port stderr (open-output-nowhere)))))
+            (thread (lambda () (copy-port stderr (open-output-nowhere))))
             (define frame-reader
-              (parameterize ([current-custodian readers])
-                (thread
-                  (lambda ()
-                    (with-handlers ([exn? (lambda (e)
-                                            (set! frame-failure e)
-                                            (async-channel-put messages e))])
-                      (let loop ()
-                        (define msg (read-frame stdout))
-                        (unless (eof-object? msg)
-                          (when (equal? (hash-ref msg 'method #f) "textDocument/publishDiagnostics")
-                            (hash-set! diagnostics (hash-ref (hash-ref msg 'params) 'uri) #t))
-                          (async-channel-put messages msg)
-                          (loop))))))))
+              (thread
+                (lambda ()
+                  (with-handlers ([exn? (lambda (e)
+                                          (set! frame-failure e)
+                                          (async-channel-put messages e))])
+                    (let loop ()
+                      (define msg (read-frame stdout))
+                      (unless (eof-object? msg)
+                        (when (equal? (hash-ref msg 'method #f) "textDocument/publishDiagnostics")
+                          (hash-set! diagnostics (hash-ref (hash-ref msg 'params) 'uri) #t))
+                        (async-channel-put messages msg)
+                        (loop)))))))
             (define (send! method params [id #f])
               (define msg (hasheq 'jsonrpc "2.0" 'method method 'params params))
               (display-message/flush (if id (hash-set msg 'id id) msg) stdin))
@@ -217,12 +196,5 @@
             (check-eq? (sync/timeout 5 frame-reader) frame-reader)
             (check-false frame-failure)
             (check-false (hash-ref diagnostics b-uri #f))
-            (printf "Transport: unchanged target +1 expansion; each changed snapshot +1; cancellation and independent queries precede gate release.\n"))
-          (lambda ()
-            (subprocess-kill server #t)
-            (subprocess-wait server)
-            (custodian-shutdown-all readers)
-            (close-output-port stdin)
-            (close-input-port stdout)
-            (close-input-port stderr))))
+            (printf "Transport: unchanged target +1 expansion; each changed snapshot +1; cancellation and independent queries precede gate release.\n"))))
       (lambda () (delete-directory/files root)))))

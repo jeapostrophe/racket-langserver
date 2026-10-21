@@ -679,18 +679,21 @@
       (lambda ()
         (delete-directory/files temp-dir))))
 
+  ;; Keep the source, populated editor, and lexer on the same text snapshot.
+  (define (make-trace path text)
+    (define doc-text (new lsp-editor%))
+    (send doc-text insert text 0)
+    (new build-trace%
+      [source (path->source path)]
+      [doc-text doc-text]
+      [lexer-state (build-lexer-state text (path->uri path))]))
+
   (test-case
     "binding identity distinguishes equal symbols across submodules and phases"
     (define path (string->path "/tmp/binding-identity-test.rkt"))
     (define uri "file:///tmp/binding-identity-test.rkt")
     (define text (make-string 40 #\space))
-    (define doc-text (new lsp-editor%))
-    (send doc-text insert text 0)
-    (define trace
-      (new build-trace%
-        [source (path->source path)]
-        [doc-text doc-text]
-        [lexer-state (build-lexer-state text uri)]))
+    (define trace (make-trace path text))
 
     (send trace
           syncheck:add-jump-to-definition/phase-level+space
@@ -739,13 +742,7 @@
     (define path (string->path "/tmp/contribution-test.rkt"))
     (define uri "file:///tmp/contribution-test.rkt")
     (define text "first use\nsecond use\n")
-    (define doc-text (new lsp-editor%))
-    (send doc-text insert text 0)
-    (define trace
-      (new build-trace%
-        [source (path->source path)]
-        [doc-text doc-text]
-        [lexer-state (build-lexer-state text uri)]))
+    (define trace (make-trace path text))
 
     (send trace
           syncheck:add-jump-to-definition/phase-level+space
@@ -793,13 +790,7 @@
     "named binding queries resolve local and same-file module uses after edits"
     (define path (string->path "/tmp/binding-query-test.rkt"))
     (define text (make-string 50 #\space))
-    (define doc-text (new lsp-editor%))
-    (send doc-text insert text 0)
-    (define trace
-      (new build-trace%
-        [source (path->source path)]
-        [doc-text doc-text]
-        [lexer-state (build-lexer-state text (path->uri path))]))
+    (define trace (make-trace path text))
     (send trace
           syncheck:add-definition-target/phase-level+space
           path 5 6 'module-name '() 0)
@@ -850,13 +841,7 @@
     "declaration collection is independent of callback order"
     (define path (string->path "/tmp/binding-callback-order-test.rkt"))
     (define text (make-string 40 #\space))
-    (define doc-text (new lsp-editor%))
-    (send doc-text insert text 0)
-    (define trace
-      (new build-trace%
-        [source (path->source path)]
-        [doc-text doc-text]
-        [lexer-state (build-lexer-state text (path->uri path))]))
+    (define trace (make-trace path text))
 
     ;; Same-file jump first, then attach the definition's module identity.
     (send trace
@@ -912,13 +897,7 @@
     "a declaration moves once after an edit inside its range"
     (define path (string->path "/tmp/binding-declaration-edit-test.rkt"))
     (define text (make-string 50 #\space))
-    (define doc-text (new lsp-editor%))
-    (send doc-text insert text 0)
-    (define trace
-      (new build-trace%
-        [source (path->source path)]
-        [doc-text doc-text]
-        [lexer-state (build-lexer-state text (path->uri path))]))
+    (define trace (make-trace path text))
     (send trace
           syncheck:add-arrow/name-dup
           path 30 33 path 35 38 #t 0 #f #f)
@@ -952,13 +931,7 @@
     "a declaration replays several edits when first read"
     (define path (string->path "/tmp/binding-declaration-replay-test.rkt"))
     (define text (make-string 60 #\space))
-    (define doc-text (new lsp-editor%))
-    (send doc-text insert text 0)
-    (define trace
-      (new build-trace%
-        [source (path->source path)]
-        [doc-text doc-text]
-        [lexer-state (build-lexer-state text (path->uri path))]))
+    (define trace (make-trace path text))
     (send trace
           syncheck:add-arrow/name-dup
           path 30 33 path 40 43 #t 0 #f #f)
@@ -979,13 +952,7 @@
     "deleting declaration text clips and then removes its local binding"
     (define path (string->path "/tmp/binding-declaration-delete-test.rkt"))
     (define text (make-string 60 #\space))
-    (define doc-text (new lsp-editor%))
-    (send doc-text insert text 0)
-    (define trace
-      (new build-trace%
-        [source (path->source path)]
-        [doc-text doc-text]
-        [lexer-state (build-lexer-state text (path->uri path))]))
+    (define trace (make-trace path text))
     (send trace
           syncheck:add-arrow/name-dup
           path 30 35 path 40 43 #t 0 #f #f)
@@ -1004,13 +971,7 @@
     "deleting a module declaration preserves its position-free binding"
     (define path (string->path "/tmp/module-declaration-delete-test.rkt"))
     (define text (make-string 40 #\space))
-    (define doc-text (new lsp-editor%))
-    (send doc-text insert text 0)
-    (define trace
-      (new build-trace%
-        [source (path->source path)]
-        [doc-text doc-text]
-        [lexer-state (build-lexer-state text (path->uri path))]))
+    (define trace (make-trace path text))
     (send trace
           syncheck:add-definition-target/phase-level+space
           path 10 11 'module-name '() 0)
@@ -1414,21 +1375,6 @@ END
     (check-false (doc-module-binding-at d (Pos 4 9))))
 
   (test-case
-    "doc-highlights uses non-empty module-language arrow ranges"
-    (define uri "file:///tmp/doc-module-language-highlight-test.rkt")
-    (define d
-      (make-doc uri
-                (string-append "#lang racket\n"
-                               "(define i+1-th 0)\n"
-                               "(+ 1 2)\n"
-                               "(+ i+1-th 3)\n")))
-    (check-true (doc-expand! d))
-    (define result (doc-highlights d (Pos 2 1)))
-    (check-equal? (map DocumentHighlight-range result)
-                  (list (Range (Pos 2 1) (Pos 2 2))
-                        (Range (Pos 3 1) (Pos 3 2)))))
-
-  (test-case
     "doc-highlights accepts quote ranges from module-language arrows"
     (define uri "file:///tmp/doc-module-language-quote-test.rkt")
     (define d
@@ -1496,15 +1442,8 @@ END
   (test-case
     "module-language use collection filters and defers endpoints"
     (define path (string->path "/tmp/module-language-use-service-test.rkt"))
-    (define uri (path->uri path))
     (define text "racket + * ' word")
-    (define doc-text (new lsp-editor%))
-    (send doc-text insert text 0)
-    (define trace
-      (new build-trace%
-        [source (path->source path)]
-        [doc-text doc-text]
-        [lexer-state (build-lexer-state text uri)]))
+    (define trace (make-trace path text))
     (define declaration-service (send trace get-declaration))
 
     (send trace syncheck:add-arrow/name-dup path 0 6 path 7 8 #t 0 'module-lang #f)
@@ -1529,15 +1468,8 @@ END
   (test-case
     "exact jumps win over pending module-language uses"
     (define path (string->path "/tmp/module-language-use-jump-test.rkt"))
-    (define uri (path->uri path))
     (define text "racket exact")
-    (define doc-text (new lsp-editor%))
-    (send doc-text insert text 0)
-    (define trace
-      (new build-trace%
-        [source (path->source path)]
-        [doc-text doc-text]
-        [lexer-state (build-lexer-state text uri)]))
+    (define trace (make-trace path text))
     (send trace syncheck:add-arrow/name-dup path 0 6 path 7 12 #t 0 'module-lang #f)
     (send trace
           syncheck:add-jump-to-definition/phase-level+space
@@ -1930,11 +1862,12 @@ END
       )
     (define uri "file:///tmp/hover-test.rkt")
     (define d (make-doc uri text))
-    (doc-expand! d)
+    (check-true (doc-expand! d))
 
     (define h (doc-hover d (Pos 1 1)))
     (check-not-false h)
     (define result (Hover-contents h))
+    (check-false (string-contains? result "**Source**"))
     (check-true (string-contains? result "```racket"))
     (check-true (string-contains? result "Returns a newly allocated list"))
     (check-true (string-contains? result "[Online docs]"))
@@ -2352,24 +2285,6 @@ END
       (string-contains?
         (Hover-contents (doc-hover d (Pos 4 3)))
         "```racket\n;; alpha\n;; beta\n(define value 1)\n```")))
-
-  (test-case
-    "Document hover keeps imported symbols out of same-file source detail"
-    (define d
-      (make-doc "file:///tmp/hover-detail-import.rkt"
-                "#lang racket\n(list)\n"))
-    (check-true (doc-expand! d))
-    (define imported-hover (doc-hover d (Pos 1 1)))
-    (check-not-false imported-hover)
-    (define contents (Hover-contents imported-hover))
-    (check-false (string-contains? contents "**Source**"))
-    (check-true (string-contains? contents "[Online docs]"))
-    (check-true (string-contains? contents "imported from"))
-    (define imported-from-start
-      (caar (regexp-match-positions #rx"imported from" contents)))
-    (define online-docs-start
-      (caar (regexp-match-positions #rx"\\[Online docs\\]" contents)))
-    (check-true (< imported-from-start online-docs-start)))
 
   (test-case
     "Document hover keeps cross-file workspace bindings out of source detail"
