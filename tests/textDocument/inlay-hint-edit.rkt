@@ -29,7 +29,7 @@ END
   (with-document uri code
     (λ (lsp)
 
-      (define (insert! version line character text)
+      (define (replace! version start-line start-char end-line end-char text)
         (client-send lsp
                      (make-notification
                        "textDocument/didChange"
@@ -38,12 +38,11 @@ END
                                'contentChanges
                                (list (hasheq 'range
                                              (hasheq 'start
-                                                     (hasheq 'line line
-                                                             'character character)
+                                                     (hasheq 'line start-line
+                                                             'character start-char)
                                                      'end
-                                                     (hasheq 'line line
-                                                             'character character))
-                                             'rangeLength 0
+                                                     (hasheq 'line end-line
+                                                             'character end-char))
                                              'text text)))))
         ;; Await the current failure before querying its settled outcome.
         (client-wait-notification lsp))
@@ -71,16 +70,16 @@ END
                           '(4 9 "y ")))
 
       ;; The incomplete source cannot supply exact-analysis hints.
-      (insert! 1 1 0 "(define\n")
+      (replace! 1 1 0 1 0 "(define\n")
       (check-empty)
 
       ;; Further edits must not revive the prior successful result.
-      (insert! 2 5 7 "0 ")
+      (replace! 2 5 7 5 8 "100")
       (check-empty)
 
       (client-send lsp
                    (make-notification "textDocument/didChange"
-                                      (hasheq 'textDocument (hasheq 'uri uri 'version 4)
+                                      (hasheq 'textDocument (hasheq 'uri uri 'version 3)
                                               'contentChanges (list (hasheq 'text code)))))
       (client-wait-notification lsp)
       (check-equal? (hints)

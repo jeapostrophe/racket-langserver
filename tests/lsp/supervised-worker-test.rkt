@@ -21,7 +21,7 @@
                             #:done values))
 
 (module+ test
-  (test-case "completion broadcasts its first false result to existing and future waiters"
+  (test-case "completion preserves its first false result for multiple and later readers"
     (define completion (make-completion-event))
     (define replies (make-async-channel))
     (check-true (Completion-Event? completion))
