@@ -5,7 +5,6 @@
 (require racket/async-channel
          racket/contract
          "../../common/source.rkt"
-         "../../common/version.rkt"
          "../../workspace/source-store.rkt"
          "../analysis.rkt"
          "completion-event.rkt"
@@ -150,9 +149,6 @@
           (lambda () ((Analysis-Scheduler-analyze scheduler) snapshot))
           (lambda () ((Analysis-Scheduler-resyntax scheduler)
                       (Source-Snapshot-text snapshot) (Source-Snapshot-uri snapshot))))
-      #:launch (if (and analysis? support/parallel-threads?)
-                   (lambda (thunk) (thread thunk #:pool 'own))
-                   thread)
       #:fail (lambda (reason) (Analysis-Outcome 'failed reason))
       #:exited 'worker-exited
       #:timed-out 'analysis-timeout
