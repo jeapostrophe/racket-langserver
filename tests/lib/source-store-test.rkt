@@ -134,3 +134,22 @@
     (check-false (source-store-observe! store old 'text-available "late"))
     (define fresh (source-store-observe! store invalidated 'text-available "same"))
     (check-not-eq? (Source-View-revision old) (Source-View-revision fresh))))
+
+(module+ test
+  (test-case "dot aliases share unsaved authority, cleanup, and retained disk URI"
+    (define store (make-source-store))
+    (define uri (string-append "file://localhost" (substring (path->uri path) 7)))
+    (define incoming (uri->source uri))
+    (define alias (path->source (build-path (current-directory) "missing" 'up "source.rkt")))
+    (define buffer (box "unsaved"))
+    (define opened (source-store-open! store incoming buffer))
+    (check-eq? (source-store-buffer store alias) buffer)
+    (check-eq? (source-store-view store alias) opened)
+    (check-equal? (source-uri (Source-View-source (source-store-edit! store alias))) uri)
+    (define closed (source-store-close! store incoming))
+    (check-false (source-store-buffer store alias))
+    (source-store-observe! store closed 'text-available "disk")
+    (define snapshot (source-store-disk-snapshot store alias))
+    (check-equal? (Source-Snapshot-text snapshot) "disk")
+    (check-equal? (Source-Snapshot-uri snapshot) uri)
+    (check-equal? (Source-Snapshot-id snapshot) (source-id alias))))

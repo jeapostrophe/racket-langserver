@@ -7,7 +7,7 @@
 
 (module+ test
   (test-case "file identity is independent of the original URI spelling"
-    (define uri "file:///project/%6dain.rkt")
+    (define uri "file:///project/child/.././%6dain.rkt")
     (define source (uri->source uri))
     (define canonical (uri->source "file:///project/main.rkt"))
     (check-true (Source? source))
@@ -15,8 +15,8 @@
     (check-equal? (source-id source) (source-id canonical))
     (check-not-equal? source canonical)
     (check-equal? (source-uri source) uri)
-    (check-equal? (source-file-path source) (uri->path uri))
-    (check-equal? (source-syntax-source source) (uri->path uri))
+    (check-equal? (source-file-path source) (normalize-source-path (uri->path uri)))
+    (check-equal? (source-syntax-source source) (normalize-source-path (uri->path uri)))
     (check-equal? (hash-ref (hash (source-id source) 'found) (source-id canonical)) 'found))
 
   (test-case "virtual identities retain the complete URI and remain distinct from file identities"
@@ -37,30 +37,30 @@
     (check-not-equal? (source-id (uri->source "file:///project/main.rkt"))
                       (source-id (uri->source "git:/project/main.rkt"))))
 
-  (test-case "relative paths retain their exact identity and syntax source"
+  (test-case "relative paths complete at the caller current directory"
     (define path (build-path 'same "child" 'up "main.rkt"))
     (define source (path->source path))
-    (check-equal? (source-file-path source) path)
-    (check-equal? (source-syntax-source source) path)
+    (check-equal? (source-file-path source) (normalize-source-path path))
+    (check-equal? (source-syntax-source source) (normalize-source-path path))
     (check-equal? (source-id source) (source-id (path->source path)))
-    (check-not-equal? (source-id source)
-                      (source-id (path->source (path->complete-path path))))
-    (check-equal? (source-uri source) (path->uri (path->complete-path path)))
+    (check-equal? (source-id source)
+                  (source-id (path->source (path->complete-path path))))
+    (check-equal? (source-uri source) (path->uri path))
     (check-equal? (source-location-uri source path) (source-uri source)))
 
-  (test-case "file descriptors retain exact dot segments"
+  (test-case "file descriptors collapse dot aliases"
     (define root (current-directory))
     (for ([path (in-list (list (build-path root 'same "main.rkt")
                                (build-path root "child" 'up "main.rkt")))])
       (define source (path->source path))
-      (check-equal? (source-file-path source) path)
-      (check-equal? (source-syntax-source source) path)
+      (check-equal? (source-file-path source) (normalize-source-path path))
+      (check-equal? (source-syntax-source source) (normalize-source-path path))
       (check-equal? (source-id source) (source-id (uri->source (path->uri path))))
-      (check-not-equal? (source-id source)
-                        (source-id (path->source (build-path root "main.rkt"))))))
+      (check-equal? (source-id source)
+                    (source-id (path->source (build-path root "main.rkt"))))))
 
   (test-case "same-source syntax locations retain aliases and external paths use their URI"
-    (define uri "file:///project/%6dain.rkt")
+    (define uri "file:///project/child/.././%6dain.rkt")
     (define source (uri->source uri))
     (check-equal? (source-location-uri source (uri->path uri)) uri)
     (define external (uri->path "file:///project/other.rkt"))

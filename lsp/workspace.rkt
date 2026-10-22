@@ -40,9 +40,9 @@
   (for ([f (in-list files)])
     (match-define (FileRename #:oldUri old-uri #:newUri new-uri) f)
     (when (file-uri? old-uri)
-      (define old-path (uri->path old-uri))
-      (source-controller-invalidate! (current-source-controller) (uri->source old-uri))
-      (workspace-remove-path! current-workspace old-path))
+      (define old-source (uri->source old-uri))
+      (source-controller-invalidate! (current-source-controller) old-source)
+      (workspace-remove-path! current-workspace (source-file-path old-source)))
     (when (file-uri? new-uri)
       (source-controller-invalidate! (current-source-controller) (uri->source new-uri)))))
 
@@ -53,11 +53,13 @@
   (for ([f (in-list added)])
     (match-define (WorkspaceFolder #:uri uri #:name _) f)
     (when (file-uri? uri)
-      (workspace-add-folder! current-workspace (uri->path uri))))
+      (workspace-add-folder! current-workspace
+                             (file-uri->identity-path uri))))
   (for ([f (in-list removed)])
     (match-define (WorkspaceFolder #:uri uri #:name _) f)
     (when (file-uri? uri)
-      (workspace-remove-folder! current-workspace (uri->path uri))))
+      (workspace-remove-folder! current-workspace
+                                (file-uri->identity-path uri))))
   (when (pair? added)
     (republish-open-doc-contributions!)))
 

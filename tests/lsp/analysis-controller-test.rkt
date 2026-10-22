@@ -173,7 +173,7 @@
                             localhost-uri
                             (regexp-replace #rx"uri-identity[.]rkt$" localhost-uri "./uri-identity.rkt")))])
     (test-case (format "close removes the exact contribution and clears diagnostics for ~a" uri)
-      (define path (uri->path uri))
+      (define path (source-file-path (uri->source uri)))
       (define binding (Module-Binding path '() 0 'value))
       (dynamic-wind
         (lambda () (workspace-add-folder! current-workspace scratch))
@@ -198,7 +198,7 @@
                           (check-true (hash-has-key? (response session 91) 'error)))))
         (lambda () (workspace-remove-folder! current-workspace scratch)))))
 
-  (test-case "opening another URI for the same exact path retires the old buffer and waiters"
+  (test-case "opening another URI for the same normalized path retires the old buffer and waiters"
     (define probes (make-async-channel))
     (with-session (make-source-controller #:analyze (controlled-analyzer probes) #:resyntax #f)
                   (lambda (session)

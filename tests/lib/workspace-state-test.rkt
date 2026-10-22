@@ -164,3 +164,14 @@
       (workspace-reference-sources workspace other-module-binding)
       (list (Reference-Source (source-id (path->source (build-path root "consumer.rkt")))
                               (list (location "preserved")))))))
+
+(module+ test
+  (test-case "a trailing slash does not split a folder key"
+    (define root (build-path (current-directory) "folder-key"))
+    (define workspace (make-workspace))
+    (workspace-add-folder! workspace root)
+    (check-true (workspace-contains? workspace (build-path root "source.rkt")))
+    (workspace-remove-folder!
+      workspace
+      (string->path (string-append (path->string root) "/")))
+    (check-false (workspace-contains? workspace (build-path root "source.rkt")))))

@@ -641,3 +641,18 @@
                     (close! session b)
                     (barrier session))
                   #:relative? #t)))
+
+(module+ test
+  (test-case "dot URI alias joins imported target to unsaved buffer and retains its address"
+    (with-local-definition
+      (lambda (_a b reads capture run drive _accept-command!)
+        (define alias-uri
+          (string-replace (path->uri b) "/b.rkt" "/missing/.././%62.rkt"))
+        (lsp-open-doc! alias-uri unsaved 7)
+        (check-equal? (hash-ref (run (capture 90)) 'result)
+                      (->jsexpr (Location alias-uri (Range (Pos 4 8) (Pos 4 14)))))
+        (check-false (sync/timeout 0 reads) "open alias must prevent a disk read")
+        (lsp-close-doc! alias-uri)
+        (check-equal? (hash-ref (run (capture 90)) 'result)
+                      (->jsexpr (Location alias-uri (Range (Pos 2 8) (Pos 2 14)))))
+        (check-equal? (await reads) b)))))

@@ -18,8 +18,8 @@
          workspace-definition-location)
 
 ;; Workspace owns folders and immutable accepted contributions.
-;; Contribution paths are exact source identities; this layer does not convert
-;; them. Folder containment simplifies paths without changing contribution keys.
+;; Callers pass complete lexical paths. This layer does not decode URIs.
+;; Folder keys use directory form so a trailing slash cannot split them.
 ;; Keep this lock as a leaf: operations under it must not call document services.
 (struct/contract Workspace
   ([lock semaphore?]
@@ -43,7 +43,7 @@
   (call-with-semaphore
     (Workspace-lock workspace)
     (lambda ()
-      (set-add! (Workspace-folders workspace) path))))
+      (set-add! (Workspace-folders workspace) (path->directory-path path)))))
 
 (define (purge-uncovered-contributions! workspace)
   (define folders (Workspace-folders workspace))
@@ -57,7 +57,7 @@
   (call-with-semaphore
     (Workspace-lock workspace)
     (lambda ()
-      (set-remove! (Workspace-folders workspace) path)
+      (set-remove! (Workspace-folders workspace) (path->directory-path path))
       (purge-uncovered-contributions! workspace))))
 
 (define/contract (workspace-contains? workspace path)

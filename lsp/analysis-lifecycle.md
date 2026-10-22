@@ -42,13 +42,20 @@ Read/worker failures end the request. Changing or closing the requesting documen
 ends it with ContentModified (-32801), including pending exact inlay-hint and
 semantic-token requests. Deadlines and shutdown end it without cancelling shared analysis.
 
-Binding lookup preserves the full path, submodule list, phase+space, and identifier.
+Binding lookup uses a complete lexically normalized native path, submodule list,
+phase+space, and identifier. Dot segments collapse without filesystem access,
+symlink resolution, or general case folding.
 There is no query restriction on submodules or phase+space: matching Check Syntax
 jump and definition-target callbacks suffice, including after upstream fixes.
 Missing or inconsistent upstream binding information gives no detail; the query
 does not fall back to a different submodule or phase. Target observation uses
-`path->source`, which preserves the exact binding path as source identity and
-constructs the URI separately; no URI round-trip check is needed.
+`path->source`. Incoming file URIs establish the same identity at entry while
+retaining their original URI for outputs, including disk snapshots. Analysis jump
+paths complete relative to its load directory before normalization. Other relative
+path callers use their current directory. Path-only outputs use standard `net/url`
+encoding of the normalized complete path. Decoding and normalizing those outputs
+recovers the source identity; original URI text need not match. Virtual identities
+retain the full URI, including query and fragment.
 
 The `owner` submodule exports operations for the session consumer only. Open
 registers the buffer, restores matching retained analysis, and schedules fresh

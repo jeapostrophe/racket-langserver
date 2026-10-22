@@ -64,8 +64,7 @@
 ;; only for disk/`text-available` views; callers may build the same struct from
 ;; buffer text.
 ;;
-;; source: Descriptor that names this text. A disk snapshot may use a
-;;   path-derived address rather than the URI spelling stored on the view.
+;; source: Descriptor retained by the view, including its original URI spelling.
 ;; revision: The view revision from which this text was frozen.
 ;; origin: Buffer or disk. A closed virtual source has no snapshot.
 (struct/contract Source-Snapshot
@@ -222,10 +221,7 @@
   (match (and record (Source-Record-view record))
     [(struct* Source-View ([source disk-source] [revision revision]
                            [origin 'disk] [content-state 'text-available]))
-     ;; Rebuild the source descriptor from the file path so URI aliases share
-     ;; one snapshot address. An earlier buffer open may have stored a
-     ;; different spelling of the same path.
-     (Source-Snapshot (path->source (source-file-path disk-source))
+     (Source-Snapshot disk-source
                       revision 'disk
                       (Source-Record-disk-text record))]
     [_ #f]))

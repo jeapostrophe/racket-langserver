@@ -2874,14 +2874,15 @@ END
       (check-true (string-contains? (Diagnostic-message typed-diag) "expected: Number")))))
 
 (module+ test
-  (test-case "direct source documents retain the supplied relative-path descriptor"
+  (test-case "direct source documents retain the supplied normalized descriptor"
     (define path (build-path 'same "descriptor-preservation.rkt"))
     (define source (path->source path))
+    (define normalized (normalize-source-path path))
     (define doc (make-source-doc source "#lang racket/base\n(define value 1)\nvalue\n"))
     (check-eq? (Doc-source doc) source)
-    (check-equal? (source-file-path (Doc-source doc)) path)
-    (check-equal? (source-syntax-source (Doc-source doc)) path)
+    (check-equal? (source-file-path (Doc-source doc)) normalized)
+    (check-equal? (source-syntax-source (Doc-source doc)) normalized)
     (check-equal? (Doc-uri doc) (source-uri source))
     (check-true (doc-expand! doc))
     (check-eq? (Doc-source doc) source)
-    (check-equal? (Doc-Contribution-path (Doc-contribution doc)) path)))
+    (check-equal? (Doc-Contribution-path (Doc-contribution doc)) normalized)))

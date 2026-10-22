@@ -21,7 +21,7 @@
 (define (source-analysis-directory source)
   (define file-path (source-file-path source))
   (cond
-    [file-path (path-only (path->complete-path file-path))]
+    [file-path (path-only file-path)]
     [else
      (with-handlers ([exn:fail? (lambda (_) #f)])
        (define parent (path-only (uri->path (source-uri source))))

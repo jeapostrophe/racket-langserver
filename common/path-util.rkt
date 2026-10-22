@@ -1,6 +1,6 @@
 #lang racket/base
 
-;; File URI encoding of exact path segments, URI filename suffixes, and
+;; Lexically normalized file paths, standard file URI encoding, suffixes, and
 ;; folder membership.
 
 (require net/url
@@ -9,49 +9,42 @@
          racket/path
          (only-in racket/string non-empty-string?))
 
-(provide path->uri
+(provide normalize-source-path
+         normalized-path->uri
+         path->uri
          uri->path
          directory-contains?
          file-uri?
          uri->suffix)
 
-;; Encode a path as a file URI without collapsing `.` or `..`.
-;; `path->url` then `url->string` simplify those segments, so decoding
-;; would yield a different path.
+;; Complete relative paths at the caller's current directory and normalize only
+;; lexically: identity never resolves symlinks or folds case.
+(define/contract (normalize-source-path path)
+  (-> path? complete-path?)
+  (simplify-path (path->complete-path path) #f))
+
+;; Encode a path that `normalize-source-path` has already produced.
+;; Callers that still have a relative or dot-segment path use `path->uri`.
+(define/contract (normalized-path->uri path)
+  (-> complete-path? string?)
+  (url->string (path->url path)))
+
 (define/contract (path->uri path)
   (-> path? string?)
-  (define base-url (path->url path))
-  (define elements (explode-path path))
-  (define-values (_base name directory?) (split-path path))
-  (define absolute? (absolute-path? path))
-  (define root-segments
-    (if absolute?
-        ;; The root URL ends with an empty directory segment. Drop it so the
-        ;; remaining path replaces that slot rather than appending after it.
-        (drop-right (url-path (path->url (car elements))) 1)
-        '()))
-  (define rest-segments
-    (for/list ([element (in-list (if absolute? (cdr elements) elements))])
-      (path/param (if (symbol? element) element (path-element->string element)) '())))
-  (define segments
-    (append root-segments
-            rest-segments
-            ;; A trailing slash is only for a real directory name. A final
-            ;; `'same` or `'up` already names a directory; an extra empty
-            ;; segment would decode as another `'same`.
-            (if (and directory? (path? name)) (list (path/param "" '())) '())))
-  (url->string (struct-copy url base-url [path segments])))
+  (normalized-path->uri (normalize-source-path path)))
 
+;; Raw URI decoding also serves virtual dependency contexts. File identity
+;; normalization is `file-uri->identity-path`, which `uri->source` uses.
+;; This scheme-agnostic decoder does not normalize.
 (define/contract (uri->path uri)
   (-> string? path?)
   (url->path (string->url uri)))
 
-;; Folder membership, not source identity. Containment may collapse `.` and
-;; `..`; source identity must keep those segments.
+;; Prefix of the paths as given. Callers decode a URI and normalize before
+;; entry; `simple-form-path` would resolve `..` through a symlink.
 (define/contract (directory-contains? dir path)
   (-> path-string? path-string? boolean?)
-  (list-prefix? (explode-path (simple-form-path dir))
-                (explode-path (simple-form-path path))))
+  (list-prefix? (explode-path dir) (explode-path path)))
 
 ;; (-> string? boolean?)
 (define (file-uri? uri)

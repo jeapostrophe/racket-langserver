@@ -11,6 +11,7 @@
          "../common/interfaces.rkt"
          "../common/json-util.rkt"
          "../common/path-util.rkt"
+         "../common/source.rkt"
          "lsp.rkt"
          "responses.rkt"
          "source-controller.rkt"
@@ -236,15 +237,15 @@
                      '(textDocument documentSymbol hierarchicalDocumentSymbolSupport)))))
 
 (define (initialize-workspace-root! root-uri root-path)
-  ;; If both `rootPath` and `rootUri` are set, then `rootUri` wins.
-  ;; JSON null means no folder is open. A non-file `rootUri` still wins
-  ;; and does not fall through to `rootPath`.
+  ;; A file `rootUri` and `rootPath` both become complete lexical paths here.
+  ;; If both are set, `rootUri` wins. JSON null means no folder is open.
+  ;; A non-file `rootUri` still wins and does not fall through to `rootPath`.
   (define folder-path
     (cond
       [(not (equal? root-uri (json-null)))
-       (and (file-uri? root-uri) (uri->path root-uri))]
+       (and (file-uri? root-uri) (file-uri->identity-path root-uri))]
       [(not (equal? root-path (json-null)))
-       (string->path root-path)]
+       (normalize-source-path (string->path root-path))]
       [else #f]))
   (when folder-path
     (workspace-add-folder! current-workspace folder-path)))
