@@ -11,17 +11,21 @@
 (require racket/async-channel
          racket/match
          racket/place
+         racket/runtime-path
          (submod "../../lsp/resyntax-place.rkt" test-support))
+
+(define-runtime-path resyntax-place-path "../../lsp/resyntax-place.rkt")
+(define-runtime-path external-resyntax-path "../../doclib/external/resyntax.rkt")
 
 (define resyntax-place-ns
   (begin
-    (dynamic-require '(file "../../lsp/resyntax-place.rkt") #f)
-    (module->namespace '(file "../../lsp/resyntax-place.rkt"))))
+    (dynamic-require resyntax-place-path #f)
+    (module->namespace resyntax-place-path)))
 
 (define external-resyntax-ns
   (begin
-    (dynamic-require '(file "../../doclib/external/resyntax.rkt") #f)
-    (module->namespace '(file "../../doclib/external/resyntax.rkt"))))
+    (dynamic-require external-resyntax-path #f)
+    (module->namespace external-resyntax-path)))
 
 (define (eval-in namespace expr)
   (eval expr namespace))

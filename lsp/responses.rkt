@@ -12,6 +12,10 @@
           'id id
           'result result))
 
+;; Encode protocol values, treating an absent result as JSON null.
+(define (success/enc id result)
+  (success-response id (if result (->jsexpr result) (json-null))))
+
 ;; Constructor for a response object representing failure.
 (define (error-response id code message [data not-given])
   (define err (hasheq 'code (->jsexpr code)
@@ -25,6 +29,8 @@
 
 (provide
   (contract-out
+    [success/enc
+     ((or/c number? string?) any/c . -> . jsexpr?)]
     [success-response
      ((or/c number? string?) jsexpr? . -> . jsexpr?)]
     [error-response

@@ -12,12 +12,46 @@
                   LexerState?
                   LexerState-language-policy
                   Language-Policy-expand?)
+         "../common/source.rkt"
          "../common/path-util.rkt"
          "internal-types.rkt")
 
+;; Virtual URI paths are a best-effort local dependency context, not file
+;; identities. Relative parents are allowed; the document need not exist.
+(define (source-analysis-directory source)
+  (define file-path (source-file-path source))
+  (cond
+    [file-path (path-only file-path)]
+    [else
+     (with-handlers ([exn:fail? (lambda (_) #f)])
+       (define parent (path-only (uri->path (source-uri source))))
+       (and parent (directory-exists? parent) (path->complete-path parent)))]))
+
+(module+ test
+  (require rackunit racket/file)
+
+  (test-case "virtual analysis directories must exist and may be relative"
+    (define root (make-temporary-file "virtual-context~a" 'directory))
+    (dynamic-wind
+      void
+      (lambda ()
+        (parameterize ([current-directory root])
+          (make-directory "deps space")
+          (call-with-output-file "regular-file" void)
+          (check-equal?
+            (source-analysis-directory
+              (uri->source "custom:deps%20space/missing.rkt?rev=one#cell"))
+            (path->directory-path (build-path root "deps space")))
+          (for ([uri (in-list '("custom:absent/main.rkt"
+                                "custom:regular-file/main.rkt"
+                                "untitled:main.rkt"
+                                "custom:"))])
+            (check-false (source-analysis-directory (uri->source uri))))))
+      (lambda () (delete-directory/files root)))))
+
 ;; TODO: cache the namespace with some strategy
-(define (expand-source path in collector #:expand? [expand? #t])
-  (define-values (src-dir _1 _2) (split-path path))
+(define (expand-source source in collector #:expand? [expand? #t])
+  (define src-dir (source-analysis-directory source))
   (define ns (make-base-namespace))
   (define-values (add-syntax done)
     (make-traversal ns src-dir))
@@ -29,7 +63,7 @@
     (define stx
       (with-handlers ([exn:fail? (λ (exn) exn)])
         (with-module-reading-parameterization
-          (λ () (read-syntax path in)))))
+          (λ () (read-syntax (source-syntax-source source) in)))))
 
     (define expand-logs '())
     (define expanded-stx
@@ -58,19 +92,18 @@
    [succeed? boolean?])
   #:transparent)
 
-(define (check-syntax uri doc-text lexer-state)
-  (define path (uri->path uri))
+(define (check-syntax source doc-text lexer-state)
   (define text (send doc-text get-text))
   (define active-policy (LexerState-language-policy lexer-state))
   (define expand? (Language-Policy-expand? active-policy))
   (define new-trace
     (new build-trace%
-      [src path]
+      [source source]
       [doc-text doc-text]
       [lexer-state lexer-state]))
 
   (define in (open-input-string text))
-  (define er (expand-source path in new-trace #:expand? expand?))
+  (define er (expand-source source in new-trace #:expand? expand?))
 
   (send new-trace walk-stx er)
   (send new-trace walk-log (ExpandResult-logs er))
@@ -82,7 +115,7 @@
 (provide
   (struct-out CSResult)
   (contract-out
-    [expand-source (->* (path? input-port? (is-a?/c syncheck-annotations<%>))
+    [expand-source (->* (Source? input-port? (is-a?/c syncheck-annotations<%>))
                         (#:expand? boolean?)
                         ExpandResult?)]
-    [check-syntax (-> string? (is-a?/c lsp-editor%) LexerState? CSResult?)]))
+    [check-syntax (-> Source? (is-a?/c lsp-editor%) LexerState? CSResult?)]))

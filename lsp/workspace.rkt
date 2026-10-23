@@ -1,4 +1,7 @@
 #lang racket/base
+
+;; Workspace notifications and settings. Folder membership changes index and
+;; search scope only, not source revisions or eligibility.
 (provide didRenameFiles
          didChangeWorkspaceFolders
          didChangeWatchedFiles
@@ -6,14 +9,17 @@
          update-configuration
          fetch-configuration
          client-capability-workspace/configuration?)
-(require compiler/module-suffix
-         json
-         racket/match)
-(require "../common/json-util.rkt"
+
+(require json
+         racket/match
+         "../common/json-util.rkt"
          "../common/path-util.rkt"
+         "../common/source.rkt"
          "../common/interfaces.rkt"
          "lsp.rkt"
          "safedoc.rkt"
+         "source-controller.rkt"
+         (submod "source-controller.rkt" owner)
          "../doclib/doc.rkt"
          "../common/settings.rkt"
          "../workspace/current.rkt"
@@ -23,41 +29,51 @@
   (lsp-for-each-open-doc
     (lambda (safe-doc)
       (define contribution
-        (with-read-doc safe-doc
-          (lambda (doc)
-            (Doc-contribution doc))))
+        (with-read-doc safe-doc Doc-contribution))
       (when contribution
         (workspace-set-contribution! current-workspace contribution)))))
 
 (define (didRenameFiles params)
   (match-define (^RenameFilesParams #:files files) params)
-  ;; Document close/open notifications own editor buffers, not file operations.
-  (for ([f files])
-    (match-define (FileRename #:oldUri old-uri #:newUri _) f)
-    (workspace-remove-path! current-workspace (uri->path old-uri))))
+  ;; textDocument open and close own the editor buffer. Rename invalidates the
+  ;; old and new path identities and drops the old index entry.
+  (for ([f (in-list files)])
+    (match-define (FileRename #:oldUri old-uri #:newUri new-uri) f)
+    (when (file-uri? old-uri)
+      (define old-source (uri->source old-uri))
+      (source-controller-invalidate! (current-source-controller) old-source)
+      (workspace-remove-path! current-workspace (source-file-path old-source)))
+    (when (file-uri? new-uri)
+      (source-controller-invalidate! (current-source-controller) (uri->source new-uri)))))
 
+;; A folder change does not start a disk read.
 (define (didChangeWorkspaceFolders params)
   (match-define (^DidChangeWorkspaceFoldersParams #:event event) params)
   (match-define (WorkspaceFoldersChangeEvent #:added added #:removed removed) event)
-  (for ([f added])
+  (for ([f (in-list added)])
     (match-define (WorkspaceFolder #:uri uri #:name _) f)
-    (workspace-add-folder! current-workspace (uri->path uri)))
-  (for ([f removed])
+    (when (file-uri? uri)
+      (workspace-add-folder! current-workspace
+                             (file-uri->identity-path uri))))
+  (for ([f (in-list removed)])
     (match-define (WorkspaceFolder #:uri uri #:name _) f)
-    (workspace-remove-folder! current-workspace (uri->path uri)))
+    (when (file-uri? uri)
+      (workspace-remove-folder! current-workspace
+                                (file-uri->identity-path uri))))
   (when (pair? added)
     (republish-open-doc-contributions!)))
 
-(define (didChangeWatchedFiles params)
+;; Status: ignored. Watched-file events do not own the editor buffer or index.
+(define (didChangeWatchedFiles _params)
   (void))
 
 (define (apply-langserver-settings settings)
   (match-define (Langserver-Settings #:resyntax resyntax #:formatting formatting)
     settings)
-  (match resyntax
-    [(Resyntax-Settings #:enable (and enable (not (? Nothing?))))
-     (set-resyntax-enabled! enable)]
-    [_ (set-resyntax-enabled! default-resyntax-enabled)])
+  (set-resyntax-enabled!
+    (match resyntax
+      [(Resyntax-Settings #:enable (and enable (not (? Nothing?)))) enable]
+      [_ default-resyntax-enabled]))
   (match formatting
     [(Formatting-Configuration
        #:document-formatter document-formatter
@@ -76,22 +92,21 @@
              fmt-settings)))]
     [_ (set-formatting-settings! default-formatting-settings)]))
 
-;; A `racket-langserver` section is a snapshot. Omitted keys use shipped
-;; defaults. `workspace/configuration` returns a list; `workspace/didChangeConfiguration`
-;; may send the settings object, `null`, or an empty object.
 (define (normalize-configuration-item item)
   (if (eq? item (json-null))
       (hasheq)
       item))
 
+;; A `racket-langserver` section is a snapshot. Omitted keys use shipped
+;; defaults. `workspace/configuration` returns a list; `workspace/didChangeConfiguration`
+;; may send the settings object, `null`, or an empty object.
 (define (update-configuration settings)
-  (define normalized
-    (if (list? settings)
-        (map normalize-configuration-item settings)
-        (normalize-configuration-item settings)))
-  (match normalized
+  (define items
+    (map normalize-configuration-item
+         (if (list? settings) settings (list settings))))
+  (match items
     [(as-Langserver-Settings-Update value)
-     (for ([item (in-list (if (list? value) value (list value)))])
+     (for ([item (in-list value)])
        (apply-langserver-settings item))]
     [_ (void)]))
 
@@ -108,12 +123,11 @@
                                         #:section "racket-langserver"))))
                     update-configuration)))
 
-;; A client that has no `racket-langserver` section to push is not saying the
-;; configuration is empty, it is saying to use the pull model instead.
+;; A client with no `racket-langserver` section to push is asking for the pull
+;; model, not sending an empty configuration.
 (define (didChangeConfiguration request-client params)
   (match-define (hash-table ['settings settings]) params)
   (match settings
     [(hash-table ['racket-langserver langserver-settings])
      (update-configuration langserver-settings)]
     [_ (fetch-configuration request-client)]))
-

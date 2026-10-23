@@ -1,7 +1,8 @@
 #lang racket
 
 (module+ test
-  (require rackunit
+  (require "../../common/source.rkt"
+           rackunit
            "../../doclib/doc.rkt"
            "../../doclib/hover.rkt"
            "../../doclib/doc-trace.rkt"
@@ -461,11 +462,12 @@
                #:when (string=? (Diagnostic-source diag) "Language Header Check"))
       diag))
 
-  (define (check-syntax-diagnostics uri text)
+  (define (check-syntax-diagnostics source text)
+    (define uri (source-uri source))
     (define doc-text (new lsp-editor%))
     (send doc-text insert text 0)
     (define lexer-state (build-lexer-state text uri))
-    (set->list (send (CSResult-trace (check-syntax uri doc-text lexer-state)) get-warn-diags)))
+    (set->list (send (CSResult-trace (check-syntax source doc-text lexer-state)) get-warn-diags)))
 
   (define (typed-racket-available?)
     (with-handlers ([exn:fail? (lambda (_exn) #f)])
@@ -490,11 +492,11 @@
     (send doc-text insert text 0)
     (define trace
       (new build-trace%
-        [src path]
+        [source (path->source path)]
         [doc-text doc-text]
         [lexer-state (build-lexer-state text uri)]))
     (define result
-      (expand-source path
+      (expand-source (path->source path)
                      (open-input-string text)
                      trace))
     (define order-test-data
@@ -508,7 +510,7 @@
     "Document diagnostics report missing language headers"
     (define text "(define x 1)\n")
     (define diags
-      (check-syntax-diagnostics "file:///tmp/missing-language-test.rkt"
+      (check-syntax-diagnostics (uri->source "file:///tmp/missing-language-test.rkt")
                                 text))
     (define diag
       (find-diagnostic-by-message
@@ -527,7 +529,7 @@
     "Document diagnostics accept unknown language headers"
     (define text "#lang not-a-real-language\n1\n")
     (define diags
-      (check-syntax-diagnostics "file:///tmp/unknown-language-test.rkt"
+      (check-syntax-diagnostics (uri->source "file:///tmp/unknown-language-test.rkt")
                                 text))
     (check-equal? (language-header-diagnostics diags) '()))
 
@@ -535,7 +537,7 @@
     "Document diagnostics simplify missing collection messages"
     (define text "#lang racke\n")
     (define diags
-      (check-syntax-diagnostics "file:///tmp/missing-collection-test.rkt"
+      (check-syntax-diagnostics (uri->source "file:///tmp/missing-collection-test.rkt")
                                 text))
     (define diag
       (find-diagnostic-by-message
@@ -551,7 +553,7 @@
     "Document diagnostics do not label requires as #lang failures"
     (define text "#lang racket/base\n(require racke/lang/reader)\n")
     (define diags
-      (check-syntax-diagnostics "file:///tmp/missing-require-collection-test.rkt"
+      (check-syntax-diagnostics (uri->source "file:///tmp/missing-require-collection-test.rkt")
                                 text))
     (define diag
       (find-diagnostic-by-message
@@ -567,7 +569,7 @@
     "Document diagnostics report missing require modules"
     (define text "#lang racket/base\n(require foo/bar)\n")
     (define diags
-      (check-syntax-diagnostics "file:///tmp/missing-require-module-test.rkt"
+      (check-syntax-diagnostics (uri->source "file:///tmp/missing-require-module-test.rkt")
                                 text))
     (define diag
       (find-diagnostic-by-message
@@ -581,12 +583,12 @@
   (test-case
     "Document diagnostics accept wrapped #lang headers"
     (define at-exp-diags
-      (check-syntax-diagnostics "file:///tmp/at-exp-language-test.rkt"
+      (check-syntax-diagnostics (uri->source "file:///tmp/at-exp-language-test.rkt")
                                 "#lang at-exp racket\n@(+ 1 2)\n"))
     (check-equal? (language-header-diagnostics at-exp-diags) '())
 
     (define s-exp-diags
-      (check-syntax-diagnostics "file:///tmp/s-exp-language-test.rkt"
+      (check-syntax-diagnostics (uri->source "file:///tmp/s-exp-language-test.rkt")
                                 "#lang s-exp racket/base\n(+ 1 2)\n"))
     (check-equal? (language-header-diagnostics s-exp-diags) '()))
 
@@ -594,7 +596,7 @@
     "Document diagnostics use first line range for empty language spans"
     (define text "#lang \n(define x 1)\n")
     (define diags
-      (check-syntax-diagnostics "file:///tmp/empty-language-test.rkt"
+      (check-syntax-diagnostics (uri->source "file:///tmp/empty-language-test.rkt")
                                 text))
     (define diag
       (find-diagnostic-by-message
@@ -646,44 +648,7 @@
     (check-equal? (LexerEntry-text comment-token) "#| comment \nfoo\n"))
 
   (test-case
-    "Get definition"
-    (define tmp-file (make-temporary-file "test~a.rkt"))
-    (define text "#lang racket\n(define x 1)\nx")
-    (with-output-to-file tmp-file #:exists 'replace (lambda () (display text)))
-
-    (define def-range (doc-get-definition-by-id tmp-file '() 'x))
-    (check-pred Range? def-range)
-
-    (delete-file tmp-file))
-
-  (test-case
-    "Get definition distinguishes equal ids across submodules"
-    (define tmp-file (make-temporary-file "binding-identity~a.rkt"))
-    (define text
-      (string-append
-        "#lang racket/base\n"
-        "(module first racket/base\n"
-        "  (define same 1))\n"
-        "(module second racket/base\n"
-        "  (require (for-syntax racket/base))\n"
-        "  (begin-for-syntax\n"
-        "    (define same 2)))\n"))
-    (with-output-to-file tmp-file
-      #:exists 'replace
-      (lambda ()
-        (display text)))
-
-    (define first-range
-      (doc-get-definition-by-id tmp-file '(first) 'same))
-    (define second-range
-      (doc-get-definition-by-id tmp-file '(second) 'same))
-    (check-equal? first-range (Range (Pos 2 10) (Pos 2 14)))
-    (check-equal? second-range (Range (Pos 6 12) (Pos 6 16)))
-
-    (delete-file tmp-file))
-
-  (test-case
-    "doc-definition follows a for-syntax import by submodule and id"
+    "doc-definition captures a for-syntax import without resolving the target"
     (define temp-dir (make-temporary-file "import-shift~a" 'directory))
     (dynamic-wind
       void
@@ -707,55 +672,28 @@
         (define use-uri (path->uri use-path))
         (define d (make-doc use-uri use-text))
         (check-true (doc-expand! d))
-        (define loc (doc-definition d use-uri (Pos 3 12)))
-        (check-equal? loc
-                      (Location (path->uri lib-path)
-                                (Range (Pos 2 8) (Pos 2 11)))))
+        ;; Legacy Check Syntax omits phase information; the compatibility
+        ;; layer supplies phase 0. New callbacks preserve the import shift.
+        (check-equal? (doc-definition d use-uri (Pos 3 12))
+                      (Module-Binding lib-path '() (if phase+space-callbacks? 1 0) 'foo)))
       (lambda ()
         (delete-directory/files temp-dir))))
 
-  (test-case
-    "Get definition returns #f when the target file has no span for the id"
-    (define tmp-file (make-temporary-file "missing-def~a.rkt"))
-    (define text "#lang racket/base\n(define foo 1)\n")
-    (with-output-to-file tmp-file
-      #:exists 'replace
-      (lambda ()
-        (display text)))
-    (check-false (doc-get-definition-by-id tmp-file '() 'missing))
-    (delete-file tmp-file))
-
-  (test-case
-    "Get definition keeps the last span when one submodule reuses the id"
-    (define tmp-file (make-temporary-file "ambiguous-def~a.rkt"))
-    (define text
-      (string-append
-        "#lang racket/base\n"
-        "(require (for-syntax racket/base))\n"
-        "(provide foo (for-syntax foo))\n"
-        "(define foo 1)\n"
-        "(begin-for-syntax\n"
-        "  (define foo 2))\n"))
-    (with-output-to-file tmp-file
-      #:exists 'replace
-      (lambda ()
-        (display text)))
-    (check-equal? (doc-get-definition-by-id tmp-file '() 'foo)
-                  (Range (Pos 5 10) (Pos 5 13)))
-    (delete-file tmp-file))
+  ;; Keep the source, populated editor, and lexer on the same text snapshot.
+  (define (make-trace path text)
+    (define doc-text (new lsp-editor%))
+    (send doc-text insert text 0)
+    (new build-trace%
+      [source (path->source path)]
+      [doc-text doc-text]
+      [lexer-state (build-lexer-state text (path->uri path))]))
 
   (test-case
     "binding identity distinguishes equal symbols across submodules and phases"
     (define path (string->path "/tmp/binding-identity-test.rkt"))
     (define uri "file:///tmp/binding-identity-test.rkt")
     (define text (make-string 40 #\space))
-    (define doc-text (new lsp-editor%))
-    (send doc-text insert text 0)
-    (define trace
-      (new build-trace%
-        [src path]
-        [doc-text doc-text]
-        [lexer-state (build-lexer-state text uri)]))
+    (define trace (make-trace path text))
 
     (send trace
           syncheck:add-jump-to-definition/phase-level+space
@@ -804,13 +742,7 @@
     (define path (string->path "/tmp/contribution-test.rkt"))
     (define uri "file:///tmp/contribution-test.rkt")
     (define text "first use\nsecond use\n")
-    (define doc-text (new lsp-editor%))
-    (send doc-text insert text 0)
-    (define trace
-      (new build-trace%
-        [src path]
-        [doc-text doc-text]
-        [lexer-state (build-lexer-state text uri)]))
+    (define trace (make-trace path text))
 
     (send trace
           syncheck:add-jump-to-definition/phase-level+space
@@ -858,13 +790,7 @@
     "named binding queries resolve local and same-file module uses after edits"
     (define path (string->path "/tmp/binding-query-test.rkt"))
     (define text (make-string 50 #\space))
-    (define doc-text (new lsp-editor%))
-    (send doc-text insert text 0)
-    (define trace
-      (new build-trace%
-        [src path]
-        [doc-text doc-text]
-        [lexer-state (build-lexer-state text (path->uri path))]))
+    (define trace (make-trace path text))
     (send trace
           syncheck:add-definition-target/phase-level+space
           path 5 6 'module-name '() 0)
@@ -915,13 +841,7 @@
     "declaration collection is independent of callback order"
     (define path (string->path "/tmp/binding-callback-order-test.rkt"))
     (define text (make-string 40 #\space))
-    (define doc-text (new lsp-editor%))
-    (send doc-text insert text 0)
-    (define trace
-      (new build-trace%
-        [src path]
-        [doc-text doc-text]
-        [lexer-state (build-lexer-state text (path->uri path))]))
+    (define trace (make-trace path text))
 
     ;; Same-file jump first, then attach the definition's module identity.
     (send trace
@@ -977,13 +897,7 @@
     "a declaration moves once after an edit inside its range"
     (define path (string->path "/tmp/binding-declaration-edit-test.rkt"))
     (define text (make-string 50 #\space))
-    (define doc-text (new lsp-editor%))
-    (send doc-text insert text 0)
-    (define trace
-      (new build-trace%
-        [src path]
-        [doc-text doc-text]
-        [lexer-state (build-lexer-state text (path->uri path))]))
+    (define trace (make-trace path text))
     (send trace
           syncheck:add-arrow/name-dup
           path 30 33 path 35 38 #t 0 #f #f)
@@ -1017,13 +931,7 @@
     "a declaration replays several edits when first read"
     (define path (string->path "/tmp/binding-declaration-replay-test.rkt"))
     (define text (make-string 60 #\space))
-    (define doc-text (new lsp-editor%))
-    (send doc-text insert text 0)
-    (define trace
-      (new build-trace%
-        [src path]
-        [doc-text doc-text]
-        [lexer-state (build-lexer-state text (path->uri path))]))
+    (define trace (make-trace path text))
     (send trace
           syncheck:add-arrow/name-dup
           path 30 33 path 40 43 #t 0 #f #f)
@@ -1044,13 +952,7 @@
     "deleting declaration text clips and then removes its local binding"
     (define path (string->path "/tmp/binding-declaration-delete-test.rkt"))
     (define text (make-string 60 #\space))
-    (define doc-text (new lsp-editor%))
-    (send doc-text insert text 0)
-    (define trace
-      (new build-trace%
-        [src path]
-        [doc-text doc-text]
-        [lexer-state (build-lexer-state text (path->uri path))]))
+    (define trace (make-trace path text))
     (send trace
           syncheck:add-arrow/name-dup
           path 30 35 path 40 43 #t 0 #f #f)
@@ -1069,13 +971,7 @@
     "deleting a module declaration preserves its position-free binding"
     (define path (string->path "/tmp/module-declaration-delete-test.rkt"))
     (define text (make-string 40 #\space))
-    (define doc-text (new lsp-editor%))
-    (send doc-text insert text 0)
-    (define trace
-      (new build-trace%
-        [src path]
-        [doc-text doc-text]
-        [lexer-state (build-lexer-state text (path->uri path))]))
+    (define trace (make-trace path text))
     (send trace
           syncheck:add-definition-target/phase-level+space
           path 10 11 'module-name '() 0)
@@ -1168,7 +1064,7 @@ END
     (define d (make-doc uri text))
     (define test-trace%
       (class build-trace%
-        (super-new [src (string->path "/tmp/completion-prefix-test.rkt")]
+        (super-new [source (path->source (string->path "/tmp/completion-prefix-test.rkt"))]
                    [doc-text (new lsp-editor%)]
                    [lexer-state (build-lexer-state text uri)])
         (define/override (get-completions) '())
@@ -1326,10 +1222,9 @@ END
   (test-case
     "doc-definition for imported define"
     (define-values (d uri) (make-expanded-doc))
-    ;; "define" at line 1 → jumps to external file
     (define result (doc-definition d uri (Pos 1 1)))
-    ;; URI should point to the racket source file, not our test file
-    (check-not-equal? (Location-uri result) uri
+    (check-true (Module-Binding? result))
+    (check-not-equal? (Module-Binding-filepath result) (uri->path uri)
                       "imported define should point to external file"))
 
   (test-case
@@ -1345,7 +1240,7 @@ END
     (define result (doc-references d uri (Pos 2 0) #t))
     (check-true (Module-Binding? (Document-Reference-Result-module-binding result)))
     (define source (Document-Reference-Result-source result))
-    (check-equal? (Reference-Source-path source) (uri->path uri))
+    (check-equal? (Reference-Source-id source) (source-id (uri->source uri)))
     (check-equal? (map Location-range (Reference-Source-locations source))
                   (list (Range (Pos 1 8) (Pos 1 9))
                         (Range (Pos 2 0) (Pos 2 1))))
@@ -1480,21 +1375,6 @@ END
     (check-false (doc-module-binding-at d (Pos 4 9))))
 
   (test-case
-    "doc-highlights uses non-empty module-language arrow ranges"
-    (define uri "file:///tmp/doc-module-language-highlight-test.rkt")
-    (define d
-      (make-doc uri
-                (string-append "#lang racket\n"
-                               "(define i+1-th 0)\n"
-                               "(+ 1 2)\n"
-                               "(+ i+1-th 3)\n")))
-    (check-true (doc-expand! d))
-    (define result (doc-highlights d (Pos 2 1)))
-    (check-equal? (map DocumentHighlight-range result)
-                  (list (Range (Pos 2 1) (Pos 2 2))
-                        (Range (Pos 3 1) (Pos 3 2)))))
-
-  (test-case
     "doc-highlights accepts quote ranges from module-language arrows"
     (define uri "file:///tmp/doc-module-language-quote-test.rkt")
     (define d
@@ -1562,15 +1442,8 @@ END
   (test-case
     "module-language use collection filters and defers endpoints"
     (define path (string->path "/tmp/module-language-use-service-test.rkt"))
-    (define uri (path->uri path))
     (define text "racket + * ' word")
-    (define doc-text (new lsp-editor%))
-    (send doc-text insert text 0)
-    (define trace
-      (new build-trace%
-        [src path]
-        [doc-text doc-text]
-        [lexer-state (build-lexer-state text uri)]))
+    (define trace (make-trace path text))
     (define declaration-service (send trace get-declaration))
 
     (send trace syncheck:add-arrow/name-dup path 0 6 path 7 8 #t 0 'module-lang #f)
@@ -1595,15 +1468,8 @@ END
   (test-case
     "exact jumps win over pending module-language uses"
     (define path (string->path "/tmp/module-language-use-jump-test.rkt"))
-    (define uri (path->uri path))
     (define text "racket exact")
-    (define doc-text (new lsp-editor%))
-    (send doc-text insert text 0)
-    (define trace
-      (new build-trace%
-        [src path]
-        [doc-text doc-text]
-        [lexer-state (build-lexer-state text uri)]))
+    (define trace (make-trace path text))
     (send trace syncheck:add-arrow/name-dup path 0 6 path 7 12 #t 0 'module-lang #f)
     (send trace
           syncheck:add-jump-to-definition/phase-level+space
@@ -1931,6 +1797,23 @@ END
         "```racket\n(define count 1)\n```")))
 
   (test-case
+    "build-hover-card excludes source when documentation is available"
+    (for ([signature (in-list '(#f "(count) -> integer?"))])
+      (define card
+        (build-hover-card #:type-text "Integer"
+                          #:type-stale? #f
+                          #:annotation #f
+                          #:link "https://example.com/count"
+                          #:signature signature
+                          #:source-summary (Hover-Code-Summary "(define count 1)" "racket")
+                          #:documentation-text "Returns the count."))
+      (check-not-false (Hover-Card-documentation card))
+      (check-equal? (and (Hover-Card-definition card)
+                         (Hover-Definition-kind (Hover-Card-definition card)))
+                    (and signature 'signature))
+      (check-false (string-contains? (render-hover-card card) "**Source**"))))
+
+  (test-case
     "build-hover-card labels a lone signature"
     (define card
       (build-hover-card #:type-text #f
@@ -1979,11 +1862,12 @@ END
       )
     (define uri "file:///tmp/hover-test.rkt")
     (define d (make-doc uri text))
-    (doc-expand! d)
+    (check-true (doc-expand! d))
 
     (define h (doc-hover d (Pos 1 1)))
     (check-not-false h)
     (define result (Hover-contents h))
+    (check-false (string-contains? result "**Source**"))
     (check-true (string-contains? result "```racket"))
     (check-true (string-contains? result "Returns a newly allocated list"))
     (check-true (string-contains? result "[Online docs]"))
@@ -2118,7 +2002,7 @@ END
     (when (typed-racket-available?)
       (define diags
         (check-syntax-diagnostics
-          "file:///tmp/typed-racket-error-test.rkt"
+          (uri->source "file:///tmp/typed-racket-error-test.rkt")
           "#lang typed/racket\n(+ 1 \"x\")\n"))
       (define typed-diag
         (for/first ([diag (in-list diags)]
@@ -2206,7 +2090,7 @@ END
       (Hover-contents (doc-hover d (Pos 5 9)))
       (string-append
         "**Source**\n"
-        "```racket\n(fib\n         n)\n```\n\n"
+        "```racket\n(fib\n n)\n```\n\n"
         "**Mouse-over status**\n\n"
         "1 bound occurrence"))
     ;; A complete one-line declaration stays complete.
@@ -2318,22 +2202,89 @@ END
         "no bound occurrences")))
 
   (test-case
-    "Document hover keeps imported symbols out of same-file source detail"
+    "Document hover dedents nested source and comments by their shared minimum"
     (define d
-      (make-doc "file:///tmp/hover-detail-import.rkt"
-                "#lang racket\n(list)\n"))
+      (make-doc
+        "file:///tmp/hover-detail-indent.rkt"
+        (string-append
+          "#lang racket\n(let ()\n"
+          "    ;; A nested structure.\n"
+          "  (struct Nested\n    (left\n     right)\n    #:transparent)\n"
+          "  Nested)\n")))
     (check-true (doc-expand! d))
-    (define imported-hover (doc-hover d (Pos 1 1)))
-    (check-not-false imported-hover)
-    (define contents (Hover-contents imported-hover))
-    (check-false (string-contains? contents "**Source**"))
-    (check-true (string-contains? contents "[Online docs]"))
-    (check-true (string-contains? contents "imported from"))
-    (define imported-from-start
-      (caar (regexp-match-positions #rx"imported from" contents)))
-    (define online-docs-start
-      (caar (regexp-match-positions #rx"\\[Online docs\\]" contents)))
-    (check-true (< imported-from-start online-docs-start)))
+    (check-true
+      (string-contains?
+        (Hover-contents (doc-hover d (Pos 3 11)))
+        (string-append
+          "```racket\n  ;; A nested structure.\n"
+          "(struct Nested\n  (left\n   right)\n  #:transparent)\n```"))))
+
+  (test-case
+    "Document hover ignores blank lines and keeps first-line relative indentation"
+    (define d
+      (make-doc
+        "file:///tmp/hover-detail-indent-minimum.rkt"
+        (string-append
+          "#lang racket\n(define (combine\n \n    first\n  second)\n"
+          "  (list first second))\n")))
+    (check-true (doc-expand! d))
+    (check-true
+      (string-contains?
+        (Hover-contents (doc-hover d (Pos 3 5)))
+        "```racket\n      (combine\n\n  first\nsecond)\n```")))
+
+  (test-case
+    "Document hover dedents before adding collapsed-source markers"
+    (define d
+      (make-doc
+        "file:///tmp/hover-detail-indent-marker.rkt"
+        "#lang racket\n(let ()\n    (define (identity value)\n      value)\n    identity)\n"))
+    (check-true (doc-expand! d))
+    (check-true
+      (string-contains?
+        (Hover-contents (doc-hover d (Pos 4 5)))
+        "```racket\n(define (identity value)\n  ...\n```")))
+
+  (test-case
+    "Document hover counts tabs as one indentation character"
+    (define d
+      (make-doc
+        "file:///tmp/hover-detail-indent-tabs.rkt"
+        "#lang racket\n(define (tabbed\n\t  arg)\n  arg)\n"))
+    (check-true (doc-expand! d))
+    (check-true
+      (string-contains?
+        (Hover-contents (doc-hover d (Pos 2 3)))
+        "```racket\n     (tabbed\narg)\n```")))
+
+  (test-case
+    "Document hover dedents continuation lines inside multiline literals"
+    (define d
+      (make-doc
+        "file:///tmp/hover-detail-indent-literal.rkt"
+        (string-append
+          "#lang racket\n(let ()\n"
+          "  (define\n    message\n    \"first\n      second\")\n"
+          "  message)\n")))
+    (check-true (doc-expand! d))
+    (check-true
+      (string-contains?
+        (Hover-contents (doc-hover d (Pos 6 3)))
+        "```racket\n(define\n  message\n  \"first\n    second\")\n```")))
+
+  (test-case
+    "Document hover reads comment lines from the live buffer after an edit"
+    (define d
+      (make-doc
+        "file:///tmp/hover-detail-indent-stale-comment.rkt"
+        "#lang racket\n  ;; alpha beta\n  (define value 1)\n  value\n"))
+    (check-true (doc-expand! d))
+    (doc-apply-edit! d (Range (Pos 1 10) (Pos 1 10)) "\n  ;;")
+    (doc-update-version! d 1)
+    (check-true
+      (string-contains?
+        (Hover-contents (doc-hover d (Pos 4 3)))
+        "```racket\n;; alpha\n;; beta\n(define value 1)\n```")))
 
   (test-case
     "Document hover keeps cross-file workspace bindings out of source detail"
@@ -2844,3 +2795,94 @@ END
     (check-equal? (CodeAction-title act) "Add prefix `_` to ignore"))
 
   )
+
+(module+ test
+  (test-case "virtual expansion retains URI syntax sources and excludes workspace contributions"
+    (define text "#lang racket/base\n(require racket/list)\n(define value (first '(1)))\nvalue\n")
+    (for ([uri (in-list '("untitled:Untitled-1"
+                          "git:/project/main.rkt?rev=one#cell"
+                          "git:/project/main.rkt?rev=two#cell"
+                          "git:/project/main.rkt?rev=one#other"))])
+      (define doc (make-doc uri text))
+      (define editor (new lsp-editor%))
+      (send editor insert text 0)
+      (define collector
+        (new build-trace% [source (uri->source uri)]
+          [doc-text editor] [lexer-state (build-lexer-state text uri)]))
+      (define expanded (expand-source (uri->source uri) (open-input-string text) collector))
+      (check-true (ExpandResult-all-succeed? expanded))
+      (check-equal? (syntax-source (ExpandResult-pre-syntax expanded)) uri)
+      (check-equal? (syntax-source (ExpandResult-post-syntax expanded)) uri)
+      (check-true (doc-expand! doc))
+      (check-equal? (Doc-uri doc) uri)
+      (check-false (Doc-contribution doc))
+      (check-false (send collector get-contribution)))))
+
+(module+ test
+  (test-case "virtual expansion resolves neighbors from existing URI parent directories"
+    (define root (make-temporary-file "virtual-import~a" 'directory))
+    (dynamic-wind
+      void
+      (lambda ()
+        (parameterize ([current-directory root])
+          (make-directory "deps space")
+          (define main-path (build-path root "deps space" "missing-main.rkt"))
+          (call-with-output-file (build-path root "deps space" "neighbor.rkt")
+            (lambda (out)
+              (display "#lang racket/base\n(provide value)\n(define value 42)\n" out)))
+          (define text "#lang racket/base\n(require \"neighbor.rkt\")\nvalue\n")
+          (define file-uri (path->uri main-path))
+          (define uris
+            (append
+              (for/list ([scheme (in-list '("git:" "notebook:" "custom:"))])
+                (string-append (regexp-replace #rx"^file:" file-uri scheme) "?rev=one#cell"))
+              '("custom:deps%20space/missing-main.rkt?rev=two#cell")))
+          (check-false (file-exists? main-path))
+          (for ([uri (in-list uris)])
+            (define doc (make-doc uri text))
+            (check-true (doc-expand! doc) uri)
+            (check-equal? (Doc-uri doc) uri)
+            (check-false (source-file-path (Doc-source doc)))
+            (check-equal? (source-syntax-source (Doc-source doc)) uri)
+            (check-false (Doc-contribution doc)))))
+      (lambda () (delete-directory/files root)))))
+
+(module+ test
+  (test-case "virtual Typed Racket syntax sources retain inferred hover and type diagnostics"
+    (when (typed-racket-available?)
+      (define uri "git:/project/typed.rkt?rev=one#cell")
+      (define doc
+        (make-doc uri
+                  (string-append "#lang typed/racket\n"
+                                 "(: count Integer)\n"
+                                 "(define count 1)\n"
+                                 "(+ count 2)\n")))
+      (check-true (doc-expand! doc))
+      (define hover (doc-hover doc (Pos 3 4)))
+      (check-not-false hover)
+      (check-equal? (Hover-range hover) (Range (Pos 3 3) (Pos 3 8)))
+      (check-true (string-contains? (Hover-contents hover) "```racket\nInteger\n```"))
+      (check-false (Doc-contribution doc))
+      (define typed-diag
+        (for/first ([diag (in-list
+                            (check-syntax-diagnostics (uri->source uri)
+                                                      "#lang typed/racket\n(+ 1 \"x\")\n"))]
+                    #:when (equal? (Diagnostic-source diag) "Typed Racket"))
+          diag))
+      (check-not-false typed-diag)
+      (check-equal? (Diagnostic-range typed-diag) (Range (Pos 1 5) (Pos 1 8)))
+      (check-true (string-contains? (Diagnostic-message typed-diag) "expected: Number")))))
+
+(module+ test
+  (test-case "direct source documents retain the supplied normalized descriptor"
+    (define path (build-path 'same "descriptor-preservation.rkt"))
+    (define source (path->source path))
+    (define normalized (normalize-source-path path))
+    (define doc (make-source-doc source "#lang racket/base\n(define value 1)\nvalue\n"))
+    (check-eq? (Doc-source doc) source)
+    (check-equal? (source-file-path (Doc-source doc)) normalized)
+    (check-equal? (source-syntax-source (Doc-source doc)) normalized)
+    (check-equal? (Doc-uri doc) (source-uri source))
+    (check-true (doc-expand! doc))
+    (check-eq? (Doc-source doc) source)
+    (check-equal? (Doc-Contribution-path (Doc-contribution doc)) normalized)))

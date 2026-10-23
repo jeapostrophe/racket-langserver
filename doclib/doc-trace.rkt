@@ -18,24 +18,23 @@
          "service/tooltip-log.rkt"
          "service/typed-racket/service.rkt"
          "../common/interfaces.rkt"
-         "../common/path-util.rkt"
+         "../common/source.rkt"
          "internal-types.rkt")
 
 (define build-trace%
   (class (check-syntax-annotations-mixin object%)
-    (init-field src
-                doc-text
-                lexer-state)
+    (init-field source doc-text lexer-state)
+    (define src (source-syntax-source source))
     (define docs (new docs%))
     (define completions (new completion%))
     (define requires (new require%))
     (define diag (new diag%
-                   [src src]
+                   [source source]
                    [doc-text doc-text]
                    [lexer-state lexer-state]))
     (define decls
       (new declaration%
-        [src src]
+        [source source]
         [doc-text doc-text]))
     (define hovers
       (new hover%
@@ -116,34 +115,37 @@
     (define/public (get-inlay-hints) inlay-hints)
 
     ;; Derive accepted cross-file state from this trace's frozen editor.
-    (define/public (get-contribution)
-      (define (abs->pos pos)
-        (match-define (list line char)
-          (send doc-text pos->line/char pos))
-        (Pos line char))
+    ;; Restoration supplies the incoming descriptor so locations use its current URI.
+    (define/public (get-contribution #:source [location-source source])
+      (and (source-file-path source)
+           (let ()
+             (define (abs->pos pos)
+               (match-define (list line char)
+                 (send doc-text pos->line/char pos))
+               (Pos line char))
 
-      (define (range->location range)
-        (define start (CharRange-start range))
-        (define end
-          (if (= start (CharRange-end range))
-              (add1 start)
-              (CharRange-end range)))
-        (Location (path->uri src)
-                  (Range (abs->pos start) (abs->pos end))))
+             (define (range->location range)
+               (define start (CharRange-start range))
+               (define end
+                 (if (= start (CharRange-end range))
+                     (add1 start)
+                     (CharRange-end range)))
+               (Location (source-location-uri location-source src)
+                         (Range (abs->pos start) (abs->pos end))))
 
-      (define references
-        (for/fold ([references (hash)])
-                  ([entry (in-list (send decls module-binding-uses))])
-          (define range (car entry))
-          (define module-binding (cdr entry))
-          (hash-update references
-                       module-binding
-                       (lambda (locations) (cons (range->location range) locations))
-                       '())))
-      (define definitions
-        (for/hash ([entry (in-list (send decls module-binding-definitions))])
-          (values (cdr entry) (range->location (car entry)))))
-      (Doc-Contribution src references definitions))
+             (define references
+               (for/fold ([references (hash)])
+                         ([entry (in-list (send decls module-binding-uses))])
+                 (define range (car entry))
+                 (define module-binding (cdr entry))
+                 (hash-update references
+                              module-binding
+                              (lambda (locations) (cons (range->location range) locations))
+                              '())))
+             (define definitions
+               (for/hash ([entry (in-list (send decls module-binding-definitions))])
+                 (values (cdr entry) (range->location (car entry)))))
+             (Doc-Contribution (source-file-path source) references definitions))))
 
     ;; Chosen over putting Typed Racket type-error diagnostics on diag%:
     ;; inferred types and type errors share one online-check-syntax channel

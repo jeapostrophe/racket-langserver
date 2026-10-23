@@ -30,7 +30,7 @@
 ;;   - A complete header whose language is not in `language-specs` is kept as
 ;;     `unrecognized` rather than guessed.
 ;;   - Incomplete headers (started but malformed) produce `#f` for the policy
-;;     language, just like missing headers.
+;;     language. A missing header may still match by file suffix.
 ;;
 ;; Recognized header shapes:
 ;;
@@ -459,13 +459,8 @@
               (regexp-match? (Language-Spec-name-rx spec) name)
               spec))))
 
-(define (uri->suffix uri)
-  (define extension (and uri (path-get-extension (uri->path uri))))
-  (and extension
-       (bytes->string/utf-8 (subbytes extension 1))))
-
 (define (match-by-suffix uri)
-  (define maybe-suffix (uri->suffix uri))
+  (define maybe-suffix (and uri (uri->suffix uri)))
   (and maybe-suffix
        (for/or ([spec (in-list language-specs)])
          (and (member maybe-suffix (Language-Spec-suffixes spec))
@@ -496,7 +491,8 @@
 
 ;; Chooses the policy language symbol. Returns the spec's name if
 ;; matched, `'unrecognized-language` for a complete header with no
-;; matching spec, or `#f` for missing/incomplete headers.
+;; matching spec, or `#f` for incomplete headers and missing headers with
+;; no suffix match.
 (define (header+language-match->policy-language header language-match)
   (cond
     [(Language-Spec? language-match)

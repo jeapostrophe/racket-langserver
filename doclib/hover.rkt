@@ -22,7 +22,8 @@
          (struct-out Hover-Documentation)
          build-hover-card
          render-hover-card
-         hover-card-has-content?)
+         hover-card-has-content?
+         hover-card-opens?)
 
 (struct/contract Hover-Code-Summary
   ([text string?]
@@ -47,8 +48,8 @@
    [documentation (or/c Hover-Documentation? #f)])
   #:transparent)
 
-;; Map hover inputs onto the fixed renderer slots. Same-file source wins over a
-;; documentation signature. `link` is the final online URL.
+;; Map hover inputs onto the fixed renderer slots. Documentation excludes
+;; source snippets. `link` is the final online URL.
 (define (build-hover-card #:type-text type-text
                           #:type-stale? type-stale?
                           #:annotation annotation
@@ -61,7 +62,7 @@
          (Hover-Code-Summary type-text "racket")))
   (define definition
     (cond
-      [source-summary
+      [(and source-summary (not link))
        (Hover-Definition 'source source-summary)]
       [signature
        (Hover-Definition 'signature
@@ -149,6 +150,13 @@
           (if body-present?
               (format "~a\n\n~a" heading body)
               heading))]))
+
+;; Documentation/signature alone does not open a card.
+(define (hover-card-opens? card)
+  (or (Hover-Card-type card)
+      (Hover-Card-annotation card)
+      (and (Hover-Card-definition card)
+           (eq? (Hover-Definition-kind (Hover-Card-definition card)) 'source))))
 
 (define (hover-card-has-content? card)
   (or (Hover-Card-type card)

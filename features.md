@@ -81,7 +81,7 @@ Language behavior: not filtered by language family. Works where expansion succee
 
 Shows a document outline. The server uses the lexer to produce results. It scans the text for every symbol (identifier), string, and constant and lists each one as a symbol entry with a kind label. This means every occurrence is listed rather than just top-level definitions, making the outline noisy and currently not very useful for navigation.
 
-Language behavior: not filtered by language family. The server does not actively suppress entries for any language family, but actual entries depend on what the lexer can tokenize.
+Language behavior: flat mode lists every lexer-visible occurrence and does not filter by language family. When the client advertises hierarchical document symbols, non-sexp language bodies (for example Rhombus or Scribble) return an empty outline because paren-based form extents would be unreliable; sexp languages use the structural forest walker.
 
 ## Formatting *(no expansion)*
 
@@ -138,7 +138,11 @@ Slots, top to bottom:
    the outermost same-line structural candidate when one exists: a compact
    binding clause, a collapsed one-line header, or a complete one-line form.
    Otherwise it shows the full nearest enclosing form. Contiguous own-line
-   leading comments above the form are included. Racket-family forms use a
+   leading comments above the form are included. Source and comments share a
+   dedent: remove the minimum leading whitespace count among nonblank retained
+   lines, using the first line's original column. Tabs count as one character.
+   This also removes indentation inside multiline literals. Truncation markers
+   are added afterward. Racket-family forms use a
    `racket` fence. Rhombus forms use a `rhombus` fence. This slot is always
    labeled `Source` or `Signature`.
 3. **Annotation** - the winning Check Syntax callback or logged tooltip,
@@ -238,7 +242,7 @@ then.
 
 ## References *(requires expansion)*
 
-Finds all references to the identifier under the cursor. Local references are always found via the `syncheck:add-jump-to-definition` and `syncheck:add-arrow/name-dup` check-syntax callbacks. Cross-file references only shows for identifiers that were referenced by a file in the workspace that has been opened and expanded, unopened files are not scanned.
+Finds all references to the identifier under the cursor. Local references are always found via the `syncheck:add-jump-to-definition` and `syncheck:add-arrow/name-dup` check-syntax callbacks. Cross-file references only show for identifiers that were referenced by a file in the workspace that has been opened and expanded; unopened files are not scanned.
 
 Language behavior: not filtered by language family. Works where expansion succeeds and check-syntax produces binding data with reliable source ranges. Cross-file references are limited to files that have been opened and expanded in the workspace.
 

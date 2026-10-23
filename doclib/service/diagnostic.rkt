@@ -15,7 +15,7 @@
                   Language-Policy-header-range
                   Language-Policy-header-status
                   Language-Policy-require-header?)
-         "../../common/path-util.rkt"
+         "../../common/source.rkt"
          drracket/check-syntax)
 
 (provide diag%)
@@ -25,7 +25,7 @@
 ;; live on typed-racket%, not here.
 (define diag%
   (class base-service%
-    (init-field src doc-text lexer-state)
+    (init-field source doc-text lexer-state)
     (super-new)
 
     (define diags (mutable-seteq))
@@ -66,11 +66,12 @@
     ;; Mouse-over status
     (define (hint-unused-variable src-obj start finish)
       (unless (string=? "_" (send doc-text get-text start (add1 start)))
+        (define location-uri (source-location-uri source src-obj))
         (define diag
           (Diagnostic #:range (Range #:start (abs-pos->Pos doc-text start)
                                      #:end (abs-pos->Pos doc-text finish))
                       #:severity DiagnosticSeverity-Information
-                      #:source (path->uri src-obj)
+                      #:source location-uri
                       #:message "unused variable"))
 
         (define code-action
@@ -81,7 +82,7 @@
             #:isPreferred #f
             #:edit (WorkspaceEdit
                      #:changes
-                     (hasheq (string->symbol (path->uri src-obj))
+                     (hasheq (string->symbol location-uri)
                              (list (TextEdit #:range (Range #:start (abs-pos->Pos doc-text start)
                                                             #:end (abs-pos->Pos doc-text start))
                                              #:newText "_"))))))

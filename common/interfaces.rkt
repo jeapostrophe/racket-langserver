@@ -34,6 +34,7 @@
          (json-type-out SignatureHelp)
          (json-type-out CompletionItem)
          (json-type-out CompletionList)
+         (json-type-out TextDocumentSyncKind)
          (json-type-out ContentChangeEvent-Incremental)
          (json-type-out ContentChangeEvent-Full)
          (json-type-out ContentChangeEvent)
@@ -109,6 +110,7 @@
   [ServerNotInitialized -32002]
   [UnknownErrorCode -32001]
   [RequestCancelled -32800]
+  [ContentModified -32801]
   [RequestFailed -32803])
 
 (define-json-struct Diagnostic
@@ -191,6 +193,11 @@
 (define-json-struct CompletionList
   [isIncomplete boolean?]
   [items (listof CompletionItem)])
+
+(define-json-enum TextDocumentSyncKind
+  [None 0]
+  [Full 1]
+  [Incremental 2])
 
 (define-json-struct ContentChangeEvent-Incremental
   [range Range]

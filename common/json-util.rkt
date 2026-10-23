@@ -263,7 +263,7 @@
     #`(lambda (x)
         (#,(name->js-pred-id id) x)))
 
-  ;; type-spec normalizes the DSL type annotation into four compile-time
+  ;; type-spec normalizes the DSL type annotation into five compile-time
   ;; attributes used by define-json-struct expansion:
   ;; - ctc: contract for the generated struct field
   ;; - decoder: function to decode JSON values into Racket values
