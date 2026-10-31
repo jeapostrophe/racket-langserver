@@ -121,7 +121,7 @@
            (let ()
              (define (abs->pos pos)
                (match-define (list line char)
-                 (send doc-text pos->line/char pos))
+                 (send doc-text pos->lsp-position pos))
                (Pos line char))
 
              (define (range->location range)

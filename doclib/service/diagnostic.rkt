@@ -199,11 +199,17 @@
      (define srclocs ((exn:srclocs-accessor exn) exn))
      (for/list ([sl (in-list srclocs)])
        (match-define (srcloc src line col pos span) sl)
-       (if (and (number? line) (number? col) (number? span))
+       ;; Source location columns count characters. Convert through the
+       ;; character offset so the range uses LSP columns.
+       (define start
+         (and (exact-positive-integer? line) (exact-nonnegative-integer? col)
+              (+ (send doc-text line-start-pos (sub1 line)) col)))
+       (if (and start (exact-nonnegative-integer? span)
+                (<= (+ start span) (send doc-text end-pos)))
            (Diagnostic #:range (nonempty-diagnostic-range
                                  doc-text
-                                 (Range #:start (Pos #:line (sub1 line) #:char col)
-                                        #:end (Pos #:line (sub1 line) #:char (+ col span))))
+                                 (Range #:start (abs-pos->Pos doc-text start)
+                                        #:end (abs-pos->Pos doc-text (+ start span))))
                        #:severity DiagnosticSeverity-Error
                        #:source "Racket"
                        #:message diagnostic-msg)

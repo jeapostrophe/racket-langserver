@@ -51,7 +51,8 @@
     (if (= line prev-line)
         (- char prev-char)
         char))
-  (define len (- (SemanticToken-end token) (SemanticToken-start token)))
+  ;; Tokens are split by line, so both ends are on the same line.
+  (define len (- (Pos-char (abs-pos->pos (SemanticToken-end token))) char))
   (define type (token-type-encoding token))
   (define modifier (token-modifier-encoding token))
   (values delta-line delta-start len type modifier))

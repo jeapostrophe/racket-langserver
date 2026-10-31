@@ -294,11 +294,11 @@
 
 (define/contract (doc-pos->abs-pos doc pos)
   (-> Doc? Pos? exact-nonnegative-integer?)
-  (send (Doc-text doc) line/char->pos (Pos-line pos) (Pos-char pos)))
+  (send (Doc-text doc) lsp-position->pos (Pos-line pos) (Pos-char pos)))
 
 (define/contract (doc-abs-pos->pos doc pos)
   (-> Doc? exact-nonnegative-integer? Pos?)
-  (match-define (list line char) (send (Doc-text doc) pos->line/char pos))
+  (match-define (list line char) (send (Doc-text doc) pos->lsp-position pos))
   (Pos line char))
 
 (define/contract (doc-line-start-abs-pos doc line)
@@ -621,7 +621,8 @@
 ;; whitespace character. Dedenting is display-only and also applies to
 ;; continuation lines inside multiline literals.
 (define (hover-source-lines doc start text)
-  (define column (Pos-char (doc-abs-pos->pos doc start)))
+  ;; Characters, not LSP columns: the column becomes leading spaces.
+  (define column (cadr (send (Doc-text doc) pos->line/char start)))
   (string-split (string-append (make-string column #\space) text)
                 "\n" #:trim? #f))
 

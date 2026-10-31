@@ -364,7 +364,7 @@
   (list SemanticTokenModifier-definition))
 
 (define (abs-pos->Pos editor pos)
-  (match-define (list line char) (send editor pos->line/char pos))
+  (match-define (list line char) (send editor pos->lsp-position pos))
   (Pos #:line line #:char char))
 
 ;; Resyntax-Result: result of a resyntax refactoring suggestion
