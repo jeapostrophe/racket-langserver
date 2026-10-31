@@ -610,7 +610,7 @@
         #:analyze (lambda (snapshot)
                     (define product ((controlled-analyzer probes) snapshot))
                     (if fail-next?
-                        (Analysis-Product #f #f '() (Analysis-Product-trace product) #f)
+                        (Analysis-Product #f #f '() (Analysis-Product-trace product) #f #f)
                         product)))
       (lambda (session)
         (define path (build-path scratch "unchanged-client-version.rkt"))
@@ -663,7 +663,7 @@
                     (define path (source-file-path (Source-Snapshot-source snapshot)))
                     (if (regexp-match? #rx"bad-product" (path->string path))
                         (Analysis-Product #t (Analysis-Product-summary product) '()
-                                          (Analysis-Product-trace product) #f)
+                                          (Analysis-Product-trace product) #f #f)
                         product)))
       (lambda (session)
         (define a (build-path scratch "bad-product.rkt"))

@@ -12,6 +12,7 @@
          workspace-add-folder!
          workspace-remove-folder!
          workspace-contains?
+         workspace-folders
          workspace-set-contribution!
          workspace-remove-path!
          workspace-reference-sources
@@ -66,6 +67,10 @@
     (Workspace-lock workspace)
     (lambda ()
       (folders-contain-path? (Workspace-folders workspace) path))))
+
+(define (workspace-folders workspace)
+  (call-with-semaphore (Workspace-lock workspace)
+                       (lambda () (set->list (Workspace-folders workspace)))))
 
 (define/contract (workspace-set-contribution! workspace contribution)
   (-> Workspace? Doc-Contribution? void?)

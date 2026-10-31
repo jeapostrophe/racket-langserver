@@ -13,7 +13,9 @@
 (provide Analysis-Scheduler?
          make-analysis-scheduler
          scheduled-analysis-event
+         scheduled-analysis-context
          request-analysis!
+         restart-analysis!
          schedule-resyntax!
          cancel-source-analysis!
          stop-analysis-scheduler!
@@ -22,9 +24,11 @@
          finish-analysis-task!)
 
 ;; parent-completion identifies the accepted analysis refined by Resyntax.
+;; context is the editor state imports read, or #f for ordinary loading.
 ;; worker is #f until execution starts. Terminal attempts leave the registry.
 (struct/contract Analysis-Attempt
   ([snapshot Source-Snapshot?]
+   [context (or/c #f Analysis-Context?)]
    [kind (or/c 'analysis 'resyntax)]
    [parent-completion (or/c #f evt?)]
    [completion Completion-Event?]
@@ -62,9 +66,15 @@
     (hash-ref (Analysis-Scheduler-attempts scheduler) (cons (source-id source) 'analysis) #f))
   (and attempt (Analysis-Attempt-completion attempt)))
 
-(define (enqueue! scheduler snapshot kind parent-completion)
+;; Import context of the queued or running analysis for `source`, or #f.
+(define (scheduled-analysis-context scheduler source)
   (define attempt
-    (Analysis-Attempt snapshot kind parent-completion (make-completion-event) 'queued #f))
+    (hash-ref (Analysis-Scheduler-attempts scheduler) (cons (source-id source) 'analysis) #f))
+  (and attempt (Analysis-Attempt-context attempt)))
+
+(define (enqueue! scheduler snapshot kind parent-completion [context #f])
+  (define attempt
+    (Analysis-Attempt snapshot context kind parent-completion (make-completion-event) 'queued #f))
   (hash-set! (Analysis-Scheduler-attempts scheduler) (attempt-key attempt) attempt)
   (set-Analysis-Scheduler-queue! scheduler
                                  (append (Analysis-Scheduler-queue scheduler) (list attempt)))
@@ -72,7 +82,7 @@
 
 ;; Requests for the same revision share an attempt. A successor revision
 ;; supersedes outstanding work for this source, including its Resyntax.
-(define (request-analysis! scheduler snapshot)
+(define (request-analysis! scheduler snapshot #:context [context #f])
   (define source (Source-Snapshot-source snapshot))
   (define active
     (hash-ref (Analysis-Scheduler-attempts scheduler) (cons (source-id source) 'analysis) #f))
@@ -84,7 +94,16 @@
      (Analysis-Attempt-completion active)]
     [else
      (cancel-source-analysis! scheduler source)
-     (enqueue! scheduler snapshot 'analysis #f)]))
+     (enqueue! scheduler snapshot 'analysis #f context)]))
+
+;; Imported text changed under an unchanged revision. Supersede outstanding
+;; work for this source with a new attempt that reads the given context.
+(define (restart-analysis! scheduler snapshot #:context context)
+  (cond
+    [(Analysis-Scheduler-stopped? scheduler) (ready-evt (Analysis-Outcome 'stopped 'shutdown))]
+    [else
+     (cancel-source-analysis! scheduler (Source-Snapshot-source snapshot) 'dependency-changed)
+     (enqueue! scheduler snapshot 'analysis #f context)]))
 
 (define (schedule-resyntax! scheduler snapshot parent-completion)
   (when (and (not (Analysis-Scheduler-stopped? scheduler))
@@ -146,7 +165,9 @@
     (start-supervised-worker!
       (Analysis-Scheduler-events scheduler) (Analysis-Scheduler-timeout scheduler)
       (if analysis?
-          (lambda () ((Analysis-Scheduler-analyze scheduler) snapshot))
+          (lambda ()
+            (parameterize ([current-analysis-context (Analysis-Attempt-context attempt)])
+              ((Analysis-Scheduler-analyze scheduler) snapshot)))
           (lambda () ((Analysis-Scheduler-resyntax scheduler)
                       (Source-Snapshot-text snapshot) (Source-Snapshot-uri snapshot))))
       #:fail (lambda (reason) (Analysis-Outcome 'failed reason))

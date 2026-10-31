@@ -8,6 +8,7 @@
          racket/class
          racket/contract
          racket/match
+         racket/path
          "../../common/debug.rkt"
          "../../common/source.rkt"
          "../../common/settings.rkt"
@@ -15,6 +16,7 @@
          "../../doclib/external/resyntax.rkt"
          "../../workspace/source-store.rkt"
          "../../workspace/current.rkt"
+         "../../workspace/state.rkt"
          "../analysis.rkt"
          "../safedoc.rkt"
          "../resyntax-place.rkt"
@@ -74,8 +76,13 @@
 
 ;; Private composition root. Subsystem representations and mutable fields
 ;; are available only through their own operations.
+;;
+;; dependencies: Source-Id of an open buffer -> module files its accepted
+;;   analysis loaded, or #f when unknown. Consumer-only.
 (struct/contract Source-Controller
-  ([store Source-Store?]
+  ([workspace Workspace?]
+   [dependencies (hash/c Source-Id? (or/c #f hash?) #:immutable #f)]
+   [store Source-Store?]
    [events async-channel?]
    [shutdown semaphore?]
    [reader Disk-Reader?]
@@ -95,7 +102,7 @@
                                 #:closed-analysis-limit [closed-analysis-limit 64]
                                 #:resyntax [resyntax (and (resyntax-available?) run-resyntax/in-place)])
   (define events (make-async-channel))
-  (Source-Controller (make-source-store) events (make-semaphore 0)
+  (Source-Controller workspace (make-hash) (make-source-store) events (make-semaphore 0)
                      (make-disk-reader events #:read read #:timeout read-timeout)
                      (make-analysis-scheduler events #:analyze analyze #:resyntax resyntax
                                               #:slots slots #:timeout analysis-timeout)
@@ -203,6 +210,69 @@
             (Source-Snapshot-revision (Available-Analysis-snapshot available)))
        (Available-Analysis-completion-evt available)))
 
+;; Editor state for one analysis: open file buffers supply imports, and
+;; project folders and buffer directories load from source. Reads every buffer
+;; under its read lock; call without holding a buffer lock.
+(define (analysis-context controller)
+  (define buffers
+    (for/fold ([buffers (hash)])
+              ([entry (in-list (source-store-buffers (Source-Controller-store controller)))])
+      (define path (source-file-path (car entry)))
+      (if path
+          (hash-set buffers path
+                    (and (not (hash-has-key? buffers path))
+                         (string->immutable-string (with-read-doc (cdr entry) doc-get-text))))
+          buffers)))
+  (define folders (workspace-folders (Source-Controller-workspace controller)))
+  (Analysis-Context buffers (append folders (map path-only (hash-keys buffers))) (make-hash)))
+
+;; Whether the accepted analysis of `source`, or the attempt now running for
+;; it, has loaded `path`. An attempt that has not reached `path` reads it from
+;; its own context and is checked again at acceptance.
+(define (loads? controller source path)
+  (define accepted (hash-ref (Source-Controller-dependencies controller) (source-id source) #f))
+  (define context (scheduled-analysis-context (Source-Controller-scheduler controller) source))
+  (or (and accepted (hash-has-key? accepted path))
+      (and context (hash-has-key? (Analysis-Context-loaded context) path))))
+
+;; Restart analysis of every other open buffer that loaded `changed`. Exact
+;; availability is cleared first, so queries wait for facts computed from the
+;; new text.
+(define (refresh-dependents! controller changed)
+  (define path (source-file-path changed))
+  (when path
+    (restart-buffers! controller
+                      (for/list ([entry (in-list (source-store-buffers (Source-Controller-store controller)))]
+                                 #:unless (equal? (source-id (car entry)) (source-id changed))
+                                 #:when (loads? controller (car entry) path))
+                        entry))
+    (source-controller-pump! controller)))
+
+;; Enqueue fresh attempts; the caller pumps.
+(define (restart-buffers! controller entries)
+  (unless (null? entries)
+    (define context (analysis-context controller))
+    (define scheduler (Source-Controller-scheduler controller))
+    (for ([entry (in-list entries)])
+      (define snapshot (source-controller-snapshot controller (car entry)))
+      (when snapshot
+        (with-write-safedoc (cdr entry)
+          (lambda (sd)
+            (set-SafeDoc-available! sd #f)
+            (set-SafeDoc-analysis-completion!
+              sd (restart-analysis! scheduler snapshot
+                                    #:context (struct-copy Analysis-Context context
+                                                [loaded (make-hash)])))))))))
+
+;; An analysis read its imports from the buffers open when it started. Any
+;; that have since changed, opened or closed make the result stale.
+(define (stale-imports? controller product)
+  (define dependencies (Analysis-Product-dependencies product))
+  (and dependencies
+       (let ([buffers (Analysis-Context-buffers (analysis-context controller))])
+         (for/or ([(path text) (in-hash dependencies)])
+           (not (equal? text (hash-ref buffers path #f)))))))
+
 (define (source-controller-ensure-analysis! controller snapshot #:refresh? [refresh? #f])
   (cond
     [(or (source-controller-stopped? controller) (not (snapshot-current? controller snapshot)))
@@ -212,7 +282,8 @@
      (define scheduler (Source-Controller-scheduler controller))
      (define active (scheduled-analysis-event scheduler source))
      (define reused (and (not refresh?) (not active) (reusable-completion controller snapshot)))
-     (define event (or reused (request-analysis! scheduler snapshot)))
+     (define event (or reused (request-analysis! scheduler snapshot
+                                                 #:context (analysis-context controller))))
      (define buffer (source-buffer controller source))
      (when buffer
        (with-write-safedoc buffer (lambda (sd) (set-SafeDoc-analysis-completion! sd event))))
@@ -246,6 +317,9 @@
                        (if (source-file-path source) contribution (not contribution)))))
     (error 'record-analysis! "successful analysis requires facts and a file-only contribution"))
   (define buffer (source-buffer controller source))
+  (when buffer
+    (hash-set! (Source-Controller-dependencies controller) (source-id source)
+               (Analysis-Product-dependencies product)))
   (cond
     [buffer
      (with-write-safedoc buffer
@@ -266,6 +340,9 @@
       (cond
         [(not (snapshot-current? controller snapshot)) (Analysis-Outcome 'stopped 'source-changed)]
         [(Analysis-Outcome? result) result]
+        [(and (eq? kind 'analysis) (source-buffer controller source) (stale-imports? controller result))
+         (restart-buffers! controller (list (cons source (source-buffer controller source))))
+         (Analysis-Outcome 'stopped 'dependency-changed)]
         [(eq? kind 'analysis) (record-analysis! controller snapshot result completion)]
         [else
          (define buffer (source-buffer controller source))
@@ -277,6 +354,8 @@
   (define succeeded? (eq? 'succeeded (Analysis-Outcome-state outcome)))
   (case kind
     [(analysis)
+     (when (eq? 'failed (Analysis-Outcome-state outcome))
+       (hash-set! (Source-Controller-dependencies controller) (source-id source) #f))
      (unless succeeded? (discard-analysis! controller source))
      (when (and succeeded? (source-buffer controller source) (get-resyntax-enabled))
        (schedule-resyntax! (Source-Controller-scheduler controller) snapshot completion))]
@@ -311,7 +390,8 @@
     (with-write-safedoc safe-doc
       (lambda (sd)
         (publish-document-analysis! (Source-Controller-publisher controller) sd snapshot restored-product))))
-  (source-controller-refresh-analysis! controller source))
+  (source-controller-refresh-analysis! controller source)
+  (refresh-dependents! controller source))
 
 ;; Clear the buffer's fresh completion and available result. The document
 ;; trace stays in place.
@@ -336,7 +416,8 @@
         (cancel-source-analysis! (Source-Controller-scheduler controller) source)
         (mutate-doc (SafeDoc-doc sd))
         source)))
-  (source-controller-refresh-analysis! controller source))
+  (source-controller-refresh-analysis! controller source)
+  (refresh-dependents! controller source))
 
 ;; Drop buffer authority without a read. File content becomes unknown; virtual
 ;; sources are removed because they have no disk fallback. Retain a completed
@@ -358,8 +439,10 @@
         (clear-analysis-projections! sd)
         (Doc-uri (SafeDoc-doc sd)))))
   (cancel-source-analysis! (Source-Controller-scheduler controller) source)
+  (hash-remove! (Source-Controller-dependencies controller) (source-id source))
   (withdraw-document-analysis! (Source-Controller-publisher controller) source uri)
   (cancel-read! controller source)
+  (refresh-dependents! controller source)
   ;; Invalidation freed slots; start queued attempts for other sources.
   (source-controller-pump! controller))
 
@@ -380,6 +463,7 @@
     (cancel-source-analysis! (Source-Controller-scheduler controller) source)
     (cancel-read! controller source)
     (when buffer (source-controller-refresh-analysis! controller source))
+    (refresh-dependents! controller source)
     ;; Invalidation freed slots; start queued attempts for other sources.
     (source-controller-pump! controller)))
 

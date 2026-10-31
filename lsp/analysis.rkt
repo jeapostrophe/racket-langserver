@@ -15,9 +15,13 @@
          "../doclib/check-syntax.rkt"
          "../doclib/doc-trace.rkt"
          "../doclib/internal-types.rkt"
+         "../common/path-util.rkt"
+         "../common/source-snapshot.rkt"
          "../workspace/source-store.rkt")
 
 (provide analyze-source
+         current-analysis-context
+         (struct-out Analysis-Context)
          (struct-out Analysis-Summary)
          (struct-out Analysis-Product)
          (struct-out Analysis-Outcome)
@@ -40,13 +44,33 @@
 ;; trace: Mutable trace. The source controller is its only consumer.
 ;; contribution: Workspace contribution after successful analysis of a file.
 ;;   `#f` when the run produced no facts or the source has no file path.
+;; dependencies: Module file the expansion loaded -> the buffer text it read,
+;;   or `#f` when it read the file. `#f` when unknown.
 (struct/contract Analysis-Product
   ([succeeded? boolean?]
    [summary (or/c #f Analysis-Summary?)]
    [diagnostics (listof jsexpr?)]
    [trace (is-a?/c build-trace%)]
-   [contribution (or/c #f Doc-Contribution?)])
+   [contribution (or/c #f Doc-Contribution?)]
+   [dependencies (or/c #f (hash/c path? (or/c #f string?) #:immutable #t))])
   #:transparent)
+
+;; Immutable view of the session's editor state for one analysis attempt.
+;;
+;; buffers: Complete normalized path -> open buffer text, or `#f` when two
+;;   buffers claim one path. Imports read these instead of disk files.
+;; roots: Directories whose modules load from source rather than from
+;;   compiled intermediates.
+;; loaded: Mutable table this attempt's worker fills while it expands, from
+;;   module file to the buffer text it read or `#f`. One table per attempt.
+(struct/contract Analysis-Context
+  ([buffers (hash/c path? (or/c #f string?) #:immutable #t)]
+   [roots (listof path?)]
+   [loaded hash?])
+  #:transparent)
+
+;; Set by the scheduler for each attempt. `#f` analyses with ordinary loading.
+(define current-analysis-context (make-parameter #f))
 
 ;; Terminal result of one Check Syntax or Resyntax attempt.
 ;;
@@ -110,7 +134,18 @@
 ;; Those extractors read the document after that installation.
 (define (analyze-source snapshot)
   (define doc (make-source-doc (Source-Snapshot-source snapshot) (Source-Snapshot-text snapshot)))
-  (define check-syntax-result (doc-check-syntax doc))
+  (define context (current-analysis-context))
+  (define check-syntax-result
+    (if context
+        (let ([roots (Analysis-Context-roots context)])
+          (call-with-source-snapshot
+            (Analysis-Context-buffers context)
+            #:source? (lambda (path) (for/or ([root (in-list roots)]) (directory-contains? root path)))
+            #:on-load (lambda (path)
+                        (hash-set! (Analysis-Context-loaded context) path
+                                   (hash-ref (Analysis-Context-buffers context) path #f)))
+            (lambda () (doc-check-syntax doc))))
+        (doc-check-syntax doc)))
   (define trace (CSResult-trace check-syntax-result))
   (define succeeded? (CSResult-succeed? check-syntax-result))
   (define contribution (and succeeded? (send trace get-contribution)))
@@ -120,4 +155,6 @@
                     (and succeeded? (Analysis-Summary (doc-definition-ranges doc)
                                                       (doc-hover-summaries doc)))
                     (freeze-json (->jsexpr (set->list (send trace get-warn-diags))))
-                    trace contribution))
+                    trace contribution
+                    (and context
+                         (make-immutable-hash (hash->list (Analysis-Context-loaded context))))))
