@@ -534,6 +534,29 @@
     (check-equal? (language-header-diagnostics diags) '()))
 
   (test-case
+    "Relative imports in a document without a directory are refused, not resolved from the working directory"
+    (define root (make-temporary-file "unbased-import~a" 'directory))
+    (dynamic-wind
+      void
+      (lambda ()
+        (display-to-file "#lang racket/base\n(provide value)\n(define value 1)\n"
+                         (build-path root "dependency.rkt"))
+        (parameterize ([current-directory root])
+          (define message
+            "Relative imports need a save location. Save this document to import files relative to it.")
+          (define (refusals text)
+            (for/list ([diag (in-list (check-syntax-diagnostics (uri->source "untitled:Untitled-1") text))]
+                       #:when (string-contains? (Diagnostic-message diag) message))
+              (Diagnostic-range diag)))
+          (check-equal? (refusals "#lang racket/base\n(require \"dependency.rkt\")\nvalue\n")
+                        (list (Range (Pos 1 9) (Pos 1 25))))
+          (check-equal? (refusals "#lang racket/base\n(require (submod \"dependency.rkt\" x))\n")
+                        (list (Range (Pos 1 9) (Pos 1 36))))
+          (check-equal? (refusals "#lang racket/base\n(require racket/list (file \"/no/such/file.rkt\"))\n")
+                        '())))
+      (lambda () (delete-directory/files root))))
+
+  (test-case
     "Document diagnostics simplify missing collection messages"
     (define text "#lang racke\n")
     (define diags
