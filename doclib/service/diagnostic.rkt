@@ -198,12 +198,10 @@
            msg))
      (define srclocs ((exn:srclocs-accessor exn) exn))
      (for/list ([sl (in-list srclocs)])
-       (match-define (srcloc src line col pos span) sl)
-       ;; Source location columns count characters. Convert through the
-       ;; character offset so the range uses LSP columns.
-       (define start
-         (and (exact-positive-integer? line) (exact-nonnegative-integer? col)
-              (+ (send doc-text line-start-pos (sub1 line)) col)))
+       (match-define (srcloc _src _line _col pos span) sl)
+       ;; Convert from the one-based character position. The reader's column
+       ;; counts a tab up to the next multiple of 8, so it is not an LSP column.
+       (define start (and (exact-positive-integer? pos) (sub1 pos)))
        (if (and start (exact-nonnegative-integer? span)
                 (<= (+ start span) (send doc-text end-pos)))
            (Diagnostic #:range (nonempty-diagnostic-range

@@ -17,14 +17,15 @@
 
 (provide drracket-format-edits)
 
-(struct Line-edit (line delete-amount insert-text) #:transparent)
+;; `deleted-text` is the line prefix the edit replaces.
+(struct Line-edit (line deleted-text insert-text) #:transparent)
 
 (define (line-edit->text-edit edit)
   (match-define (struct* Line-edit ([line line]
-                                    [delete-amount delete-amount]
+                                    [deleted-text deleted-text]
                                     [insert-text insert-text]))
     edit)
-  (TextEdit (Range (Pos line 0) (Pos line delete-amount)) insert-text))
+  (TextEdit (Range (Pos line 0) (Pos line (string-utf16-length deleted-text))) insert-text))
 
 (define hook-failed (gensym 'hook-failed))
 
@@ -80,7 +81,7 @@
   (define bounded-delete (min delete-amount (- end start)))
   (define old-text (send textoid get-text start (+ start bounded-delete)))
   (and (not (string=? old-text insert-text))
-       (Line-edit line bounded-delete insert-text)))
+       (Line-edit line old-text insert-text)))
 
 (define (edits-for-substitutions textoid first-line last-line substitutions)
   (reverse
@@ -148,9 +149,9 @@
          [(not edit)
           (loop current-textoid (add1 line) edits)]
          [else
-          (match-define (struct* Line-edit ([delete-amount deleted] [insert-text inserted])) edit)
+          (match-define (struct* Line-edit ([deleted-text deleted] [insert-text inserted])) edit)
           (define next-textoid
-            (textoid-replace-line-prefix! current-textoid line deleted inserted))
+            (textoid-replace-line-prefix! current-textoid line (string-length deleted) inserted))
           (if next-textoid
               (loop next-textoid (add1 line) (cons edit edits))
               '())])])))

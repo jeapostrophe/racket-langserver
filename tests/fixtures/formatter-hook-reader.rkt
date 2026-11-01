@@ -10,7 +10,9 @@ racket/base
     (send textoid get-text 0 (send textoid last-position)))
   (when (regexp-match? #rx"fail-hook" text)
     (error 'range-indent "fixture hook failure"))
-  '((0 ">>>")))
+  (if (regexp-match? #rx"replace-two" text)
+      '((2 ">>>"))
+      '((0 ">>>"))))
 
 (define (formatter-info key default default-filter)
   (case key

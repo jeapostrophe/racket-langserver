@@ -605,6 +605,21 @@
     (check-equal? (Diagnostic-range diag) (Range (Pos 1 5) (Pos 1 17))))
 
   (test-case
+    "Document diagnostics count a tab as one UTF-16 code unit"
+    ;; The reader puts the `(` after a tab at column 8, but it is character 1
+    ;; on its line. After U+1F600, the unclosed `(` is at LSP column 6.
+    (define (read-error-range text)
+      (define diags
+        (check-syntax-diagnostics (uri->source "file:///tmp/tab-diagnostic-test.rkt")
+                                  text))
+      (check-equal? (length diags) 1)
+      (Diagnostic-range (car diags)))
+    (check-equal? (read-error-range "#lang racket/base\n\t(\n")
+                  (Range (Pos 1 1) (Pos 1 2)))
+    (check-equal? (read-error-range "#lang racket/base\n\t\"\U0001F600\" (\n")
+                  (Range (Pos 1 6) (Pos 1 7))))
+
+  (test-case
     "Document diagnostics accept wrapped #lang headers"
     (define at-exp-diags
       (check-syntax-diagnostics (uri->source "file:///tmp/at-exp-language-test.rkt")

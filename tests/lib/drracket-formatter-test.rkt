@@ -408,6 +408,21 @@
       expected))
 
   (test-case
+    "range indentation edits end at the deleted prefix's UTF-16 length"
+    ;; The hook deletes two characters, U+1F600 and `x`, which are three
+    ;; UTF-16 code units.
+    (define text
+      (newlines "#lang reader \"formatter-hook-reader.rkt\""
+                "\U0001F600xreplace-two"))
+    (check-equal?
+      (drracket-format-edits text
+                             1
+                             1
+                             #:formatting-options default-options
+                             #:src-dir fixtures-directory)
+      (list (TextEdit (Range (Pos 1 0) (Pos 1 3)) ">>>"))))
+
+  (test-case
     "language indentation replaces all leading whitespace"
     (define text
       (newlines "#lang reader \"formatter-hook-reader.rkt\""

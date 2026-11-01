@@ -67,11 +67,23 @@
          *semantic-token-types*
          *semantic-token-modifiers*
          abs-pos->Pos
+         char-utf16-length
+         string-utf16-length
          (json-type-out Resyntax-Result))
 
 (define-json-struct Pos
   [line exact-nonnegative-integer?]
   [char exact-nonnegative-integer? #:json character])
+
+;; `char` counts UTF-16 code units within its line, as LSP positions do unless
+;; another encoding is negotiated. A character outside the Basic Multilingual
+;; Plane is one character and two code units.
+(define (char-utf16-length c)
+  (if (> (char->integer c) #xFFFF) 2 1))
+
+(define (string-utf16-length str)
+  (for/sum ([c (in-string str)])
+    (char-utf16-length c)))
 
 (define-json-struct Range
   [start Pos]
