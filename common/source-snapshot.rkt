@@ -47,7 +47,7 @@
        (unless (and (pair? expected) (not (car expected)))
          (parameterize ([current-load-relative-directory (path-only full)]
                         [current-module-declare-source full])
-           (eval (get-module-code full #:sub-path '() #:rkt-try-ss? #f
+           (eval (get-module-code full #:rkt-try-ss? #f
                                   #:choose (lambda _ 'src)))))]
       [else (ordinary-load file expected)]))
   (parameterize ([current-load/use-compiled load-snapshot]
