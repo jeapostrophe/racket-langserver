@@ -57,13 +57,14 @@
     [(list* 'submod (and parent (not (or "." ".."))) _) (relative-module-path? parent)]
     [_ #f]))
 
-;; The module name resolver resolves a relative module path against the module
-;; that requires it. A document without an analysis directory has no file to
-;; resolve against, so the resolver would use the server's working directory.
-;; Refuse such an import instead. Modules loaded from files are unaffected.
+;; The module name resolver for a document without an analysis directory.
+;; `resolve` resolves a relative module path against the module that requires
+;; it. The document has no file to resolve against, so `resolve` would use the
+;; server's working directory. This resolver refuses such an import instead and
+;; otherwise defers to `resolve`. Modules loaded from files are unaffected.
 ;; Older Racket versions pass no syntax for the require, so the refusal then
 ;; names only the document.
-(define (refuse-unbased-relative-imports resolve document)
+(define (directoryless-module-name-resolver resolve document)
   (case-lambda
     [(name namespace) (resolve name namespace)]
     [(module relative-to stx load?)
@@ -92,8 +93,8 @@
                  [current-module-name-resolver
                   (if src-dir
                       (current-module-name-resolver)
-                      (refuse-unbased-relative-imports (current-module-name-resolver)
-                                                       (source-syntax-source source)))]
+                      (directoryless-module-name-resolver (current-module-name-resolver)
+                                                          (source-syntax-source source)))]
                  [current-namespace ns]
                  [current-annotations collector])
     (define stx
