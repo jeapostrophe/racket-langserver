@@ -64,14 +64,6 @@
     (define/public (end-pos)
       (rope-chars rope))
 
-    (define/public (line/char->pos line char)
-      (+ char (line-start-pos/raw line)))
-
-    (define/public (pos->line/char pos)
-      (define line (rope-offset->line rope pos))
-      (list line
-            (- pos (send this line-start-pos line))))
-
     ;; LSP positions count UTF-16 code units within a line, while the rope and
     ;; Racket syntax positions count characters. A character outside the Basic
     ;; Multilingual Plane is one character and two UTF-16 code units.
@@ -97,15 +89,13 @@
                   (loop (add1 middle) high)
                   (loop low middle))))))
 
-    ;; A column past the end of the line means the end of the line, and a
-    ;; column inside a surrogate pair means the start of its character.
-    (define/public (lsp-position->pos line char)
+    ;; A column inside a surrogate pair means the start of its character.
+    (define/public (line/char->pos line char)
       (define start (line-start-pos/raw line))
       (define offsets (astral-offsets line))
-      (min (send this line-end-pos line)
-           (+ start (- char (astral-count-before offsets char #t)))))
+      (+ start (- char (astral-count-before offsets char #t))))
 
-    (define/public (pos->lsp-position pos)
+    (define/public (pos->line/char pos)
       (define line (rope-offset->line rope pos))
       (define column (- pos (send this line-start-pos line)))
       (list line (+ column (astral-count-before (astral-offsets line) column #f))))
