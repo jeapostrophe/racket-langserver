@@ -1,6 +1,7 @@
 #lang racket/base
 
 (require "snapshot.rkt"
+         "../textbuffer/text-port.rkt"
          racket/contract
          racket/match
          racket/string
@@ -91,8 +92,7 @@
 
 (define/contract (text->lexer-token-spans text)
   (-> string? (vectorof LexerTokenSpan?))
-  (define in (open-input-string text))
-  (port-count-lines! in)
+  (define in (open-input-text text))
   (define-values (initial-txt initial-type _initial-paren? initial-start initial-end lexer)
     (get-initial-lexer-state in))
   ;; The initial token comes from `module-lexer`; subsequent tokens come from

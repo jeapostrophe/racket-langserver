@@ -7,6 +7,7 @@
          racket/path
          racket/port
          "editor.rkt"
+         "textbuffer/text-port.rkt"
          "doc-trace.rkt"
          (only-in "lexer.rkt"
                   LexerState?
@@ -102,7 +103,7 @@
       [doc-text doc-text]
       [lexer-state lexer-state]))
 
-  (define in (open-input-string text))
+  (define in (open-input-text text))
   (define er (expand-source source in new-trace #:expand? expand?))
 
   (send new-trace walk-stx er)

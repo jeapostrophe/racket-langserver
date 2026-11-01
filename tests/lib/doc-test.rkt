@@ -620,6 +620,20 @@
                   (Range (Pos 1 6) (Pos 1 7))))
 
   (test-case
+    "Document diagnostics count each CRLF as two characters"
+    ;; Racket reads "\r\n" as one position, so without counting both
+    ;; characters each range on line 2 would start two characters early.
+    ;; U+1F600 is one character and four UTF-8 bytes.
+    (define (diagnostic-ranges text)
+      (map Diagnostic-range
+           (check-syntax-diagnostics (uri->source "file:///tmp/crlf-diagnostic-test.rkt")
+                                     text)))
+    (check-equal? (diagnostic-ranges "#lang racket/base\r\n(void)\r\nunbound-name\r\n")
+                  (list (Range (Pos 2 0) (Pos 2 12))))
+    (check-equal? (diagnostic-ranges "#lang racket/base\r\n\"\U0001F600\"\r\n(\r\n")
+                  (list (Range (Pos 2 0) (Pos 2 1)))))
+
+  (test-case
     "Document diagnostics accept wrapped #lang headers"
     (define at-exp-diags
       (check-syntax-diagnostics (uri->source "file:///tmp/at-exp-language-test.rkt")
@@ -1272,6 +1286,45 @@ END
                   (Range (Pos 1 13) (Pos 1 14)))
     (doc-apply-edit! d (Range (Pos 1 18) (Pos 1 19)) "y")
     (check-equal? (doc-get-text d) "#lang racket\n\"\U0001F600\" (define x 1) y\n"))
+
+  ;; Racket reads "\r\n" as one position and the editor as two characters, so
+  ;; without counting both each position on line 2 would be two characters early.
+  (define crlf-text "#lang racket\r\n(define x 1)\r\n#; x (+ x x)\r\n")
+
+  (define (make-expanded-crlf-doc uri)
+    (define d (make-doc uri crlf-text))
+    (doc-expand! d)
+    d)
+
+  (test-case
+    "Definitions count each CRLF as two characters"
+    (define uri "file:///tmp/doc-crlf-definition-test.rkt")
+    (define d (make-expanded-crlf-doc uri))
+    (check-equal? (Location-range (doc-definition d uri (Pos 2 8)))
+                  (Range (Pos 1 8) (Pos 1 9))))
+
+  (test-case
+    "References count each CRLF as two characters"
+    (define uri "file:///tmp/doc-crlf-references-test.rkt")
+    (define d (make-expanded-crlf-doc uri))
+    (check-equal? (map Location-range
+                       (Reference-Source-locations
+                         (Document-Reference-Result-source (doc-references d uri (Pos 2 8) #t))))
+                  (list (Range (Pos 1 8) (Pos 1 9))
+                        (Range (Pos 2 8) (Pos 2 9))
+                        (Range (Pos 2 10) (Pos 2 11)))))
+
+  (test-case
+    "Semantic tokens count each CRLF as two characters"
+    ;; The S-expression comment comes from the lexer, the uses of `x` from
+    ;; expansion.
+    (define d (make-expanded-crlf-doc "file:///tmp/doc-crlf-tokens-test.rkt"))
+    (define tokens (doc-range-tokens d (Range (Pos 2 0) (Pos 3 0))))
+    (check-equal? (encode-semantic-tokens (lambda (pos) (doc-abs-pos->pos d pos)) tokens)
+                  '(2 0 4 5 0
+                    0 6 1 1 0
+                    0 2 1 0 0
+                    0 2 1 0 0)))
 
   (test-case
     "doc-definition for imported define"
