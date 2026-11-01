@@ -544,14 +544,30 @@
         (parameterize ([current-directory root])
           (define message
             "Relative imports need a save location. Save this document to import files relative to it.")
+          ;; Older Racket versions pass no syntax for a require to the module
+          ;; name resolver, so the refusal is reported on the first line.
+          (define resolver-receives-syntax?
+            (let ([resolve (current-module-name-resolver)]
+                  [received #f])
+              (parameterize ([current-namespace (make-base-namespace)]
+                             [current-module-name-resolver
+                              (case-lambda
+                                [(name namespace) (resolve name namespace)]
+                                [(module relative-to stx load?)
+                                 (when (equal? module "dependency.rkt") (set! received (syntax? stx)))
+                                 (resolve module relative-to stx load?)])])
+                (expand '(module probe racket/base (require "dependency.rkt"))))
+              received))
+          (define (located range)
+            (if resolver-receives-syntax? range (Range (Pos 0 0) (Pos 0 17))))
           (define (refusals text)
             (for/list ([diag (in-list (check-syntax-diagnostics (uri->source "untitled:Untitled-1") text))]
                        #:when (string-contains? (Diagnostic-message diag) message))
               (Diagnostic-range diag)))
           (check-equal? (refusals "#lang racket/base\n(require \"dependency.rkt\")\nvalue\n")
-                        (list (Range (Pos 1 9) (Pos 1 25))))
+                        (list (located (Range (Pos 1 9) (Pos 1 25)))))
           (check-equal? (refusals "#lang racket/base\n(require (submod \"dependency.rkt\" x))\n")
-                        (list (Range (Pos 1 9) (Pos 1 36))))
+                        (list (located (Range (Pos 1 9) (Pos 1 36)))))
           (check-equal? (refusals "#lang racket/base\n(require racket/list (file \"/no/such/file.rkt\"))\n")
                         '())))
       (lambda () (delete-directory/files root))))
