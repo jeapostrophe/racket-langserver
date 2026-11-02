@@ -4,11 +4,18 @@
 ;; edits, and analyses again the open documents that loaded it when that
 ;; buffer opens, changes or closes.
 (require rackunit
+         racket/async-channel
          racket/file
          compiler/cm
          "../../common/path-util.rkt"
+         "../../common/source.rkt"
+         "../../common/source-snapshot.rkt"
          "../../common/time.rkt"
+         "../../lsp/analysis.rkt"
+         (submod "../../lsp/analysis.rkt" test-support)
+         "../../lsp/safedoc.rkt"
          "../../lsp/source-controller.rkt"
+         (submod "../../lsp/source-controller.rkt" owner)
          "controller-support.rkt")
 
 (define (write-text path text)
@@ -97,4 +104,69 @@
         (await-errors session consumer #t)
         (open! session leaf-path (leaf "new"))
         (await-errors session consumer #f)
-        (check-equal? (file->string leaf-path) (leaf "old"))))))
+        (check-equal? (file->string leaf-path) (leaf "old")))))
+
+  (test-case "a collection path added after startup keeps ordinary loading"
+    ;; Every module counts as project source here, so only the collection path
+    ;; can send this module to the ordinary load handler.
+    (define root (make-temporary-file "late-collection~a" 'directory))
+    (define module-file (build-path root "late.rkt"))
+    (write-text module-file "#lang racket/base\n")
+    (define ordinary-loads '())
+    (define ordinary-load (current-load/use-compiled))
+    (dynamic-wind
+      void
+      (lambda ()
+        (parameterize ([current-library-collection-paths
+                        (cons root (current-library-collection-paths))]
+                       [current-load/use-compiled
+                        (lambda (file expected)
+                          (set! ordinary-loads (cons (normalize-source-path file) ordinary-loads))
+                          (ordinary-load file expected))]
+                       [current-namespace (make-base-namespace)])
+          (call-with-source-snapshot (hash) #:source? (lambda (_) #t)
+                                     (lambda () (dynamic-require module-file #f))))
+        (check-not-false (member (normalize-source-path module-file) ordinary-loads)))
+      (lambda () (delete-directory/files root))))
+
+  (test-case "a worker killed inside its load record leaves the controller responsive"
+    ;; The worker is shut down while it adds a module to its load record,
+    ;; inside the hashing of the key. Nothing handles that attempt's
+    ;; completion, so it stays current, and opening another buffer asks
+    ;; whether it loaded that buffer's file.
+    (define entered (make-semaphore 0))
+    (struct stuck ()
+      #:property prop:equal+hash
+      (list (lambda (a b recur) (eq? a b))
+            (lambda (a recur) (semaphore-post entered) (sync never-evt))
+            (lambda (a recur) 0)))
+    (define workers (make-async-channel))
+    (define root (make-temporary-file "open-buffer-kill~a" 'directory))
+    (define custodian (make-custodian))
+    (dynamic-wind
+      void
+      (lambda ()
+        (parameterize ([current-custodian custodian])
+          (define controller
+            (make-source-controller
+              #:resyntax #f
+              #:analyze (lambda (snapshot)
+                          (async-channel-put workers (current-custodian))
+                          (define loaded (Analysis-Context-loaded (current-analysis-context)))
+                          (record-load! loaded (stuck) #f))))
+          (define (open-buffer name)
+            (define path (build-path root name))
+            (source-controller-open! controller (path->source path)
+                                     (new-safedoc (path->uri path) "#lang racket/base\n" 0)))
+          (open-buffer "consumer.rkt")
+          (define worker (await workers 30))
+          (await entered 30)
+          (custodian-shutdown-all worker)
+          (define opened (make-async-channel))
+          (thread (lambda ()
+                    (open-buffer "dependency.rkt")
+                    (async-channel-put opened 'returned)))
+          (check-eq? (await opened 30) 'returned)))
+      (lambda ()
+        (custodian-shutdown-all custodian)
+        (delete-directory/files root)))))

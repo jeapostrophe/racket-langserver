@@ -17,11 +17,20 @@
 ;; on-load: receives each module file the expansion loads.
 ;; Installed collections keep compiled loading even below a project folder,
 ;; for example when a workspace folder contains the Racket installation.
+;; The setup roots are found when this module is instantiated, outside analysis
+;; workers in the server. Some finders can force shared `delay/sync` promises;
+;; killing an unfinished initial computation can leave later forces blocked.
+;; Collection paths are read at each call, since callers may parameterize them.
+(define installed-roots
+  (map normalize-source-path
+       (filter values (list (find-collects-dir) (find-pkgs-dir)
+                            (find-user-collects-dir) (find-user-pkgs-dir)))))
+
 (define (installed-library? file)
-  (for/or ([dir (in-list (filter values (list* (find-collects-dir) (find-pkgs-dir)
-                                               (find-user-collects-dir) (find-user-pkgs-dir)
-                                               (current-library-collection-paths))))])
-    (directory-contains? (normalize-source-path dir) file)))
+  (for/or ([root (in-list (append installed-roots
+                                  (map normalize-source-path
+                                       (current-library-collection-paths))))])
+    (directory-contains? root file)))
 
 (define (call-with-source-snapshot sources proc
                                    #:source? [source? (lambda (_) #f)]

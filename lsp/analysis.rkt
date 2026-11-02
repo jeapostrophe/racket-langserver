@@ -55,18 +55,28 @@
    [dependencies (or/c #f (hash/c path? (or/c #f string?) #:immutable #t))])
   #:transparent)
 
+;; A plain mutable box for CAS publication of plain immutable load tables.
+(define (load-record? value)
+  (and (box? value)
+       (not (immutable? value))
+       (not (impersonator? value))
+       (let ([table (unbox value)])
+         (and (hash? table) (immutable? table) (not (impersonator? table))))))
+
 ;; Immutable view of the session's editor state for one analysis attempt.
 ;;
 ;; buffers: Complete normalized path -> open buffer text, or `#f` when two
 ;;   buffers claim one path. Imports read these instead of disk files.
 ;; roots: Directories whose modules load from source rather than from
 ;;   compiled intermediates.
-;; loaded: Mutable table this attempt's worker fills while it expands, from
-;;   module file to the buffer text it read or `#f`. One table per attempt.
+;; loaded: Box of an immutable table from module file to the buffer text it
+;;   read or `#f`. This attempt's worker replaces the table with `box-cas!`
+;;   while it expands. One box per attempt. The controller reads it while the
+;;   worker may be killed; a mutable table could be left locked by the kill.
 (struct/contract Analysis-Context
   ([buffers (hash/c path? (or/c #f string?) #:immutable #t)]
    [roots (listof path?)]
-   [loaded hash?])
+   [loaded load-record?])
   #:transparent)
 
 ;; Set by the scheduler for each attempt. `#f` analyses with ordinary loading.
@@ -129,6 +139,17 @@
     [(list? value) (map freeze-json value)]
     [else value]))
 
+;; Add `path` to an `Analysis-Context-loaded` record. A kill at any point
+;; leaves the record holding either the previous table or the new one.
+(define (record-load! loaded path text)
+  (let retry ()
+    (define table (unbox loaded))
+    (unless (box-cas! loaded table (hash-set table path text))
+      (retry))))
+
+(module+ test-support
+  (provide record-load!))
+
 ;; Run Check Syntax for `snapshot` on a private document. On success, install
 ;; the trace on that document before copying definition and hover facts.
 ;; Those extractors read the document after that installation.
@@ -142,8 +163,8 @@
             (Analysis-Context-buffers context)
             #:source? (lambda (path) (for/or ([root (in-list roots)]) (directory-contains? root path)))
             #:on-load (lambda (path)
-                        (hash-set! (Analysis-Context-loaded context) path
-                                   (hash-ref (Analysis-Context-buffers context) path #f)))
+                        (record-load! (Analysis-Context-loaded context) path
+                                      (hash-ref (Analysis-Context-buffers context) path #f)))
             (lambda () (doc-check-syntax doc))))
         (doc-check-syntax doc)))
   (define trace (CSResult-trace check-syntax-result))
@@ -156,5 +177,4 @@
                                                       (doc-hover-summaries doc)))
                     (freeze-json (->jsexpr (set->list (send trace get-warn-diags))))
                     trace contribution
-                    (and context
-                         (make-immutable-hash (hash->list (Analysis-Context-loaded context))))))
+                    (and context (unbox (Analysis-Context-loaded context)))))

@@ -224,7 +224,7 @@
                          (string->immutable-string (with-read-doc (cdr entry) doc-get-text))))
           buffers)))
   (define folders (workspace-folders (Source-Controller-workspace controller)))
-  (Analysis-Context buffers (append folders (map path-only (hash-keys buffers))) (make-hash)))
+  (Analysis-Context buffers (append folders (map path-only (hash-keys buffers))) (box (hash))))
 
 ;; Whether the accepted analysis of `source`, or the attempt now running for
 ;; it, has loaded `path`. An attempt that has not reached `path` reads it from
@@ -233,7 +233,7 @@
   (define accepted (hash-ref (Source-Controller-dependencies controller) (source-id source) #f))
   (define context (scheduled-analysis-context (Source-Controller-scheduler controller) source))
   (or (and accepted (hash-has-key? accepted path))
-      (and context (hash-has-key? (Analysis-Context-loaded context) path))))
+      (and context (hash-has-key? (unbox (Analysis-Context-loaded context)) path))))
 
 ;; Restart analysis of every other open buffer that loaded `changed`. Exact
 ;; availability is cleared first, so queries wait for facts computed from the
@@ -262,7 +262,7 @@
             (set-SafeDoc-analysis-completion!
               sd (restart-analysis! scheduler snapshot
                                     #:context (struct-copy Analysis-Context context
-                                                [loaded (make-hash)])))))))))
+                                                [loaded (box (hash))])))))))))
 
 ;; An analysis read its imports from the buffers open when it started. Any
 ;; that have since changed, opened or closed make the result stale.
