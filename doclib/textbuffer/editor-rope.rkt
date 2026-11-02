@@ -4,6 +4,9 @@
 
 (require racket/class
          racket/file
+         (only-in "../../common/interfaces.rkt"
+                  char-utf16-length
+                  string-utf16-length)
          "textbuffer-rope.rkt")
 
 (define lsp-editor%
@@ -58,13 +61,33 @@
     (define/public (end-pos)
       (rope-chars rope))
 
+    ;; LSP positions count UTF-16 code units within a line, while the rope and
+    ;; Racket syntax positions count characters. Each conversion scans its line,
+    ;; so reading a position leaves the editor unchanged. A column inside a
+    ;; surrogate pair means the start of its character. Past the end of a line,
+    ;; one position is one code unit in both directions.
     (define/public (line/char->pos line char)
-      (+ char (line-start-pos/raw line)))
+      (define start (line-start-pos/raw line))
+      ;; Each character is at least one code unit, so `char` characters suffice.
+      (define text
+        (send this get-text start (min (+ start char) (send this line-end-pos line))))
+      (let loop ([offset 0]
+                 [units 0])
+        (cond
+          [(= offset (string-length text))
+           (+ start offset (- char units))]
+          [else
+           (define next (+ units (char-utf16-length (string-ref text offset))))
+           (if (> next char)
+               (+ start offset)
+               (loop (add1 offset) next))])))
 
     (define/public (pos->line/char pos)
       (define line (rope-offset->line rope pos))
+      (define end (min pos (send this line-end-pos line)))
       (list line
-            (- pos (send this line-start-pos line))))
+            (+ (string-utf16-length (send this get-text (send this line-start-pos line) end))
+               (- pos end))))
 
     (define/public (line-start-pos line)
       (rope-line-start-offset rope line))

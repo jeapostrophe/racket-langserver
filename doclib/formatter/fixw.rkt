@@ -30,5 +30,5 @@
              #:when (and (<= start-ln ln end-ln)
                          (not (string=? original-line formatted-line))))
     (TextEdit #:range (Range (Pos ln 0)
-                             (Pos ln (string-length original-line)))
+                             (Pos ln (string-utf16-length original-line)))
               #:newText formatted-line)))

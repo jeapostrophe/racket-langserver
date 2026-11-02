@@ -19,7 +19,8 @@
          racket/match
          (only-in srfi/2 and-let*)
          syntax-color/module-lexer
-         "../lexer/snapshot.rkt")
+         "../lexer/snapshot.rkt"
+         "../textbuffer/text-port.rkt")
 
 (provide make-textoid
          make-textoid-from-lexer-snapshot
@@ -76,8 +77,7 @@
 
 (define (lex-content content source-directory)
   (with-handlers ([exn:fail? (lambda (_exn) #f)])
-    (define input (open-input-string content))
-    (port-count-lines! input)
+    (define input (open-input-text content))
     (define lexer (or module-lexer*/maybe module-lexer))
     (parameterize ([current-directory
                     (or (source-directory->path source-directory)

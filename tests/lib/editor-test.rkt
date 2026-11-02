@@ -226,6 +226,28 @@
     (check-equal? (send editor line-end-pos 2) eof)
     (check-equal? (send editor at-line eof) 1))
 
+  (test-case "editor columns count UTF-16 code units"
+    ;; U+1F600 is one character and two UTF-16 code units.
+    (define editor (make-editor "a\U0001F600b\n\U0001F600\U0001F600c\n"))
+
+    (for ([column (in-list '(0 1 3 4))]
+          [pos (in-list '(0 1 2 3))])
+      (check-equal? (send editor line/char->pos 0 column) pos)
+      (check-equal? (send editor pos->line/char pos) (list 0 column)))
+    (for ([column (in-list '(0 2 4 5))]
+          [pos (in-list '(4 5 6 7))])
+      (check-equal? (send editor line/char->pos 1 column) pos)
+      (check-equal? (send editor pos->line/char pos) (list 1 column)))
+    ;; A column inside a surrogate pair names the start of its character.
+    (check-equal? (send editor line/char->pos 0 2) 1)
+    ;; Past the end of the text, one position is one code unit.
+    (check-equal? (send editor pos->line/char 10) '(2 2))
+
+    (send editor replace "x" 1 2)
+    (check-equal? (send editor get-line 0) "axb")
+    (check-equal? (send editor line/char->pos 0 2) 2)
+    (check-equal? (send editor pos->line/char 3) '(0 3)))
+
   (test-case "editor copy keeps an immutable snapshot"
     (define editor (make-editor "abc\n"))
 

@@ -49,6 +49,18 @@
       expected))
 
   (test-case
+    "fixw edits end at the line's UTF-16 length"
+    ;; U+1F600 is one character and two UTF-16 code units, so the last line
+    ;; is 4 characters and 5 code units long.
+    (check-equal?
+      (formatting (editor-with "#lang racket/base\n(define x\n\"\U0001F600\")")
+                  0
+                  2
+                  #:backend 'fixw
+                  #:formatting-options (formatting-options 2 #t (hasheq)))
+      (list (TextEdit (Range (Pos 2 0) (Pos 2 5)) "  \"\U0001F600\")"))))
+
+  (test-case
     "fmt forwards fmtSettings and ignores Format Document extras"
     (define calls '())
     (define (runner arguments text)

@@ -408,6 +408,36 @@
       expected))
 
   (test-case
+    "range indentation edits end at the deleted prefix's UTF-16 length"
+    ;; The hook deletes two characters, U+1F600 and `x`, which are three
+    ;; UTF-16 code units.
+    (define text
+      (newlines "#lang reader \"formatter-hook-reader.rkt\""
+                "\U0001F600xreplace-two"))
+    (check-equal?
+      (drracket-format-edits text
+                             1
+                             1
+                             #:formatting-options default-options
+                             #:src-dir fixtures-directory)
+      (list (TextEdit (Range (Pos 1 0) (Pos 1 3)) ">>>"))))
+
+  (test-case
+    "standard Racket indentation counts each CRLF as two characters"
+    ;; Racket reads "\r\n" as one position, so without counting both
+    ;; characters the tokens of each later line would be misplaced.
+    (when standard-racket-indentation?
+      (define text "#lang racket/base\r\n(define (f x)\r\n(let ([y x])\r\ny))\r\n")
+      (check-equal?
+        (drracket-format-edits text
+                               1
+                               3
+                               #:formatting-options default-options
+                               #:racket-fallback? #t)
+        (list (TextEdit (Range (Pos 2 0) (Pos 2 0)) "  ")
+              (TextEdit (Range (Pos 3 0) (Pos 3 0)) "    ")))))
+
+  (test-case
     "language indentation replaces all leading whitespace"
     (define text
       (newlines "#lang reader \"formatter-hook-reader.rkt\""

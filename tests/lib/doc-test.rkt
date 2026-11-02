@@ -14,6 +14,7 @@
            "../../doclib/formatter/fmt.rkt"
            "../../common/interfaces.rkt"
            "../../common/path-util.rkt"
+           "../../lsp/semantic-token-lsp.rkt"
            racket/class
            racket/file
            drracket/check-syntax
@@ -28,6 +29,14 @@
     (check-equal? (doc-range-tokens d (Range (Pos 0 0) (Pos 3 0))) bounded)
     (check-equal? (doc-range-tokens d (Range (Pos 0 0) (Pos 0 100))) bounded)
     (check-equal? (doc-range-tokens d (Range (Pos 3 0) (Pos 4 0))) '()))
+
+  (test-case
+    "Semantic tokens count UTF-16 code units after and within astral characters"
+    ;; U+1F600 is one character and two UTF-16 code units.
+    (define d (make-doc "file:///utf16-tokens.rkt" "\U0001F600 #; (\U0001F600)"))
+    (define tokens (doc-range-tokens d (Range (Pos 0 0) (Pos 0 10))))
+    (check-equal? (take (encode-semantic-tokens (lambda (pos) (doc-abs-pos->pos d pos)) tokens) 3)
+                  '(0 3 7)))
 
   (test-case
     "Document creation and basic accessors"
@@ -618,6 +627,50 @@
           "Check that the module name is correct and the package is installed.")))
     (check-not-false diag)
     (check-equal? (Diagnostic-source diag) "Racket"))
+
+  (test-case
+    "Document diagnostics count UTF-16 code units after astral characters"
+    ;; U+1F600 is one character and two UTF-16 code units, so the unbound
+    ;; identifier starts at character 4 and at LSP column 5.
+    (define text "#lang racket/base\n\"\U0001F600\" unbound-name\n")
+    (define diags
+      (check-syntax-diagnostics (uri->source "file:///tmp/utf16-diagnostic-test.rkt")
+                                text))
+    (define diag
+      (for/first ([diag (in-list diags)]
+                  #:when (regexp-match? #rx"unbound-name" (Diagnostic-message diag)))
+        diag))
+    (check-not-false diag)
+    (check-equal? (Diagnostic-range diag) (Range (Pos 1 5) (Pos 1 17))))
+
+  (test-case
+    "Document diagnostics count a tab as one UTF-16 code unit"
+    ;; The reader puts the `(` after a tab at column 8, but it is character 1
+    ;; on its line. After U+1F600, the unclosed `(` is at LSP column 6.
+    (define (read-error-range text)
+      (define diags
+        (check-syntax-diagnostics (uri->source "file:///tmp/tab-diagnostic-test.rkt")
+                                  text))
+      (check-equal? (length diags) 1)
+      (Diagnostic-range (car diags)))
+    (check-equal? (read-error-range "#lang racket/base\n\t(\n")
+                  (Range (Pos 1 1) (Pos 1 2)))
+    (check-equal? (read-error-range "#lang racket/base\n\t\"\U0001F600\" (\n")
+                  (Range (Pos 1 6) (Pos 1 7))))
+
+  (test-case
+    "Document diagnostics count each CRLF as two characters"
+    ;; Racket reads "\r\n" as one position, so without counting both
+    ;; characters each range on line 2 would start two characters early.
+    ;; U+1F600 is one character and four UTF-8 bytes.
+    (define (diagnostic-ranges text)
+      (map Diagnostic-range
+           (check-syntax-diagnostics (uri->source "file:///tmp/crlf-diagnostic-test.rkt")
+                                     text)))
+    (check-equal? (diagnostic-ranges "#lang racket/base\r\n(void)\r\nunbound-name\r\n")
+                  (list (Range (Pos 2 0) (Pos 2 12))))
+    (check-equal? (diagnostic-ranges "#lang racket/base\r\n\"\U0001F600\"\r\n(\r\n")
+                  (list (Range (Pos 2 0) (Pos 2 1)))))
 
   (test-case
     "Document diagnostics accept wrapped #lang headers"
@@ -1257,6 +1310,60 @@ END
     (check-equal? (Location-uri result) uri)
     (check-equal? (Location-range result)
                   (Range (Pos 1 8) (Pos 1 9))))
+
+  (test-case
+    "Document positions count UTF-16 code units after astral characters"
+    ;; U+1F600 is one character and two UTF-16 code units, so `x` in
+    ;; `(define x 1)` is at character 12 and at LSP column 13, and its use at
+    ;; character 17 is at LSP column 18.
+    (define uri "file:///tmp/doc-utf16-test.rkt")
+    (define d (make-doc uri "#lang racket\n\"\U0001F600\" (define x 1) x\n"))
+    (check-equal? (doc-pos->abs-pos d (Pos 1 13)) 25)
+    (check-equal? (doc-abs-pos->pos d 25) (Pos 1 13))
+    (doc-expand! d)
+    (check-equal? (Location-range (doc-definition d uri (Pos 1 18)))
+                  (Range (Pos 1 13) (Pos 1 14)))
+    (doc-apply-edit! d (Range (Pos 1 18) (Pos 1 19)) "y")
+    (check-equal? (doc-get-text d) "#lang racket\n\"\U0001F600\" (define x 1) y\n"))
+
+  ;; Racket reads "\r\n" as one position and the editor as two characters, so
+  ;; without counting both each position on line 2 would be two characters early.
+  (define crlf-text "#lang racket\r\n(define x 1)\r\n#; x (+ x x)\r\n")
+
+  (define (make-expanded-crlf-doc uri)
+    (define d (make-doc uri crlf-text))
+    (doc-expand! d)
+    d)
+
+  (test-case
+    "Definitions count each CRLF as two characters"
+    (define uri "file:///tmp/doc-crlf-definition-test.rkt")
+    (define d (make-expanded-crlf-doc uri))
+    (check-equal? (Location-range (doc-definition d uri (Pos 2 8)))
+                  (Range (Pos 1 8) (Pos 1 9))))
+
+  (test-case
+    "References count each CRLF as two characters"
+    (define uri "file:///tmp/doc-crlf-references-test.rkt")
+    (define d (make-expanded-crlf-doc uri))
+    (check-equal? (map Location-range
+                       (Reference-Source-locations
+                         (Document-Reference-Result-source (doc-references d uri (Pos 2 8) #t))))
+                  (list (Range (Pos 1 8) (Pos 1 9))
+                        (Range (Pos 2 8) (Pos 2 9))
+                        (Range (Pos 2 10) (Pos 2 11)))))
+
+  (test-case
+    "Semantic tokens count each CRLF as two characters"
+    ;; The S-expression comment comes from the lexer, the uses of `x` from
+    ;; expansion.
+    (define d (make-expanded-crlf-doc "file:///tmp/doc-crlf-tokens-test.rkt"))
+    (define tokens (doc-range-tokens d (Range (Pos 2 0) (Pos 3 0))))
+    (check-equal? (encode-semantic-tokens (lambda (pos) (doc-abs-pos->pos d pos)) tokens)
+                  '(2 0 4 5 0
+                    0 6 1 1 0
+                    0 2 1 0 0
+                    0 2 1 0 0)))
 
   (test-case
     "doc-definition for imported define"

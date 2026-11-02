@@ -621,7 +621,9 @@
 ;; whitespace character. Dedenting is display-only and also applies to
 ;; continuation lines inside multiline literals.
 (define (hover-source-lines doc start text)
-  (define column (Pos-char (doc-abs-pos->pos doc start)))
+  ;; Characters, not LSP columns: the column becomes leading spaces.
+  (define doc-text (Doc-text doc))
+  (define column (- start (send doc-text line-start-pos (send doc-text at-line start))))
   (string-split (string-append (make-string column #\space) text)
                 "\n" #:trim? #f))
 
