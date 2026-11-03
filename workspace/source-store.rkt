@@ -26,6 +26,7 @@
          make-source-store
          source-store-view
          source-store-buffer
+         source-store-buffers
          source-store-open!
          source-store-edit!
          source-store-close!
@@ -135,6 +136,12 @@
 (define (source-store-buffer store source)
   (define record (record-for store source))
   (and record (Source-Record-buffer record)))
+
+;; Open buffers as (cons source buffer), in no particular order.
+(define (source-store-buffers store)
+  (for/list ([record (in-hash-values (Source-Store-table store))]
+             #:when (Source-Record-buffer record))
+    (cons (Source-View-source (Source-Record-view record)) (Source-Record-buffer record))))
 
 ;; Install the complete successor record before posting the replaced view's
 ;; signal, so a waiter that wakes always observes the new record.

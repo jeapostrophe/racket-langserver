@@ -25,7 +25,7 @@
       [(errors)
        (define product (analyze-source snapshot))
        (Analysis-Product #f #f (list (hasheq 'message "fresh analysis error"))
-                         (Analysis-Product-trace product) #f)]
+                         (Analysis-Product-trace product) #f #f)]
       [else (analyze-source snapshot)])))
 
 ;; Real expansion can exceed the short waits used for gate coordination.

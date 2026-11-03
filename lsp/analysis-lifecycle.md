@@ -119,6 +119,29 @@ The controller receives its publication workspace through `#:workspace`.
 The default remains the process's `current-workspace`, also used by existing
 workspace requests. Injecting a different publication workspace alone does not
 create an isolated LSP session; the request layer must use that same workspace.
+Its folders are also project roots for imported modules, as described below.
+
+## Imports from open buffers
+
+Each analysis attempt carries an `Analysis-Context`: an immutable table of the
+open file buffers taken when the attempt is requested, the project roots, and a
+table the worker fills with every module file the expansion loads. An import
+of a file with an open buffer reads that buffer, unsaved edits included. Two
+buffers for one path make that import an error rather than a choice between
+them. Modules below a workspace folder or the directory of an open buffer load
+from source, so a compiled file written before an unsaved or saved change
+cannot keep an older macro expansion. Libraries in installed collections keep
+ordinary compiled loading, even below a project root. Analysis never writes
+compiled files.
+
+The controller keeps, for each open buffer, the module files its accepted
+analysis loaded. Opening, editing or closing a buffer starts a new attempt for
+every other open buffer whose accepted analysis, or whose running attempt, has
+loaded that file. The new attempt supersedes outstanding work for the same
+revision and clears exact availability first, so queries wait for facts from
+the new text. Acceptance compares the buffer texts an analysis read with the
+current buffers; a product that read a buffer since changed, opened or closed
+is not installed, and another attempt starts in its place.
 
 ## Available results and fresh completion
 
