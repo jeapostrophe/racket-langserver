@@ -11,45 +11,7 @@
 (require racket/async-channel
          racket/match
          racket/place
-         racket/runtime-path
          (submod "../../lsp/resyntax-place.rkt" test-support))
-
-(define-runtime-path resyntax-place-path "../../lsp/resyntax-place.rkt")
-(define-runtime-path external-resyntax-path "../../doclib/external/resyntax.rkt")
-
-(define resyntax-place-ns
-  (begin
-    (dynamic-require resyntax-place-path #f)
-    (module->namespace resyntax-place-path)))
-
-(define external-resyntax-ns
-  (begin
-    (dynamic-require external-resyntax-path #f)
-    (module->namespace external-resyntax-path)))
-
-(define (eval-in namespace expr)
-  (eval expr namespace))
-
-(define (module-value namespace symbol)
-  (eval-in namespace symbol))
-
-(define (set-module-variable! namespace symbol value)
-  (define temp-name (gensym 'temp))
-  (namespace-set-variable-value! temp-name value #t namespace)
-  (eval-in namespace `(set! ,symbol ,temp-name)))
-
-(define (call-with-module-variable namespace symbol value thunk)
-  (define previous-value (module-value namespace symbol))
-  (dynamic-wind
-    (lambda ()
-      (set-module-variable! namespace symbol value))
-    thunk
-    (lambda ()
-      (set-module-variable! namespace symbol previous-value))))
-
-(define (worker-live? worker)
-  (and worker
-       (not (sync/timeout 0 (place-dead-evt worker)))))
 
 (struct Controlled-Worker (place notice control) #:transparent)
 
@@ -89,22 +51,17 @@
       (reset-resyntax-worker!))))
 
 (define (call-with-test-resyntax-available? available? thunk)
-  (call-with-module-variable external-resyntax-ns 'has-resyntax? available? thunk))
+  (parameterize ([current-resyntax-presence-check (lambda () available?)])
+    (thunk)))
 
 (define (reset-resyntax-worker!)
   ;; A broken implementation can strand this lock. Cleanup must report that
   ;; failure instead of hanging the whole suite while attempting to reset it.
-  (define lock (module-value resyntax-place-ns 'resyntax-worker-lock))
-  (unless (sync/timeout 5 lock) (error 'reset-resyntax-worker! "worker lock remained held"))
+  (unless (sync/timeout 5 resyntax-worker-lock)
+    (error 'reset-resyntax-worker! "worker lock remained held"))
   (dynamic-wind void
-                (lambda () (eval-in resyntax-place-ns '(kill-worker!)))
-                (lambda () (semaphore-post lock))))
+                kill-worker!
+                (lambda () (semaphore-post resyntax-worker-lock))))
 
 (define (resyntax-worker-idle-evt)
-  (semaphore-peek-evt (module-value resyntax-place-ns 'resyntax-worker-lock)))
-
-(define (get-resyntax-worker)
-  (module-value resyntax-place-ns 'resyntax-worker))
-
-(define (resyntax-worker-live?)
-  (eval-in resyntax-place-ns '(worker-live? resyntax-worker)))
+  (semaphore-peek-evt resyntax-worker-lock))

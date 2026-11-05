@@ -48,6 +48,10 @@
 (define current-resyntax-worker-factory
   (make-parameter (lambda () (place ch (worker-loop ch)))))
 
+;; Checks presence before dispatching to avoid loading Resyntax modules into the
+;; parent place. Parameterized to allow tests to simulate absence cleanly.
+(define current-resyntax-presence-check (make-parameter resyntax-collection-present?))
+
 (define (spawn-worker!)
   (parameterize-break #f
     (set! resyntax-worker ((current-resyntax-worker-factory))))
@@ -81,10 +85,21 @@
           (call-with-semaphore
             resyntax-worker-lock
             (lambda ()
-              (if (resyntax-available?)
+              (if ((current-resyntax-presence-check))
                   (run-resyntax/safely text uri)
                   (kill-worker-and-return-empty-results!)))))))
     resyntax-worker-custodian))
 
 (module+ test-support
-  (provide current-resyntax-worker-factory))
+  (provide current-resyntax-worker-factory
+           current-resyntax-presence-check
+           resyntax-worker-lock
+           kill-worker!
+           get-resyntax-worker
+           resyntax-worker-live?)
+
+  (define (get-resyntax-worker)
+    resyntax-worker)
+
+  (define (resyntax-worker-live?)
+    (worker-live? resyntax-worker)))
