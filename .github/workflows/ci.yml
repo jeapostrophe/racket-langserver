@@ -4,7 +4,6 @@ jobs:
   build:
     name: "Build on Racket '${{ matrix.racket-version }}' (${{ matrix.racket-variant }})"
     runs-on: ubuntu-latest
-    continue-on-error: ${{ matrix.experimental || false }}
     strategy:
       fail-fast: false
       matrix:
@@ -22,10 +21,8 @@ jobs:
             racket-variant: "BC"
     steps:
       - uses: actions/checkout@v3.1.0
-      - uses: Bogdanp/setup-racket@v1.14
+      - uses: ./.github/actions/setup-racket
         with:
-          architecture: x64
-          distribution: full
           variant: ${{ matrix.racket-variant }}
           version: ${{ matrix.racket-version }}
       - name: Installing racket-langserver and its dependencies
@@ -45,10 +42,8 @@ jobs:
         racket-variant: ["CS"]
     steps:
       - uses: actions/checkout@v3.1.0
-      - uses: Bogdanp/setup-racket@v1.14
+      - uses: ./.github/actions/setup-racket
         with:
-          architecture: x64
-          distribution: full
           variant: ${{ matrix.racket-variant }}
           version: ${{ matrix.racket-version }}
       - name: Installing racket-langserver and its dependencies
@@ -63,10 +58,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3.1.0
-      - uses: Bogdanp/setup-racket@v1.14
+      - uses: ./.github/actions/setup-racket
         with:
-          architecture: x64
-          distribution: full
           variant: CS
           version: stable
       - name: Installing racket-langserver and its dependencies
@@ -81,10 +74,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3.1.0
-      - uses: Bogdanp/setup-racket@v1.14
+      - uses: ./.github/actions/setup-racket
         with:
-          architecture: x64
-          distribution: full
           variant: CS
           version: stable
       - name: Installing racket-langserver and its dependencies
@@ -99,10 +90,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3.1.0
-      - uses: Bogdanp/setup-racket@v1.14
+      - uses: ./.github/actions/setup-racket
         with:
-          architecture: x64
-          distribution: full
           variant: CS
           version: stable
       - name: Installing racket-fixw
