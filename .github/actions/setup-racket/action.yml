@@ -1,0 +1,49 @@
+name: Cached Racket setup
+description: Cache a full Linux x64 Racket installation by release and VM variant.
+inputs:
+  version:
+    description: Racket release number or stable.
+    required: true
+  variant:
+    description: Racket VM variant (CS or BC).
+    required: true
+runs:
+  using: composite
+  steps:
+    - name: Resolve Racket release
+      id: release
+      shell: bash
+      env:
+        RACKET_VERSION: ${{ inputs.version }}
+      run: |
+        version="$RACKET_VERSION"
+        # Resolve stable before caching so a new release gets a new installation.
+        if [ "$version" = stable ]; then
+          version=$(curl --fail --silent --show-error --location --connect-timeout 10 --max-time 30 --retry 3 https://download.racket-lang.org/version.txt |
+            sed -n 's/.*(stable "\([^"]*\)").*/\1/p')
+          if [ -z "$version" ]; then
+            echo "::error::Could not resolve the stable Racket version" >&2
+            exit 1
+          fi
+        fi
+        echo "version=$version" >> "$GITHUB_OUTPUT"
+        echo "image-os=$ImageOS" >> "$GITHUB_OUTPUT"
+    - name: Cache Racket installation
+      id: cache
+      uses: actions/cache@v4
+      with:
+        path: ${{ runner.temp }}/racket
+        # The suffix keeps release numbers from prefix-matching longer versions.
+        key: racket-install-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.release.outputs.image-os }}-full-${{ inputs.variant }}-${{ steps.release.outputs.version }}-end
+    - uses: Bogdanp/setup-racket@v1.14
+      if: steps.cache.outputs.cache-hit != 'true'
+      with:
+        architecture: x64
+        distribution: full
+        variant: ${{ inputs.variant }}
+        version: ${{ steps.release.outputs.version }}
+        dest: ${{ runner.temp }}/racket
+        sudo: never
+    - name: Add Racket to PATH
+      shell: bash
+      run: echo "$RUNNER_TEMP/racket/bin" >> "$GITHUB_PATH"
