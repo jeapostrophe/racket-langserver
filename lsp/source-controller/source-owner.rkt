@@ -50,6 +50,7 @@
          (struct-out Analysis-Handle)
          (struct-out Source-Result)
          (struct-out Source-Failure)
+         (struct-out Source-Read-Timeout)
          (struct-out Disk-Missing))
 
 ;; Failed command or disk read. `reason` is a symbol such as `shutdown`,
@@ -58,6 +59,10 @@
 (struct/contract Source-Failure
   ([reason any/c])
   #:transparent)
+
+;; Preserve timeout provenance across disk observation. Unexpected read errors
+;; remain plain Source-Failure values even when their raised reason is a timeout.
+(struct/contract Source-Read-Timeout Source-Failure () #:transparent)
 
 ;; Current knowledge of one source after observation.
 ;;
@@ -185,6 +190,7 @@
     (match result
       [(? string? text) (values 'text-available text #f)]
       [(Disk-Missing) (values 'file-not-found #f #f)]
+      [(Disk-Read-Timeout reason) (values 'unknown #f (Source-Read-Timeout reason))]
       [(Disk-Read-Failure reason) (values 'unknown #f (Source-Failure reason))]))
   (source-store-observe! (Source-Controller-store controller) started-view content-state text)
   (define next-view (source-controller-view controller source))
@@ -354,7 +360,7 @@
   (define succeeded? (eq? 'succeeded (Analysis-Outcome-state outcome)))
   (case kind
     [(analysis)
-     (when (eq? 'failed (Analysis-Outcome-state outcome))
+     (when (memq (Analysis-Outcome-state outcome) '(failed timed-out))
        (hash-set! (Source-Controller-dependencies controller) (source-id source) #f))
      (unless succeeded? (discard-analysis! controller source))
      (when (and succeeded? (source-buffer controller source) (get-resyntax-enabled))

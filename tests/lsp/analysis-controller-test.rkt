@@ -68,6 +68,50 @@
         (custodian-shutdown-all custodian)))))
 
 (module+ test
+  (for ([failure (in-list '(raised-timeout invalid-product))])
+    (test-case (format "~a remains an error for exact queries" failure)
+      (define probes (make-async-channel))
+      (define controller
+        (make-source-controller
+          #:resyntax #f
+          #:analyze (lambda (snapshot)
+                      (wait-at-gate probes snapshot)
+                      (if (eq? failure 'raised-timeout)
+                          (raise 'analysis-timeout)
+                          (struct-copy Analysis-Product (analyze-source snapshot) [summary #f])))))
+      (with-buffer controller (build-path scratch "unexpected-analysis-failure.rkt")
+                   (lambda (sd _source)
+                     (define held (await probes))
+                     (define completion (with-read-safedoc sd SafeDoc-analysis-completion))
+                     (define read-called? #f)
+                     (define deferred
+                       (analysis-query sd 902
+                                       (lambda (_) (set! read-called? #t) '())
+                                       '()))
+                     (release-gate! held)
+                     (check-eq? 'failed
+                                (Analysis-Outcome-state (drive-controller controller completion)))
+                     (check-error (deferred) ErrorCode-RequestFailed)
+                     (check-false read-called?)))))
+
+  (test-case "unexpected exact-query callback exceptions remain errors"
+    (define probes (make-async-channel))
+    (define controller
+      (make-source-controller #:analyze (controlled-analyzer probes) #:resyntax #f))
+    (with-buffer controller (build-path scratch "query-callback-error.rkt")
+                 (lambda (sd _source)
+                   (define held (await probes))
+                   (define completion (with-read-safedoc sd SafeDoc-analysis-completion))
+                   (define deferred
+                     (analysis-query sd 901
+                                     (lambda (_) (error 'query-callback "unexpected bug"))
+                                     '()))
+                   (release-gate! held)
+                   (check-eq? 'succeeded
+                              (Analysis-Outcome-state (drive-controller controller completion)))
+                   (check-error (deferred) ErrorCode-RequestFailed "Analysis request failed")))))
+
+(module+ test
   (for ([failure (in-list '(raise errors))])
     (test-case (format "exact waiter rechecks availability after a later ~a refresh" failure)
       (define probes (make-async-channel))
@@ -371,8 +415,8 @@
                     (await probes)
                     (define peer (acquire session path))
                     (request session "textDocument/semanticTokens/full" 17 path)
-                    (check-equal? (await timed-out) (Analysis-Outcome 'failed 'analysis-timeout))
-                    (check-error (response session 17) ErrorCode-RequestFailed)
+                    (check-equal? (await timed-out) (Analysis-Outcome 'timed-out 'analysis-timeout))
+                    (check-equal? (hash-ref (response session 17) 'result) (hasheq 'data '()))
                     (check-eq? (await timed-out) (await peer))
                     (check-equal? (notifications session) '())
                     (close! session path)
@@ -404,11 +448,12 @@
                     (release-gate! first-probe)
                     (define outcome (await first))
                     ;; Worker death and the deadline can be ready together.
-                    (check-eq? 'failed (Analysis-Outcome-state outcome))
-                    (check-not-false (memq (Analysis-Outcome-value outcome)
-                                           '(worker-exited analysis-timeout)))
+                    (match outcome
+                      [(Analysis-Outcome 'failed 'worker-exited)
+                       (check-error (response session 18) ErrorCode-RequestFailed)]
+                      [(Analysis-Outcome 'timed-out 'analysis-timeout)
+                       (check-equal? (hash-ref (response session 18) 'result) '())])
                     (check-eq? (await first) (await peer))
-                    (check-error (response session 18) ErrorCode-RequestFailed)
                     (define next-probe (await probes))
                     (check-equal? (Source-Snapshot-id (Gate-input next-probe))
                                   (source-id (path->source b)))
@@ -454,7 +499,7 @@
                     (open! session b text)
                     (barrier session)
                     (request session "textDocument/inlayHint" 9 b)
-                    (check-error (response session 9) ErrorCode-RequestFailed)
+                    (check-equal? (hash-ref (response session 9) 'result) '())
                     (define peer (acquire session b))
                     (check-false (sync/timeout 0 probes))
                     (release-gate! held)
@@ -496,8 +541,8 @@
                     (shutdown! session)
                     (check-eq? 'stopped (Analysis-Outcome-state (await first)))
                     (check-eq? 'stopped (Analysis-Outcome-state (await queued)))
-                    (check-error (response session 10) ErrorCode-RequestFailed)
-                    (check-error (response session 11) ErrorCode-RequestFailed)
+                    (check-equal? (hash-ref (response session 10) 'result) '())
+                    (check-equal? (hash-ref (response session 11) 'result) (hasheq 'data '()))
                     (check-false (sync/timeout 0 probes)))))
 
   (test-case "terminal same-revision attempt cannot publish after retry, even with its original product"

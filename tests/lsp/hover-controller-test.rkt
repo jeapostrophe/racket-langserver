@@ -32,6 +32,14 @@
   (check-true (string-contains? contents "imported from"))
   result)
 
+;; Target failure must preserve the local annotation without stale source detail.
+(define (check-local-hover session id)
+  (define result (hash-ref (response session id) 'result))
+  (check-equal? (hash-ref result 'range) (->jsexpr (Range (Pos 3 6) (Pos 3 12))))
+  (define contents (hash-ref result 'contents))
+  (check-true (string-contains? contents "imported from"))
+  (check-false (string-contains? contents "**Source**")))
+
 (module+ test
   (test-case "documented imported hover skips target reads and analysis"
     (make-directory* scratch)
@@ -138,7 +146,7 @@
         (await gates)
         (open! session b unsaved)
         (define fresh (await gates))
-        (check-error (response session 1) ErrorCode-RequestFailed "Hover target changed")
+        (check-local-hover session 1)
         (release-gate! fresh)
         (request session 2 a)
         (check-hover session 2 ";; Unsaved\n(define shared 2)")
@@ -170,17 +178,43 @@
                     (request session 2 a)
                     (check-equal? (hash-ref (response session 2) 'result) missing))))
 
-  (test-case "runner failure produces RequestFailed; later hover retries"
-    (define gates (make-async-channel))
+  (for ([kind (in-list '(worker read))]
+        [make-controller (in-list (list gated-analyzer gated-reader))])
+    (test-case (format "unexpected ~a failure reports an error; later hover retries" kind)
+      (define gates (make-async-channel))
+      (with-example
+        (make-controller gates)
+        (lambda (session a _b _root)
+          (request session 1 a)
+          (release-gate! (await gates) 'raise)
+          (check-error (response session 1) ErrorCode-RequestFailed)
+          (request session 2 a)
+          (release-gate! (await gates))
+          (check-hover session 2 "(define shared 1)")))))
+
+  (test-case "expired target query retains local hover without submitting target work"
+    (define reads (make-async-channel))
     (with-example
-      (gated-analyzer gates)
+      (gated-reader reads)
       (lambda (session a _b _root)
         (request session 1 a)
-        (release-gate! (await gates) 'raise)
-        (check-error (response session 1) ErrorCode-RequestFailed)
-        (request session 2 a)
-        (release-gate! (await gates))
-        (check-hover session 2 "(define shared 1)"))))
+        (check-local-hover session 1)
+        (check-false (sync/timeout 0 reads)))
+      #:request-timeout 0))
+
+  (test-case "supervisor read timeout retains local hover"
+    (define reads (make-async-channel))
+    (with-example
+      (lambda (_b)
+        (make-source-controller
+          #:resyntax #f #:read-timeout 0.1
+          #:read (lambda (path)
+                   (wait-at-gate reads path)
+                   (file->string path))))
+      (lambda (session a _b _root)
+        (request session 1 a)
+        (await reads)
+        (check-local-hover session 1))))
 
   (test-case "Typed Racket type survives joining imported source detail"
     (with-example

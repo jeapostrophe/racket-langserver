@@ -113,7 +113,10 @@
          (cond
            ;; A procedure is a deferred response; run it off the consumer.
            [(procedure? response)
-            (thread (λ () (send-response (response))))]
+            (thread (λ ()
+                      (send-response
+                        (with-handlers ([exn:fail? (report-request-error id method)])
+                          (response)))))]
            [else (send-response response)])]
         ;; Notification
         [(hash-table ['method (? string? method)])

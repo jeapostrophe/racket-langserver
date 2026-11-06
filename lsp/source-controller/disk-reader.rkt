@@ -15,6 +15,7 @@
          Disk-Read-Completed?
          (struct-out Disk-Missing)
          (struct-out Disk-Read-Failure)
+         (struct-out Disk-Read-Timeout)
          (contract-out
            [make-disk-reader
             (->* (async-channel?)
@@ -31,6 +32,10 @@
 (struct/contract Disk-Missing () #:transparent)
 
 (struct/contract Disk-Read-Failure ([reason any/c]) #:transparent)
+
+;; This subtype is produced only by the supervisor's deadline path. Raised
+;; values, including a raised timeout record, are wrapped in Disk-Read-Failure.
+(struct/contract Disk-Read-Timeout Disk-Read-Failure () #:transparent)
 
 ;; All records below are private. Attempt identity rejects messages left in
 ;; the channel after cancellation, including when a new lane has the same id.
@@ -84,11 +89,13 @@
         (define result ((Disk-Reader-read reader) (source-file-path source)))
         (cond
           [(string? result) (string->immutable-string result)]
-          [(or (Disk-Missing? result) (Disk-Read-Failure? result)) result]
+          [(Disk-Missing? result) result]
+          ;; A reader-returned failure cannot claim supervisor timeout origin.
+          [(Disk-Read-Failure? result) (Disk-Read-Failure (Disk-Read-Failure-reason result))]
           [else (Disk-Read-Failure result)]))
       #:fail Disk-Read-Failure
-      #:exited 'reader-exited
-      #:timed-out 'read-timeout
+      #:exited-result (Disk-Read-Failure 'reader-exited)
+      #:timeout-result (Disk-Read-Timeout 'read-timeout)
       #:done (lambda (result) (Disk-Read-Completed source attempt result))))
   (set-Read-Attempt-worker! attempt worker)
   attempt)
