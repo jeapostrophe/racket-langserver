@@ -16,8 +16,8 @@
   (start-supervised-worker! events seconds work
                             #:launch launch
                             #:fail (lambda (reason) (list 'failed reason))
-                            #:exited 'exited
-                            #:timed-out 'timeout
+                            #:exited-result '(failed exited)
+                            #:timeout-result '(failed timeout)
                             #:done values))
 
 (module+ test

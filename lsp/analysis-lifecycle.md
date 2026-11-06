@@ -31,16 +31,30 @@ atomic filesystem transaction.
 
 Cross-file definition and hover observe the target once per request. They use
 that snapshot's analysis and perform a final owner view check without rereading
-disk. An observed target change or invalidated acquisition ends the request with
-RequestFailed; the query does not reacquire or retry. A subsequent query observes
+disk. An observed target change or invalidated acquisition ends target lookup
+without detail; the query does not reacquire or retry. A subsequent query observes
 the target again. An external disk change that the server has not observed may
 therefore leave an in-flight query answering from its original snapshot. Opening
 a buffer during a pending disk read may complete acquisition with buffer text;
 once acquired, that view must remain eligible through the query's final check.
-Missing files, Check Syntax errors, and absent bindings supply no feature detail.
-Read/worker failures end the request. Changing or closing the requesting document
+Missing files, Check Syntax errors, absent bindings, and read/analysis timeouts
+supply no target detail. Definition returns null; hover retains its local card
+when that card can open. Changing or closing the requesting document
 ends it with ContentModified (-32801), including pending exact inlay-hint and
-semantic-token requests. Deadlines and shutdown end it without cancelling shared analysis.
+semantic-token requests. Deadlines and shutdown finish queries without target
+detail or, for exact inlay-hint and semantic-token queries, with empty results.
+These are normal unavailable outcomes, not LSP errors.
+Finishing a query never cancels shared analysis; server shutdown separately stops
+session work.
+Unexpected query, worker, reader, and acceptance exceptions still return errors,
+as do premature worker exits and filesystem/configuration failures. Supervisor
+timeouts have distinct outcomes (`Analysis-Outcome 'timed-out` and
+`Source-Read-Timeout`); arbitrary raised values are never classified as timeouts
+by comparing their messages or reason values.
+
+Subsequent queries use recovered analysis. Returning an empty result does not
+request a client refresh or restart analysis; hints and tokens can stay absent
+until the client queries again.
 
 Binding lookup uses a complete lexically normalized native path, submodule list,
 phase+space, and identifier. Dot segments collapse without filesystem access,

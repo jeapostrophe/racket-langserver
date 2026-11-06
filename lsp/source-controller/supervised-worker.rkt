@@ -14,11 +14,13 @@
 
 ;; launch runs inside the resource boundary, including any parallel-thread pool it creates.
 ;; The supervisor stays outside: work may shut down its own custodian before reporting.
+;; Only raised values pass through fail. Exit and timeout have distinct results,
+;; so a raised value cannot be mistaken for a supervisor-detected timeout.
 (define (start-supervised-worker! events seconds work
                                   #:launch [launch thread]
                                   #:fail fail
-                                  #:exited exited
-                                  #:timed-out timed-out
+                                  #:exited-result exited-result
+                                  #:timeout-result timeout-result
                                   #:done done)
   (define handle (Supervised-Worker (make-custodian)))
   (define deadline (+ (current-deadline-milliseconds) (* 1000 seconds)))
@@ -39,8 +41,8 @@
                           ;; Death and a queued result can both be ready. Boxing the poll
                           ;; distinguishes a returned #f from an absent result.
                           (define result (sync/timeout 0 (wrap-evt result-ch box)))
-                          (if result (unbox result) (fail exited))))
-              (wrap-evt (deadline-evt deadline) (lambda (_) (fail timed-out)))))
+                          (if result (unbox result) exited-result)))
+              (wrap-evt (deadline-evt deadline) (lambda (_) timeout-result))))
       ;; Release resources before notifying the owner, even if done itself raises.
       (stop-supervised-worker! handle)
       (async-channel-put events (done outcome))))

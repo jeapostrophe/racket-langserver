@@ -171,8 +171,8 @@
           (lambda () ((Analysis-Scheduler-resyntax scheduler)
                       (Source-Snapshot-text snapshot) (Source-Snapshot-uri snapshot))))
       #:fail (lambda (reason) (Analysis-Outcome 'failed reason))
-      #:exited 'worker-exited
-      #:timed-out 'analysis-timeout
+      #:exited-result (Analysis-Outcome 'failed 'worker-exited)
+      #:timeout-result (Analysis-Outcome 'timed-out 'analysis-timeout)
       #:done (lambda (result) (Analysis-Completed attempt result))))
   (set-Analysis-Attempt-worker! attempt worker))
 

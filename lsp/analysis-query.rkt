@@ -6,10 +6,9 @@
 ;; caller. The deadline is fixed at this call, so time before the thunk runs
 ;; counts against `current-analysis-request-timeout`.
 ;;
-;; After the wait, an `Analysis-Outcome` of `errors` becomes a success
-;; response carrying `empty-result`. A changed or closed document becomes
-;; `ContentModified`. Deadline expiry, shutdown, and any other unsuccessful
-;; wake become `RequestFailed`.
+;; Source errors, timeouts and stopped attempts return `empty-result`.
+;; Unexpected worker/acceptance failures remain errors. A changed or closed
+;; document becomes `ContentModified`.
 (require "../common/debug.rkt"
          "../common/interfaces.rkt"
          "../common/json-util.rkt"
@@ -26,7 +25,7 @@
 (define current-analysis-request-timeout (make-parameter 30))
 
 (define (analysis-failed-response request-id message reason)
-  (log-racket-langserver-info "Analysis request ~a failed: ~a: ~v" request-id message reason)
+  (log-racket-langserver-error "Analysis request ~a failed: ~a: ~v" request-id message reason)
   (error-response request-id ErrorCode-RequestFailed message))
 
 ;; Call under the buffer read lock. The lock covers the revision check and
@@ -37,12 +36,12 @@
   (and installed-analysis current-view
        (eq? (Source-Snapshot-revision (Available-Analysis-snapshot installed-analysis))
             (Source-View-revision current-view))
-       (success-response request-id (->jsexpr (read-result (SafeDoc-doc safe-doc))))))
+       (success/enc request-id (read-result (SafeDoc-doc safe-doc)))))
 
 ;; `next-response` receives the awaited completion and the wake value. A
 ;; response ends the wait. An event is the next completion to wait for, under
-;; the deadline given to this function. A raised value becomes a RequestFailed
-;; response.
+;; the deadline given to this function. Unexpected raised values remain errors;
+;; ordinary unsuccessful outcomes are handled by `next-response`.
 (define (wait-for-analysis completion view shutdown-evt deadline-ms next-response request-id)
   (with-handlers ([(lambda (_) #t)
                    (lambda (reason)
@@ -74,16 +73,19 @@
           [(or (not request-view) (not (eq? request-view (SafeDoc-source-view locked-safe-doc))))
            (error-response request-id ErrorCode-ContentModified "Document changed or closed")]
           [(>= (current-deadline-milliseconds) deadline-ms)
-           (error-response request-id ErrorCode-RequestFailed "Analysis request deadline expired")]
+           (log-racket-langserver-info "Analysis request ~a deadline expired" request-id)
+           (success/enc request-id empty-result)]
           [(sync/timeout 0 shutdown-evt)
-           (error-response request-id ErrorCode-RequestFailed "Server shut down")]
+           (success/enc request-id empty-result)]
           [(available-analysis-response locked-safe-doc request-id read-result) => values]
           ;; The buffer's completion event changed during the wait. Wait on the
           ;; new event. The wake value is from the completion this waiter held.
           [(and current-completion (not (eq? awaited-completion current-completion)))
            current-completion]
-          [(and (Analysis-Outcome? wake-result) (eq? 'errors (Analysis-Outcome-state wake-result)))
-           (success-response request-id (->jsexpr empty-result))]
+          [(and (Analysis-Outcome? wake-result)
+                (memq (Analysis-Outcome-state wake-result) '(errors timed-out stopped)))
+           (log-racket-langserver-info "Analysis unavailable for request ~a: ~v" request-id wake-result)
+           (success/enc request-id empty-result)]
           [else (analysis-failed-response request-id "Check Syntax did not succeed" wake-result)]))))
   (or immediate-response
       (lambda ()

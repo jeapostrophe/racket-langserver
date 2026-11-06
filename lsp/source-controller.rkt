@@ -22,6 +22,7 @@
          (struct-out Analysis-Handle)
          (struct-out Source-Result)
          (struct-out Source-Failure)
+         (struct-out Source-Read-Timeout)
          (struct-out Disk-Missing))
 
 ;; These operations run only on the session consumer. Request threads use the
