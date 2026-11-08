@@ -230,10 +230,8 @@
     ;; Record the Module-Binding for a definition in this document, then merge
     ;; any jumps that arrived before the definition target.
     (define/private (attach-module-binding! def-id module-binding)
-      (define old-module-binding
-        (hash-ref def-id->module-binding def-id #f))
-      (when old-module-binding
-        (hash-remove! module-binding->def-id old-module-binding))
+      ;; Several module bindings can share one written definition range.
+      ;; Keep each identity so module-binding-definitions emits all of them.
       (hash-set! def-id->module-binding def-id module-binding)
       (hash-set! module-binding->def-id module-binding def-id)
 
