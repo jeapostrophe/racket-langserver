@@ -1,7 +1,6 @@
 #lang racket
 
-;; Nonempty inlay hints require successful analysis of the current revision.
-;; Incomplete source returns empty hints; a repaired source recovers.
+;; Failed expansion preserves adjusted hints whose source groups survived edits.
 ;; Edit-aware adjustment itself is covered by tests/lib/inlay-hint-edit-test.rkt.
 
 (define uri "file:///test.rkt")
@@ -69,11 +68,11 @@ END
                     (list '(4 7 "x ")
                           '(4 9 "y ")))
 
-      ;; The incomplete source cannot supply exact-analysis hints.
+      ;; An unrelated incomplete edit moves the surviving hints.
       (replace! 1 1 0 1 0 "(define\n")
-      (check-empty)
+      (check-equal? (hints) (list '(5 7 "x ") '(5 9 "y ")))
 
-      ;; Further edits must not revive the prior successful result.
+      ;; Editing a constructor call invalidates that call's hint group.
       (replace! 2 5 7 5 8 "100")
       (check-empty)
 

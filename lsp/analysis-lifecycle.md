@@ -39,7 +39,7 @@ a buffer during a pending disk read may complete acquisition with buffer text;
 once acquired, that view must remain eligible through the query's final check.
 Missing files, Check Syntax errors, and absent bindings supply no feature detail.
 Read/worker failures end the request. Changing or closing the requesting document
-ends it with ContentModified (-32801), including pending exact inlay-hint and
+ends it with ContentModified (-32801), including pending inlay-hint and
 semantic-token requests. Deadlines and shutdown end it without cancelling shared analysis.
 
 Binding lookup uses a complete lexically normalized native path, submodule list,
@@ -157,12 +157,25 @@ so repeated acquisitions can reuse success without retaining the job. Resyntax
 acceptance compares its parent completion with the installed result's completion;
 same-revision retries cannot accept an old attempt's findings.
 
-Exact editor queries require available analysis under the current source
-revision; otherwise they wait for fresh completion. Fast local queries keep
-their adjusted-trace fallbacks. An `errors` outcome publishes current
-diagnostics and clears exact availability. A `failed` outcome or timeout also
-clears availability. The old trace may still support fast fallbacks, but cannot
-be retained as a completed success. Non-success attempts may be retried.
+Inlay-hint and semantic-token queries prefer available analysis under the current
+source revision; otherwise they wait up to 30 seconds for fresh completion.
+The request budget starts at query construction and survives replacement completion
+events. Source `errors`, a query deadline, or a stopped attempt with the requester
+view still current permit reading the Doc's adjusted visual services under its
+read lock. Arbitrary `failed` outcomes remain errors, including supervisor timeouts
+until their provenance is distinguished. Reader and encoding failures remain errors.
+An accepted unsuccessful product clears exact availability without replacing the
+adjusted trace; a successful product replaces it even if it has fewer visuals.
+
+Successful visual responses return `Visual-Delivery` envelopes through the session consumer's
+command queue, on both immediate and deferred paths. The consumer checks the
+requester view's permanent change event and shutdown before queueing the response.
+An edit or close after rendering therefore cancels the delivery with ContentModified.
+This routing currently sends no client refresh; refresh recovery is a later milestone
+in `services-timeout-plan.md`.
+
+Fast local queries also keep their adjusted-trace fallbacks. Approximate traces
+cannot be retained as completed successes. Non-success attempts may be retried.
 
 ## Close, restore, and retention
 

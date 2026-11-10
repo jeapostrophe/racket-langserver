@@ -13,6 +13,8 @@
          "../common/path-util.rkt"
          "../common/source.rkt"
          "lsp.rkt"
+         "analysis-query.rkt"
+         "../workspace/source-store.rkt"
          "responses.rkt"
          "source-controller.rkt"
          (submod "source-controller.rkt" owner)
@@ -78,7 +80,29 @@
 
     (define/public (process-source-event event)
       (call-with-session-params
-        (λ () (source-controller-handle! source-controller event))))
+        (λ ()
+          (if (Visual-Delivery? event)
+              (deliver-visual! event)
+              (source-controller-handle! source-controller event)))))
+
+    (define (deliver-visual! delivery)
+      (define response (Visual-Delivery-response delivery))
+      (define id (hash-ref response 'id (json-null)))
+      (define view (Visual-Delivery-request-view delivery))
+      (send-response
+        (cond
+          [(sync/timeout 0 (Source-View-changed view))
+           (error-response id ErrorCode-ContentModified "Document changed or closed")]
+          [(sync/timeout 0 (source-controller-shutdown-evt source-controller))
+           (error-response id ErrorCode-RequestFailed "Server shut down")]
+          [else response])))
+
+    ;; Both immediate and deferred visual results return to the consumer queue.
+    ;; A worker must never send the command's return value as a second response.
+    (define (route-response response)
+      (if (Visual-Delivery? response)
+          (async-channel-put (source-controller-events source-controller) response)
+          (send-response response)))
 
     (define/public (send-response msg)
       (async-channel-put response-channel msg))
@@ -113,8 +137,8 @@
          (cond
            ;; A procedure is a deferred response; run it off the consumer.
            [(procedure? response)
-            (thread (λ () (send-response (response))))]
-           [else (send-response response)])]
+            (thread (λ () (route-response (response))))]
+           [else (route-response response)])]
         ;; Notification
         [(hash-table ['method (? string? method)])
          (define params (hash-ref msg 'params hasheq))
@@ -137,7 +161,7 @@
          (define err "The JSON sent is not a valid request object.")
          (send-response (error-response id ErrorCode-InvalidRequest err))]))
 
-    ;; (-> (or/c number? string?) string? jsexpr? (or/c jsexpr? (-> jsexpr?)))
+    ;; Results are protocol JSON or a visual delivery, immediately or deferred.
     (define/public (handle-request id method params)
       (with-handlers ([exn:fail? (report-request-error id method)])
         (define uri

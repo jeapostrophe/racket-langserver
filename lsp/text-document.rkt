@@ -185,7 +185,7 @@
                  ['range (as-Range range)])
      (define safe-doc (lsp-get-doc uri))
 
-     (analysis-query safe-doc id (lambda (doc) (doc-inlay-hints doc range)) '())]
+     (visual-query safe-doc id 'inlay-hints (lambda (doc) (doc-inlay-hints doc range)))]
     [_ (error-response id ErrorCode-InvalidParams "textDocument/inlayHint failed")]))
 
 ;; Full document formatting request
@@ -266,8 +266,8 @@
     [_ (error-response id ErrorCode-InvalidParams "textDocument/semanticTokens/range failed")]))
 
 (define (semantic-tokens id safe-doc range)
-  (analysis-query
-    safe-doc id
+  (visual-query
+    safe-doc id 'semantic-tokens
     (λ (doc)
       ;; Chosen over a request-time Range: this callback may run after analysis.
       (define tokens-range
@@ -278,10 +278,14 @@
       (hash 'data
             (encode-semantic-tokens
               (λ (pos) (doc-abs-pos->pos doc pos))
-              (doc-range-tokens doc tokens-range))))
-    (hash 'data '())))
+              (doc-range-tokens doc tokens-range))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;; Visual query results may be immediate protocol JSON, an immediate delivery command,
+;; or a deferred thunk computing either variant.
+(define visual-result/c
+  (or/c Visual-Delivery? (and/c hash? jsexpr?) (-> (or/c Visual-Delivery? (and/c hash? jsexpr?)))))
 
 (provide
   did-open!
@@ -296,13 +300,13 @@
     [document-highlight (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]
     [references (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]
     [document-symbol (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]
-    [inlay-hint (exact-nonnegative-integer? jsexpr? . -> . (or/c jsexpr? (-> jsexpr?)))]
+    [inlay-hint (exact-nonnegative-integer? jsexpr? . -> . visual-result/c)]
     [rename _rename rename (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]
     [prepareRename (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]
     [formatting! (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]
     [range-formatting! (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]
     [on-type-formatting! (exact-nonnegative-integer? jsexpr? . -> . jsexpr?)]
-    [full-semantic-tokens (exact-nonnegative-integer? jsexpr? . -> . (or/c jsexpr? (-> jsexpr?)))]
-    [range-semantic-tokens (exact-nonnegative-integer? jsexpr? . -> . (or/c jsexpr? (-> jsexpr?)))])
+    [full-semantic-tokens (exact-nonnegative-integer? jsexpr? . -> . visual-result/c)]
+    [range-semantic-tokens (exact-nonnegative-integer? jsexpr? . -> . visual-result/c)])
 
   client-capability-hierarchical-document-symbol?)

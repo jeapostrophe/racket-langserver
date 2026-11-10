@@ -10,7 +10,14 @@
 ;; response carrying `empty-result`. A changed or closed document becomes
 ;; `ContentModified`. Deadline expiry, shutdown, and any other unsuccessful
 ;; wake become `RequestFailed`.
-(require "../common/debug.rkt"
+;;
+;; `visual-query` shares that wait loop but reads the current adjusted trace on
+;; source errors, query deadlines, or a stopped attempt for a still-current view.
+;; Successful visual responses return in a `Visual-Delivery` so the session
+;; consumer can recheck freshness before sending. Failures return plain errors.
+(require json
+         racket/contract
+         "../common/debug.rkt"
          "../common/interfaces.rkt"
          "../common/json-util.rkt"
          "../common/time.rkt"
@@ -20,9 +27,19 @@
          "safedoc.rkt"
          "source-controller.rkt")
 
-(provide analysis-query current-analysis-request-timeout)
+(provide analysis-query visual-query current-analysis-request-timeout
+         (struct-out Visual-Delivery))
 
-;; Seconds allowed for one query, measured from the call to `analysis-query`.
+;; A session-consumer command: queue the response only after rechecking the
+;; requester view. The degraded view is carried for subsequent refresh recovery.
+(struct/contract Visual-Delivery
+  ([response (and/c hash? jsexpr?)]
+   [feature (or/c 'inlay-hints 'semantic-tokens)]
+   [request-view Source-View?]
+   [degraded-view (or/c #f Source-View?)])
+  #:transparent)
+
+;; Seconds allowed for one analysis or visual query, measured from construction.
 (define current-analysis-request-timeout (make-parameter 30))
 
 (define (analysis-failed-response request-id message reason)
@@ -89,3 +106,53 @@
       (lambda ()
         (wait-for-analysis initial-completion request-view shutdown-evt deadline-ms
                            response-after-wake request-id))))
+
+
+;; Visual queries share the analysis wait loop, but read the current adjusted
+;; trace on source errors or their own deadline. Worker failures remain errors.
+;; Selection and rendering share one read lock, keeping the exact/degraded
+;; classification consistent with the rendered trace during invalidation.
+(define (visual-query safe-doc request-id feature read-result)
+  (define deadline-ms (+ (current-deadline-milliseconds)
+                         (* 1000 (current-analysis-request-timeout))))
+  (define shutdown (source-controller-shutdown-evt (current-source-controller)))
+  (define view (with-read-safedoc safe-doc SafeDoc-source-view))
+
+  (define (next-response awaited wake)
+    (with-read-safedoc safe-doc
+      (lambda (sd)
+        (define current (SafeDoc-analysis-completion sd))
+        ;; Poll the current broadcast outcome even when sync selected the deadline.
+        (define outcome
+          (or (and current (sync/timeout 0 current))
+              (and (eq? current awaited) wake)))
+        (define outcome-state
+          (and (Analysis-Outcome? outcome) (Analysis-Outcome-state outcome)))
+        (define available (SafeDoc-available sd))
+        (define exact?
+          (and view available
+               (eq? (Source-Snapshot-revision (Available-Analysis-snapshot available))
+                    (Source-View-revision view))))
+        (define (read-visual degraded?)
+          (Visual-Delivery (success/enc request-id (read-result (SafeDoc-doc sd)))
+                           feature view (and degraded? view)))
+
+        (cond
+          [(or (not view) (not (eq? view (SafeDoc-source-view sd))))
+           (error-response request-id ErrorCode-ContentModified "Document changed or closed")]
+          [(sync/timeout 0 shutdown)
+           (error-response request-id ErrorCode-RequestFailed "Server shut down")]
+          [exact? (read-visual #f)]
+          ;; Trap: worker failure must win over deadline expiry before line 150 degrades.
+          [(eq? outcome-state 'failed)
+           (analysis-failed-response request-id "Check Syntax did not succeed" outcome)]
+          [(>= (current-deadline-milliseconds) deadline-ms) (read-visual #t)]
+          [(and current (not (eq? current awaited))) current]
+          [(memq outcome-state '(errors stopped)) (read-visual #t)]
+          [else (analysis-failed-response request-id "Check Syntax did not succeed" outcome)]))))
+
+  (define initial (next-response #f #f))
+  (if (evt? initial)
+      (lambda ()
+        (wait-for-analysis initial view shutdown deadline-ms next-response request-id))
+      initial))

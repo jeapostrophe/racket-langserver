@@ -454,7 +454,7 @@
                     (open! session b text)
                     (barrier session)
                     (request session "textDocument/inlayHint" 9 b)
-                    (check-error (response session 9) ErrorCode-RequestFailed)
+                    (check-equal? (hash-ref (response session 9) 'result) '())
                     (define peer (acquire session b))
                     (check-false (sync/timeout 0 probes))
                     (release-gate! held)
@@ -618,6 +618,8 @@
         (release-gate! (await probes))
         (barrier session)
         (await (acquire session path))
+        (request session "textDocument/semanticTokens/full" 11 path)
+        (define previous-tokens (hash-ref (response session 11) 'result))
         (set! fail-next? #t)
         (notify session "workspace/didRenameFiles"
                 (hasheq 'files (list (hasheq 'oldUri (path->uri path)
@@ -631,7 +633,7 @@
         (check-false (hash-has-key? (Session-pending session) 13))
         (release-gate! probe)
         (check-equal? (hash-ref (response session 12) 'result) '())
-        (check-equal? (hash-ref (response session 13) 'result) (hasheq 'data '()))
+        (check-equal? (hash-ref (response session 13) 'result) previous-tokens)
         (close! session path)
         (barrier session))))
 
