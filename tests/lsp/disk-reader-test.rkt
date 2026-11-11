@@ -103,9 +103,8 @@
                            (lambda (_started result)
                              (check-equal? result (Disk-Read-Failure '(bad result)))
                              (values 'failed initial)))
-        (check-eq? (await completion) 'failed)))))
+        (check-eq? (await completion) 'failed))))
 
-(module+ test
   (test-case "only supervisor deadlines produce a top-level disk timeout"
     (for ([mode (in-list '(deadline raised-symbol returned-timeout raised-timeout))])
       (define events (make-async-channel))

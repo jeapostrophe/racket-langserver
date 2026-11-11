@@ -187,62 +187,41 @@
         (check-false (sync/timeout 0 wire)))))
 
   (test-case "refresh capabilities gate each feature independently"
-    (for ([feature '(semantic-tokens inlay-hints)]
-          [capability '(semanticTokens inlayHint)])
+    (define (check-refresh-gating! caps feature id [accept-refreshes '()] [fallback-refreshes '()])
+      (with-server caps
+                   (lambda (server controller gates wire)
+                     (open-buffer! server)
+                     (define gate (await gates))
+                     (define fallback (capture-query server controller id feature))
+                     (accept! server controller gate wire)
+                     (for ([method (in-list accept-refreshes)]) (take-refresh! wire method))
+                     (send server process-source-event fallback)
+                     (check-equal? (hash-ref (await wire) 'id) id)
+                     (for ([method (in-list fallback-refreshes)]) (take-refresh! wire method))
+                     (check-false (sync/timeout 0 wire)))))
+
+    (for ([feature (in-list '(semantic-tokens inlay-hints))]
+          [capability (in-list '(semanticTokens inlayHint))])
       (define method (if (eq? feature 'semantic-tokens)
                          semantic-tokens-refresh-method
                          inlay-hint-refresh-method))
-      ;; Matching capability enables refresh on acceptance and delayed fallback.
-      (with-server
-        (capabilities (list capability))
-        (lambda (server controller gates wire)
-          (open-buffer! server)
-          (define gate (await gates))
-          (define fallback (capture-query server controller 20 feature))
-          (accept! server controller gate wire)
-          (take-refresh! wire method)
-          (send server process-source-event fallback)
-          (check-equal? (hash-ref (await wire) 'id) 20)
-          (take-refresh! wire method)
-          (check-false (sync/timeout 0 wire))))
-      ;; Non-matching capability suppresses refresh for this feature.
       (define other-capability (if (eq? capability 'semanticTokens) 'inlayHint 'semanticTokens))
       (define other-method (if (eq? other-capability 'semanticTokens)
                                semantic-tokens-refresh-method
                                inlay-hint-refresh-method))
-      (with-server
-        (capabilities (list other-capability))
-        (lambda (server controller gates wire)
-          (open-buffer! server)
-          (define gate (await gates))
-          (define fallback (capture-query server controller 21 feature))
-          (accept! server controller gate wire)
-          (take-refresh! wire other-method)
-          (send server process-source-event fallback)
-          (check-equal? (hash-ref (await wire) 'id) 21)
-          (check-false (sync/timeout 0 wire)))))
+      ;; Matching capability enables refresh on acceptance and delayed fallback.
+      (check-refresh-gating! (capabilities (list capability)) feature 20
+                             (list method) (list method))
+      ;; Non-matching capability suppresses refresh for this feature.
+      (check-refresh-gating! (capabilities (list other-capability)) feature 21
+                             (list other-method) '()))
+
     ;; Neither capability supported: no refresh on acceptance or fallback.
-    (with-server
-      (capabilities '())
-      (lambda (server controller gates wire)
-        (open-buffer! server)
-        (define gate (await gates))
-        (define fallback (capture-query server controller 22 'inlay-hints))
-        (accept! server controller gate wire)
-        (send server process-source-event fallback)
-        (check-equal? (hash-ref (await wire) 'id) 22)
-        (check-false (sync/timeout 0 wire))))
+    (check-refresh-gating! (capabilities '()) 'inlay-hints 22)
+
     ;; Non-hash feature capabilities do not crash initialize or refresh dispatch.
-    (with-server
-      (hasheq 'workspace (hasheq 'semanticTokens #t 'inlayHint #t))
-      (lambda (server controller gates wire)
-        (open-buffer! server)
-        (define gate (await gates))
-        (define fallback (capture-query server controller 23 'inlay-hints))
-        (accept! server controller gate wire)
-        (send server process-source-event fallback)
-        (check-equal? (hash-ref (await wire) 'id) 23)
-        (check-false (sync/timeout 0 wire)))))
+    (check-refresh-gating! (hasheq 'workspace (hasheq 'semanticTokens #t 'inlayHint #t))
+                           'inlay-hints 23))
 
   (test-case "reply validation, callback cleanup, and configuration payloads"
     (with-server

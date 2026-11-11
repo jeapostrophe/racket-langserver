@@ -77,8 +77,8 @@
           (case mode
             [(deadline) (sync never-evt)]
             [(raised-symbol) (raise (if (eq? stage 'read) 'read-timeout 'analysis-timeout))]
-            [(forged-timeout) (Analysis-Outcome 'timed-out #f)]
-            [(forged-stop) (Analysis-Outcome 'stopped 'forged)]
+            [(forged-timeout) (raise (Analysis-Outcome 'timed-out #f))]
+            [(forged-stop) (raise (Analysis-Outcome 'stopped 'forged))]
             [(permission)
              (raise (exn:fail:filesystem:errno "permission denied" (current-continuation-marks)
                                                '(13 . posix)))]))
