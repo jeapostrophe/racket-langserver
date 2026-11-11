@@ -370,9 +370,9 @@
        (hash-set! (Source-Controller-dependencies controller) (source-id source) #f))
      (unless succeeded? (discard-analysis! controller source))
      (when (and succeeded? (source-buffer controller source))
-       ((Source-Controller-analysis-accepted controller)))
-     (when (and succeeded? (source-buffer controller source) (get-resyntax-enabled))
-       (schedule-resyntax! (Source-Controller-scheduler controller) snapshot completion))]
+       ((Source-Controller-analysis-accepted controller))
+       (when (get-resyntax-enabled)
+         (schedule-resyntax! (Source-Controller-scheduler controller) snapshot completion)))]
     [(resyntax)
      (unless succeeded? (log-racket-langserver-info "Resyntax discarded: ~v" outcome))])
   outcome)

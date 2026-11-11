@@ -231,6 +231,17 @@
         (accept! server controller gate wire)
         (send server process-source-event fallback)
         (check-equal? (hash-ref (await wire) 'id) 22)
+        (check-false (sync/timeout 0 wire))))
+    ;; Non-hash feature capabilities do not crash initialize or refresh dispatch.
+    (with-server
+      (hasheq 'workspace (hasheq 'semanticTokens #t 'inlayHint #t))
+      (lambda (server controller gates wire)
+        (open-buffer! server)
+        (define gate (await gates))
+        (define fallback (capture-query server controller 23 'inlay-hints))
+        (accept! server controller gate wire)
+        (send server process-source-event fallback)
+        (check-equal? (hash-ref (await wire) 'id) 23)
         (check-false (sync/timeout 0 wire)))))
 
   (test-case "reply validation, callback cleanup, and configuration payloads"

@@ -69,7 +69,7 @@
 
 (module+ test
   (for ([failure (in-list '(raise errors))])
-    (test-case (format "exact waiter rechecks availability after a later ~a refresh" failure)
+    (test-case (format "visual waiter rechecks availability after a later ~a refresh" failure)
       (define probes (make-async-channel))
       (define controller
         (make-source-controller
@@ -81,18 +81,17 @@
                          (define product (analyze-source snapshot))
                          (struct-copy Analysis-Product product [succeeded? #f] [summary #f])]
                         [else (analyze-source snapshot)]))))
-      (define path (build-path scratch "exact-refresh-race.rkt"))
+      (define path (build-path scratch "visual-refresh-race.rkt"))
       (with-buffer controller path
                    (lambda (sd source)
                      (define first-gate (await probes))
                      (define first (with-read-safedoc sd SafeDoc-analysis-completion))
                      (define read-called? #f)
                      (define deferred
-                       (analysis-query sd 900
-                                       (lambda (_)
-                                         (set! read-called? #t)
-                                         "unavailable trace")
-                                       '()))
+                       (visual-query sd 900 'inlay-hints
+                                     (lambda (_)
+                                       (set! read-called? #t)
+                                       "adjusted trace")))
                      (check-true (procedure? deferred))
                      (release-gate! first-gate)
                      (check-eq? 'succeeded
@@ -103,10 +102,15 @@
                      (release-gate! second-gate failure)
                      (drive-controller controller second)
                      (define response (deferred))
-                     (check-false read-called?)
-                     (if (eq? failure 'raise)
-                         (check-error response ErrorCode-RequestFailed)
-                         (check-equal? (hash-ref response 'result) '()))))))
+                     (cond
+                       [(eq? failure 'raise)
+                        (check-false read-called?)
+                        (check-error response ErrorCode-RequestFailed)]
+                       [else
+                        (check-true read-called?)
+                        (check-true (Visual-Delivery-degraded? response))
+                        (check-equal? (hash-ref (Visual-Delivery-response response) 'result)
+                                      "adjusted trace")])))))
 
   (test-case "named commands reject obsolete snapshots and report shutdown"
     (define probes (make-async-channel))
@@ -740,7 +744,7 @@
       (lambda () (set-resyntax-enabled! old-enabled)))))
 
 (module+ test
-  (test-case "available analysis answers exact queries during a held same-revision refresh"
+  (test-case "available analysis answers visual queries during a held same-revision refresh"
     (define probes (make-async-channel))
     (define controller (make-source-controller #:analyze (controlled-analyzer probes) #:resyntax #f))
     (with-buffer controller (build-path scratch "available-refresh.rkt")
@@ -758,8 +762,9 @@
                    (check-true (Analysis-Summary? (Analysis-Handle-reusable-summary acquisition)))
                    (check-eq? fresh (Analysis-Handle-completion-evt acquisition))
                    (check-false (sync/timeout 0 fresh))
-                   (define response (analysis-query sd 202 (lambda (_) "available") '()))
-                   (check-equal? (hash-ref response 'result) "available")
+                   (define response (visual-query sd 202 'inlay-hints (lambda (_) "available")))
+                   (check-false (Visual-Delivery-degraded? response))
+                   (check-equal? (hash-ref (Visual-Delivery-response response) 'result) "available")
                    (check-false (sync/timeout 0 fresh))
                    (release-gate! held)
                    (check-eq? 'succeeded

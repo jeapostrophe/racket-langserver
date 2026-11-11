@@ -283,10 +283,14 @@
   (caddr (assq feature visual-refresh-features)))
 
 (define (client-refresh-features capabilities)
-  (define ws (hash-ref capabilities 'workspace hasheq))
-  (for/list ([entry (in-list visual-refresh-features)]
-             #:when (eq? #t (hash-ref (hash-ref ws (cadr entry) hasheq) 'refreshSupport #f)))
-    (car entry)))
+  (define ws (hash-ref capabilities 'workspace #f))
+  (if (hash? ws)
+      (for/list ([entry (in-list visual-refresh-features)]
+                 #:when (let ([feature-cfg (hash-ref ws (cadr entry) #f)])
+                          (and (hash? feature-cfg)
+                               (eq? #t (hash-ref feature-cfg 'refreshSupport #f)))))
+        (car entry))
+      '()))
 
 (define (record-client-capabilities! capabilities)
   (workspace/client-capability-workspace/configuration?

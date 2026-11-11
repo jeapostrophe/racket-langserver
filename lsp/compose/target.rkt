@@ -67,8 +67,8 @@
   (when reason
     (raise (Request-Stop reason))))
 
-(define (check-live! request [target-view #f])
-  (check-request! request)
+(define (check-live! request [target-view #f] [check-deadline? #t])
+  (check-request! request check-deadline?)
   (when (and target-view (sync/timeout 0 (Source-View-changed target-view)))
     (raise (Request-Stop 'target-changed))))
 
@@ -97,10 +97,10 @@
   (define event
     (if (evt? event-or-submit)
         (begin
-          (check-request! request #f)
+          (check-live! request target-view #f)
           event-or-submit)
         (begin
-          (check-live! request target-view)
+          (check-live! request target-view #t)
           (event-or-submit))))
   (define requester-view (Target-Request-view request))
   (define wake

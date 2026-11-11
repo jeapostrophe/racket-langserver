@@ -37,17 +37,31 @@
     (check-true (evt-ready? (ready-evt #f)))
     (check-false (await (ready-evt #f))))
 
-  (test-case "a dead worker's queued false result wins over premature exit"
-    (define events (make-async-channel))
-    (define handle
-      (start events (lambda () #f)
-             #:launch (lambda (thunk)
-                        (define worker (thread thunk))
-                        (await (thread-dead-evt worker))
-                        worker)))
-    (check-true (Supervised-Worker? handle))
-    (check-false (await events))
-    (stop-supervised-worker! handle))
+  (test-case "queued results and premature exits take priority over a ready deadline"
+    ;; Finish launch before supervision starts so death and expiry are both ready.
+    ;; Repeat arbitration because sync may select any of the ready events.
+    (for* ([mode (in-list '(false raised exited))]
+           [_ (in-range 32)])
+      (define events (make-async-channel))
+      (define handle
+        (start events
+               (lambda ()
+                 (case mode
+                   [(false) #f]
+                   [(raised) (raise 'raised-value)]
+                   [(exited) (custodian-shutdown-all (current-custodian))]))
+               #:seconds 0
+               #:launch (lambda (thunk)
+                          (define worker (thread thunk))
+                          (await (thread-dead-evt worker))
+                          worker)))
+      (check-true (Supervised-Worker? handle))
+      (check-equal? (await events)
+                    (case mode
+                      [(false) #f]
+                      [(raised) '(failed raised-value)]
+                      [(exited) '(failed exited)]))
+      (stop-supervised-worker! handle)))
 
   (test-case "raised values become failures"
     (define events (make-async-channel))
