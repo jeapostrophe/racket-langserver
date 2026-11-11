@@ -242,16 +242,22 @@
               (lambda (result) (set! seen (cons result seen))))
         (define request (await wire))
         (define id (hash-ref request 'id))
-        (for ([invalid (in-list
-                         (list (hasheq)
-                               (hasheq 'result 1 'error (hasheq 'code 1 'message "bad"))
-                               (hasheq 'error (hasheq 'code "bad" 'message "bad"))
-                               (hasheq 'error (hasheq 'code 1 'message 1))))])
-          (send server process-message (hash-set (hash-set invalid 'jsonrpc "2.0") 'id id)))
+        (send server process-message (hasheq 'jsonrpc "2.0" 'id id))
+        (define invalid (await wire))
+        (check-equal? (hash-ref invalid 'id) id)
+        (check-equal? (hash-ref (hash-ref invalid 'error) 'code) -32600)
         (check-equal? seen '())
+        (send server process-message
+              (hasheq 'jsonrpc "2.0" 'id id 'result #f))
         (reply! server request)
-        (reply! server request)
-        (check-equal? seen (list (json-null)))
+        (check-equal? seen (list #f))
+        ;; Even a false error is present, and wins over a result.
+        (send server send-request "both" (hasheq)
+              (lambda (_) (error 'callback "error must win over result")))
+        (define both (await wire))
+        (send server process-message
+              (hasheq 'jsonrpc "2.0" 'id (hash-ref both 'id) 'error #f 'result 1))
+        (reply! server both) ; the error already removed its handler
         (send server send-request "throws" (hasheq) (lambda (_) (error 'callback "failed")))
         (define throwing (await wire))
         (check-exn exn:fail? (lambda () (reply! server throwing)))

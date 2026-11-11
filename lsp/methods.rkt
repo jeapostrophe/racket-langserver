@@ -159,30 +159,18 @@
         [(hash-table ['method (? string? method)])
          (define params (hash-ref msg 'params hasheq))
          (handle-notification method params)]
-        ;; Response
-        [(hash-table ['jsonrpc "2.0"] ['id id])
-         (define has-result? (hash-has-key? msg 'result))
-         (define error-val (hash-ref msg 'error #f))
-         (define valid-error?
-           (match error-val
-             [(hash-table ['code (? exact-integer?)] ['message (? string?)]) #t]
-             [_ #f]))
+        ;; Response: error takes precedence over result in a loose reply envelope.
+        [(and (hash-table ['jsonrpc "2.0"] ['id id])
+              (? (λ (m) (or (hash-has-key? m 'error) (hash-has-key? m 'result)))))
+         (define handler (hash-ref response-handlers id #f))
          (cond
-           [(and has-result? (not error-val))
-            (define handler (hash-ref response-handlers id #f))
-            (cond
-              [handler
-               (hash-remove! response-handlers id)
-               (handler (hash-ref msg 'result))]
-              [else (log-racket-langserver-info "Unknown client reply id: ~v" id)])]
-           [(and valid-error? (not has-result?))
-            (define handler (hash-ref response-handlers id #f))
-            (cond
-              [handler
-               (hash-remove! response-handlers id)
-               (log-racket-langserver-info "Client rejected server request ~v: ~v" id error-val)]
-              [else (log-racket-langserver-info "Unknown client reply id: ~v" id)])]
-           [else (log-racket-langserver-info "Invalid client reply: ~v" msg)])]
+           [handler
+            (hash-remove! response-handlers id)
+            (if (hash-has-key? msg 'error)
+                (log-racket-langserver-info
+                  "Client rejected server request ~v: ~v" id (hash-ref msg 'error))
+                (handler (hash-ref msg 'result)))]
+           [else (log-racket-langserver-info "Unknown client reply id: ~v" id)])]
         ;; Batch Request
         [(? (non-empty-listof (and/c hash? jsexpr?)) batch)
          (for ([msg (in-list batch)])

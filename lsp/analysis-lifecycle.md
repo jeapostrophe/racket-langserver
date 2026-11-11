@@ -170,31 +170,75 @@ so repeated acquisitions can reuse success without retaining the job. Resyntax
 acceptance compares its parent completion with the installed result's completion;
 same-revision retries cannot accept an old attempt's findings.
 
+## Visual fallbacks, traces, and refresh recovery
+
 Inlay-hint and semantic-token queries prefer available analysis under the current
 source revision; otherwise they wait up to 30 seconds for fresh completion.
 The request budget starts at query construction and survives replacement completion
-events. Source `errors`, supervisor `timed-out`, a query deadline, or a stopped attempt with the requester
-view still current permit reading the Doc's adjusted visual services under its
-read lock. Arbitrary `failed` outcomes remain errors. Reader and encoding
-failures remain errors.
-An accepted unsuccessful product clears exact availability without replacing the
-adjusted trace; a successful product replaces it even if it has fewer visuals.
+events. Source `errors`, supervisor `timed-out`, a query deadline, or a stopped attempt
+with the requester view still current permit reading the Doc's adjusted visual services
+under its read lock. Arbitrary worker `failed` outcomes, reader failures, and encoding
+failures remain errors. An accepted unsuccessful product clears exact availability
+without replacing the adjusted trace; a successful product replaces it even if it has
+fewer visuals. An empty fresh result is authoritative. Syntax failures still publish
+diagnostics.
 
-Successful visual responses return `Visual-Delivery` envelopes through the session consumer's
-command queue, on both immediate and deferred paths. The consumer checks the
+Each open Doc owns one adjusted visual trace. Incremental edits move surviving
+token ranges and hint anchors in that trace; inlay-hint groups whose recorded source text
+is changed or deleted are removed. Unrelated groups survive incremental edits;
+full-document replacement resets the trace and clears all groups. Requests render
+current positions directly from this state rather than replaying old JSON. Publication
+replaces `Doc-trace` through `doc-update-trace!`; unsuccessful publication leaves that
+same trace in place. There is no history of fallback responses or successive visual
+traces retained for recovery. A queued `Visual-Delivery` holds only its response,
+feature, requester view, and degraded marker until delivery.
+
+Retained hints may temporarily show an earlier inferred type after an edit to
+another expression or dependency. This approximation does not establish exact
+analysis eligibility and cannot be restored as completed success.
+
+Successful visual responses return `Visual-Delivery` envelopes through the session
+consumer's command queue, on both immediate and deferred paths. The consumer checks the
 requester view's permanent change event and shutdown before queueing the response.
-An edit or close after rendering therefore cancels the delivery with ContentModified.
+An edit or close after rendering therefore cancels the delivery with `ContentModified` (-32801).
 Successful open-buffer analysis acceptance asks the session to send each supported
 `workspace/semanticTokens/refresh` and `workspace/inlayHint/refresh` request.
 If exact analysis is already available when a degraded delivery reaches the consumer,
 the consumer queues the response first, then refreshes that feature. Initialization's
 corresponding `workspace.*.refreshSupport` capabilities gate these requests; shutdown
-suppresses them. Refresh replies remove their own handlers, and rejection is logged
-without retry. Later successes may refresh while earlier replies are outstanding.
-Clients without refresh support recover on their next feature request.
+suppresses them.
+
+Client replies use a loose JSON envelope: an envelope missing both `error` and `result`
+produces an `InvalidRequest` (-32600) error response, while a present `error` takes precedence
+over `result`. Refresh replies remove their registered handlers, and rejections are logged
+without retry. Later successes may issue fresh refresh requests while earlier replies are
+outstanding; clients without refresh support recover on their next feature request.
 
 Fast local queries also keep their adjusted-trace fallbacks. Approximate traces
 cannot be retained as completed successes. Non-success attempts may be retried.
+
+## Other query boundaries
+
+The visual fallback policy belongs only to full/range semantic tokens and inlay
+hints. Other query paths keep these boundaries:
+
+| Query | Availability and failure contract |
+| :--- | :--- |
+| Completion / signature help | Immediate local suggestions/signature, or valid empty/no result; no expansion wait. |
+| Document highlights / symbols | Immediate local highlights/outline, or valid empty result; no new wait. |
+| References | Existing immediate local/workspace search and scope; no claim of workspace completeness. |
+| Rename / prepare rename | Existing binding lookup path; unavailable binding information supplies no rename. Visual fallback does not authorize edits from approximate binding facts. |
+| Code actions | Immediate available actions; unavailable actions are omitted. Edit validity for the current document remains a requirement, not a new guarantee of this work. |
+| Formatting / range / on-type formatting | Existing formatter execution, independent of analysis availability; formatter and dependency failures remain errors. |
+
+Rename and code actions still read existing document services; this timeout work
+adds no freshness certification to them. Broader binding/action freshness audits
+and any required fixes are separate work, rather than reasons to extend visual
+fallback to editing operations.
+
+Refresh coalescing, tuning the 30-second visual wait, workspace reference
+completeness, and invalidating hints affected by edits outside their recorded
+source groups remain deferred.
 
 ## Close, restore, and retention
 
@@ -240,3 +284,9 @@ messages. Tests that must order individual transitions or replay delayed worker
 messages own an isolated controller on the test thread and call the same owner
 operations directly. Assertions run on the test thread; command failures are
 values only where the test explicitly exercises that production contract.
+
+Visual fallback, requester cancellation, timeout provenance, and refresh ordering
+are covered by `visual-query-test.rkt`, `target-timeout-test.rkt`, and
+`refresh-recovery-test.rkt` in `tests/lsp/`. The controller visual scenario and
+`tests/textDocument/inlay-hint-edit.rkt` cover surviving shifted hints, disturbed
+groups, failed expansion, and authoritative repair.
