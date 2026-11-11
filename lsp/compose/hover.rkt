@@ -9,17 +9,19 @@
          "../../doclib/hover.rkt"
          "../../doclib/internal-types.rkt"
          "../analysis.rkt"
-         "../analysis-query.rkt"
          "../responses.rkt"
          "../safedoc.rkt"
          "../source-controller.rkt"
          "target.rkt")
 
-(provide hover-query)
+(provide hover-query current-hover-target-timeout)
+
+;; Seconds for the entire target lookup, including deferred dispatch and queues.
+(define current-hover-target-timeout (make-parameter 0.2))
 
 (define (hover-query safe-doc id pos)
   (define deadline (+ (current-deadline-milliseconds)
-                      (* 1000 (current-analysis-request-timeout))))
+                      (* 1000 (current-hover-target-timeout))))
   (define controller (current-source-controller))
   (define-values (view target card range)
     (with-read-safedoc safe-doc
@@ -47,5 +49,5 @@
       (target-query id controller deadline view target "Hover"
                     (lambda (facts binding)
                       (hash-ref (Analysis-Summary-hover-summaries facts) binding #f))
-                    compose)
+                    compose #:fallback (lambda () (compose #f #f)))
       (success/enc id (compose #f #f))))

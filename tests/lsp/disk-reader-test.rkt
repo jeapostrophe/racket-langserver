@@ -104,3 +104,29 @@
                              (check-equal? result (Disk-Read-Failure '(bad result)))
                              (values 'failed initial)))
         (check-eq? (await completion) 'failed)))))
+
+(module+ test
+  (test-case "only supervisor deadlines produce a top-level disk timeout"
+    (for ([mode (in-list '(deadline raised-symbol returned-timeout raised-timeout))])
+      (define events (make-async-channel))
+      (define reader
+        (make-disk-reader
+          events #:timeout 0.05
+          #:read (lambda (_)
+                   (case mode
+                     [(deadline) (sync never-evt)]
+                     [(raised-symbol) (raise 'read-timeout)]
+                     [(returned-timeout) (Disk-Read-Timeout)]
+                     [(raised-timeout) (raise (Disk-Read-Timeout))]))))
+      (define initial (view))
+      (define completion (request-disk-read! reader initial))
+      (finish-disk-read!
+        reader (next-message events)
+        (lambda (_ result)
+          (check-equal? (Disk-Read-Failure? result) (not (eq? mode 'deadline)))
+          (check-equal? (Disk-Read-Timeout? result) (eq? mode 'deadline))
+          (when (memq mode '(returned-timeout raised-timeout))
+            (check-equal? (Disk-Read-Failure-reason result) (Disk-Read-Timeout)))
+          (values 'accepted initial)))
+      (check-eq? (await completion) 'accepted)
+      (stop-disk-reader! reader 'shutdown))))

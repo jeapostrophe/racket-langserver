@@ -8,16 +8,18 @@
          "target.rkt"
          "../../workspace/source-store.rkt"
          "../analysis.rkt"
-         "../analysis-query.rkt"
          "../responses.rkt"
          "../safedoc.rkt"
          "../source-controller.rkt")
 
-(provide definition-query)
+(provide definition-query current-definition-target-timeout)
+
+;; Seconds for the entire target lookup, including deferred dispatch and queues.
+(define current-definition-target-timeout (make-parameter 10.0))
 
 (define (definition-query safe-doc id uri pos)
   (define deadline (+ (current-deadline-milliseconds)
-                      (* 1000 (current-analysis-request-timeout))))
+                      (* 1000 (current-definition-target-timeout))))
   (define controller (current-source-controller))
   (define-values (view target)
     (with-read-safedoc safe-doc

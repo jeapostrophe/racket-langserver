@@ -17,7 +17,7 @@
                             #:launch launch
                             #:fail (lambda (reason) (list 'failed reason))
                             #:exited 'exited
-                            #:timed-out 'timeout
+                            #:timeout-result (lambda () '(timed-out))
                             #:done values))
 
 (module+ test
@@ -65,7 +65,7 @@
                (sync never-evt))
              #:seconds 0.1))
     (define child (await started))
-    (check-equal? (await events) '(failed timeout))
+    (check-equal? (await events) '(timed-out))
     (check-true (thread-dead? child))
     (stop-supervised-worker! handle))
 

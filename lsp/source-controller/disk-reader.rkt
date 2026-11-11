@@ -15,6 +15,7 @@
          Disk-Read-Completed?
          (struct-out Disk-Missing)
          (struct-out Disk-Read-Failure)
+         (struct-out Disk-Read-Timeout)
          (contract-out
            [make-disk-reader
             (->* (async-channel?)
@@ -31,6 +32,10 @@
 (struct/contract Disk-Missing () #:transparent)
 
 (struct/contract Disk-Read-Failure ([reason any/c]) #:transparent)
+
+;; A distinct result variant: only the supervisor deadline produces it.
+;; Reader-returned timeout records are wrapped as ordinary failures below.
+(struct/contract Disk-Read-Timeout () #:transparent)
 
 ;; All records below are private. Attempt identity rejects messages left in
 ;; the channel after cancellation, including when a new lane has the same id.
@@ -57,7 +62,7 @@
 (struct/contract Disk-Read-Completed
   ([source Source?]
    [attempt Read-Attempt?]
-   [result (or/c string? Disk-Missing? Disk-Read-Failure?)]))
+   [result (or/c string? Disk-Missing? Disk-Read-Failure? Disk-Read-Timeout?)]))
 
 (define (make-disk-reader events #:read [read read-source-text] #:timeout [timeout 3])
   (Disk-Reader events read timeout (make-hash) #f #f))
@@ -88,7 +93,7 @@
           [else (Disk-Read-Failure result)]))
       #:fail Disk-Read-Failure
       #:exited 'reader-exited
-      #:timed-out 'read-timeout
+      #:timeout-result Disk-Read-Timeout
       #:done (lambda (result) (Disk-Read-Completed source attempt result))))
   (set-Read-Attempt-worker! attempt worker)
   attempt)

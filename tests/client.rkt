@@ -17,6 +17,8 @@
          "../common/time.rkt"
          "../lsp/methods.rkt"
          "../lsp/analysis-query.rkt"
+         "../lsp/compose/hover.rkt"
+         "../lsp/compose/definition.rkt"
          "../lsp/source-controller.rkt"
          "../main.rkt")
 
@@ -64,7 +66,9 @@
 
 ;; Both initialized feature tests and injected-controller tests run the production consumer.
 (define (with-session controller proc
-                      #:request-timeout [timeout (current-analysis-request-timeout)])
+                      #:request-timeout [timeout (current-analysis-request-timeout)]
+                      #:hover-timeout [hover-timeout (current-hover-target-timeout)]
+                      #:definition-timeout [definition-timeout (current-definition-target-timeout)])
   (define custodian (make-custodian))
   (define clients (make-async-channel))
   (define responses (make-async-channel))
@@ -76,6 +80,8 @@
     (lambda ()
       (parameterize ([current-custodian custodian]
                      [current-analysis-request-timeout timeout]
+                     [current-hover-target-timeout hover-timeout]
+                     [current-definition-target-timeout definition-timeout]
                      [current-session session])
         (define server
           (new server%

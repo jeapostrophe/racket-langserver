@@ -12,7 +12,8 @@
 ;; wake become `RequestFailed`.
 ;;
 ;; `visual-query` shares that wait loop but reads the current adjusted trace on
-;; source errors, query deadlines, or a stopped attempt for a still-current view.
+;; source errors, supervisor timeouts, query deadlines, or a stopped attempt
+;; for a still-current view.
 ;; Successful visual responses return in a `Visual-Delivery` so the session
 ;; consumer can recheck freshness before sending. Failures return plain errors.
 (require json
@@ -148,7 +149,7 @@
            (analysis-failed-response request-id "Check Syntax did not succeed" outcome)]
           [(>= (current-deadline-milliseconds) deadline-ms) (read-visual #t)]
           [(and current (not (eq? current awaited))) current]
-          [(memq outcome-state '(errors stopped)) (read-visual #t)]
+          [(memq outcome-state '(errors timed-out stopped)) (read-visual #t)]
           [else (analysis-failed-response request-id "Check Syntax did not succeed" outcome)]))))
 
   (define initial (next-response #f #f))

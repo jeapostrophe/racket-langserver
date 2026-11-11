@@ -31,8 +31,9 @@ atomic filesystem transaction.
 
 Cross-file definition and hover observe the target once per request. They use
 that snapshot's analysis and perform a final owner view check without rereading
-disk. An observed target change or invalidated acquisition ends the request with
-RequestFailed; the query does not reacquire or retry. A subsequent query observes
+disk. An observed target change or invalidated acquisition ends target lookup;
+definition returns RequestFailed and hover composes its local card. Neither query
+reacquires or retries. A subsequent query observes
 the target again. An external disk change that the server has not observed may
 therefore leave an in-flight query answering from its original snapshot. Opening
 a buffer during a pending disk read may complete acquisition with buffer text;
@@ -40,7 +41,16 @@ once acquired, that view must remain eligible through the query's final check.
 Missing files, Check Syntax errors, and absent bindings supply no feature detail.
 Read/worker failures end the request. Changing or closing the requesting document
 ends it with ContentModified (-32801), including pending inlay-hint and
-semantic-token requests. Deadlines and shutdown end it without cancelling shared analysis.
+semantic-token requests. Hover has a 200-ms target budget; definition has a
+10-second target budget. Both deadlines are captured at query construction and
+include deferred dispatch, observation, queueing, and analysis. Budget expiry,
+supervisor timeouts, or stopped target analysis permit hover's local card;
+definition returns RequestFailed. Missing files, source syntax errors, and a
+completed lookup without a binding remain successful no-detail results.
+Unexpected worker/reader/composition failures remain errors, even at an expired
+deadline. A ready broadcast failure takes priority over expiry. Hover fallback
+checks requester freshness and shutdown before and after composing, without
+checking its expired target budget again. Request waits never cancel shared work.
 
 Binding lookup uses a complete lexically normalized native path, submodule list,
 phase+space, and identifier. Dot segments collapse without filesystem access,
@@ -80,7 +90,10 @@ locking, cancellation, and trace-transfer invariants remain local. Subsystems ow
 private records and collections; none imports or receives the controller:
 
 - `workspace/source-store.rkt`: source authority, revisions, and change signals.
-- `disk-reader.rkt`: `Disk-Reader`, ordered per-source disk reads and waiters.
+- `disk-reader.rkt`: `Disk-Reader`, ordered per-source disk reads and waiters. Only
+  supervisor deadlines produce `Disk-Read-Timeout`, accepted as `Source-Read-Timeout`.
+  Both are distinct from ordinary failure records, so classification is independent
+  of match order. Reader-returned timeout records are wrapped as ordinary failures.
 - `analysis-scheduler.rkt`: `Analysis-Scheduler`, shared queued/running attempts,
   FIFO dispatch, capacity, cancellation, and attempt completion.
 - `supervised-worker.rkt`: `Supervised-Worker`, resource ownership, timeout and
@@ -160,10 +173,10 @@ same-revision retries cannot accept an old attempt's findings.
 Inlay-hint and semantic-token queries prefer available analysis under the current
 source revision; otherwise they wait up to 30 seconds for fresh completion.
 The request budget starts at query construction and survives replacement completion
-events. Source `errors`, a query deadline, or a stopped attempt with the requester
+events. Source `errors`, supervisor `timed-out`, a query deadline, or a stopped attempt with the requester
 view still current permit reading the Doc's adjusted visual services under its
-read lock. Arbitrary `failed` outcomes remain errors, including supervisor timeouts
-until their provenance is distinguished. Reader and encoding failures remain errors.
+read lock. Arbitrary `failed` outcomes remain errors. Reader and encoding
+failures remain errors.
 An accepted unsuccessful product clears exact availability without replacing the
 adjusted trace; a successful product replaces it even if it has fewer visuals.
 

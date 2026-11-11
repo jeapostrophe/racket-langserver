@@ -19,7 +19,7 @@
          "../../doclib/doc.rkt"
          "../../doclib/internal-types.rkt"
          "../../lsp/analysis.rkt"
-         "../../lsp/analysis-query.rkt"
+         "../../lsp/compose/definition.rkt"
          (prefix-in text-document/ "../../lsp/text-document.rkt")
          "../../lsp/lsp.rkt"
          "../../lsp/safedoc.rkt"
@@ -74,7 +74,8 @@
 
 (define (with-example make-controller proc [source a-text]
                       #:relative? [relative? #f] #:target-text [target-text saved]
-                      #:request-timeout [request-timeout 90])
+                      #:request-timeout [request-timeout 90]
+                      #:hover-timeout [hover-timeout 90])
   (make-directory* scratch)
   (define root (make-temporary-file "definition-controller~a" 'directory scratch))
   (define a (build-path root "a.rkt"))
@@ -99,7 +100,8 @@
                       (proc session a b root)
                       (close! session a)
                       (barrier session))
-                    #:request-timeout request-timeout))
+                    #:definition-timeout request-timeout
+                    #:hover-timeout hover-timeout))
     (lambda () (delete-directory/files root))))
 
 ;; This fixture owns its controller on the test thread. Tests that control
@@ -122,7 +124,7 @@
   (define (accept-command!)
     (source-controller-handle! controller (await (source-controller-events controller))))
   (define (capture timeout)
-    (parameterize ([current-analysis-request-timeout timeout])
+    (parameterize ([current-definition-target-timeout timeout])
       (text-document/definition
         1 (hasheq 'textDocument (hasheq 'uri (path->uri a))
                   'position (->jsexpr (Pos 3 7))))))
@@ -489,7 +491,7 @@
       (lambda (_a _b reads capture _run _drive _accept-command!)
         (define deferred (capture 0))
         ;; Invocation has a generous parameter; the captured budget still wins.
-        (define result (parameterize ([current-analysis-request-timeout 90]) (deferred)))
+        (define result (parameterize ([current-definition-target-timeout 90]) (deferred)))
         (check-equal? (hash-ref (hash-ref result 'error) 'code)
                       (->jsexpr ErrorCode-RequestFailed))
         (check-false (sync/timeout 0 reads)))))

@@ -25,7 +25,7 @@
     (define gates (make-async-channel))
     (define controller
       (make-source-controller
-        #:resyntax #f
+        #:resyntax #f #:analysis-timeout 2
         #:analyze (lambda (snapshot)
                     (define command (wait-at-gate gates snapshot))
                     (if (eq? command 'raise)
@@ -95,7 +95,13 @@
           (finish! 'raise)
           (parameterize ([current-analysis-request-timeout 0])
             (check-error (query (lambda (_) (error 'reader "must not read")))
-                         ErrorCode-RequestFailed)))
+                         ErrorCode-RequestFailed))
+          (source-controller-refresh-analysis! controller source)
+          (await gates)
+          (check-eq? 'timed-out
+                     (Analysis-Outcome-state (drive-controller controller (completion))))
+          (check-false (with-read-safedoc sd SafeDoc-available))
+          (check-equal? (hint-lines) '(2 2 3 3)))
         (lambda () (source-controller-shutdown! controller)))))
 
   (test-case "consumer cancels captured visual deliveries after edit or close"

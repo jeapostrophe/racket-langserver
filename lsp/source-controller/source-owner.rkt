@@ -50,28 +50,32 @@
          (struct-out Analysis-Handle)
          (struct-out Source-Result)
          (struct-out Source-Failure)
+         (struct-out Source-Read-Timeout)
          (struct-out Disk-Missing))
 
 ;; Failed command or disk read. `reason` is a symbol such as `shutdown`,
-;; `closed`, `reader-exited`, or `read-timeout`, or the value raised while
+;; `closed` or `reader-exited`, or the value raised while
 ;; handling the command or reading the source.
 (struct/contract Source-Failure
   ([reason any/c])
   #:transparent)
+
+;; Supervisor read deadlines retain their origin across observation acceptance.
+(struct/contract Source-Read-Timeout () #:transparent)
 
 ;; Current knowledge of one source after observation.
 ;;
 ;; view: Present for every file, including failed or missing reads. `#f` only
 ;;   for a virtual source with no open buffer.
 ;; snapshot: Frozen text when buffer or disk text is available; otherwise `#f`.
-;; error: Failure of this observation (`closed`, `reader-exited`, `read-timeout`,
-;;   or a raised reader error). Shutdown is reported as a bare `Source-Failure`
+;; error: An ordinary Source-Failure or a distinct Source-Read-Timeout.
+;;   Shutdown is reported as a bare `Source-Failure`
 ;;   on the command reply, not in this field. A missing file is `file-not-found`
 ;;   on the view, with no error.
 (struct/contract Source-Result
   ([view (or/c #f Source-View?)]
    [snapshot (or/c #f Source-Snapshot?)]
-   [error (or/c #f Source-Failure?)])
+   [error (or/c #f Source-Failure? Source-Read-Timeout?)])
   #:transparent)
 
 ;; Private composition root. Subsystem representations and mutable fields
@@ -185,7 +189,8 @@
     (match result
       [(? string? text) (values 'text-available text #f)]
       [(Disk-Missing) (values 'file-not-found #f #f)]
-      [(Disk-Read-Failure reason) (values 'unknown #f (Source-Failure reason))]))
+      [(Disk-Read-Failure reason) (values 'unknown #f (Source-Failure reason))]
+      [(Disk-Read-Timeout) (values 'unknown #f (Source-Read-Timeout))]))
   (source-store-observe! (Source-Controller-store controller) started-view content-state text)
   (define next-view (source-controller-view controller source))
   (unless (eq? started-view next-view)
@@ -354,7 +359,7 @@
   (define succeeded? (eq? 'succeeded (Analysis-Outcome-state outcome)))
   (case kind
     [(analysis)
-     (when (eq? 'failed (Analysis-Outcome-state outcome))
+     (when (memq (Analysis-Outcome-state outcome) '(failed timed-out))
        (hash-set! (Source-Controller-dependencies controller) (source-id source) #f))
      (unless succeeded? (discard-analysis! controller source))
      (when (and succeeded? (source-buffer controller source) (get-resyntax-enabled))
