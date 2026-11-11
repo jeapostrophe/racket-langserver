@@ -184,8 +184,14 @@ Successful visual responses return `Visual-Delivery` envelopes through the sessi
 command queue, on both immediate and deferred paths. The consumer checks the
 requester view's permanent change event and shutdown before queueing the response.
 An edit or close after rendering therefore cancels the delivery with ContentModified.
-This routing currently sends no client refresh; refresh recovery is a later milestone
-in `services-timeout-plan.md`.
+Successful open-buffer analysis acceptance asks the session to send each supported
+`workspace/semanticTokens/refresh` and `workspace/inlayHint/refresh` request.
+If exact analysis is already available when a degraded delivery reaches the consumer,
+the consumer queues the response first, then refreshes that feature. Initialization's
+corresponding `workspace.*.refreshSupport` capabilities gate these requests; shutdown
+suppresses them. Refresh replies remove their own handlers, and rejection is logged
+without retry. Later successes may refresh while earlier replies are outstanding.
+Clients without refresh support recover on their next feature request.
 
 Fast local queries also keep their adjusted-trace fallbacks. Approximate traces
 cannot be retained as completed successes. Non-success attempts may be retried.

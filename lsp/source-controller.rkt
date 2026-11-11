@@ -34,6 +34,7 @@
            source-controller-close!
            source-controller-invalidate!
            source-controller-set-notifier!
+           source-controller-set-analysis-accepted!
            source-controller-shutdown!
            source-controller-view
            source-controller-snapshot

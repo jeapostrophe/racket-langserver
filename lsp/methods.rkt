@@ -16,6 +16,7 @@
          "analysis-query.rkt"
          "../workspace/source-store.rkt"
          "responses.rkt"
+         "safedoc.rkt"
          "source-controller.rkt"
          (submod "source-controller.rkt" owner)
          (prefix-in text-document/ "text-document.rkt")
@@ -66,8 +67,11 @@
     (define response-handlers (make-hash))
     (define server-request-id 0)
     (define open-documents (make-hasheq))
+    (define refresh-features '())
     (source-controller-set-notifier! source-controller
                                      (λ (method params) (send-notification method params)))
+    (source-controller-set-analysis-accepted!
+      source-controller (λ () (for-each refresh! refresh-features)))
 
     (define/public (get-source-controller) source-controller)
 
@@ -89,13 +93,24 @@
       (define response (Visual-Delivery-response delivery))
       (define id (hash-ref response 'id (json-null)))
       (define view (Visual-Delivery-request-view delivery))
-      (send-response
-        (cond
-          [(sync/timeout 0 (Source-View-changed view))
-           (error-response id ErrorCode-ContentModified "Document changed or closed")]
-          [(sync/timeout 0 (source-controller-shutdown-evt source-controller))
-           (error-response id ErrorCode-RequestFailed "Server shut down")]
-          [else response])))
+      (cond
+        [(sync/timeout 0 (Source-View-changed view))
+         (send-response (error-response id ErrorCode-ContentModified "Document changed or closed"))]
+        [(sync/timeout 0 (source-controller-shutdown-evt source-controller))
+         (send-response (error-response id ErrorCode-RequestFailed "Server shut down"))]
+        [else
+         ;; Queue the fallback first: acceptance may already have sent a refresh
+         ;; before this delayed delivery reached the consumer.
+         (send-response response)
+         (define feature (Visual-Delivery-feature delivery))
+         (when (and (Visual-Delivery-degraded? delivery) (memq feature refresh-features))
+           (define sd (lsp-get-doc (source-uri (Source-View-source view)) #f))
+           (when (and sd (safedoc-exact-for-view? sd view))
+             (refresh! feature)))]))
+
+    (define (refresh! feature)
+      (unless (sync/timeout 0 (source-controller-shutdown-evt source-controller))
+        (send-request (feature->refresh-method feature) (hasheq) void)))
 
     ;; Both immediate and deferred visual results return to the consumer queue.
     ;; A worker must never send the command's return value as a second response.
@@ -112,7 +127,8 @@
       (hash-set! response-handlers server-request-id handler)
       ; send request to LSP client
       (async-channel-put request-channel
-                         (hasheq 'id server-request-id
+                         (hasheq 'jsonrpc "2.0"
+                                 'id server-request-id
                                  'method method
                                  'params params))
       (set! server-request-id (add1 server-request-id)))
@@ -144,12 +160,29 @@
          (define params (hash-ref msg 'params hasheq))
          (handle-notification method params)]
         ;; Response
-        [(hash-table ['jsonrpc "2.0"]
-                     ['id id]
-                     ['result result])
-         (define handler (hash-ref response-handlers id))
-         (handler result)
-         (hash-remove! response-handlers id)]
+        [(hash-table ['jsonrpc "2.0"] ['id id])
+         (define has-result? (hash-has-key? msg 'result))
+         (define error-val (hash-ref msg 'error #f))
+         (define valid-error?
+           (match error-val
+             [(hash-table ['code (? exact-integer?)] ['message (? string?)]) #t]
+             [_ #f]))
+         (cond
+           [(and has-result? (not error-val))
+            (define handler (hash-ref response-handlers id #f))
+            (cond
+              [handler
+               (hash-remove! response-handlers id)
+               (handler (hash-ref msg 'result))]
+              [else (log-racket-langserver-info "Unknown client reply id: ~v" id)])]
+           [(and valid-error? (not has-result?))
+            (define handler (hash-ref response-handlers id #f))
+            (cond
+              [handler
+               (hash-remove! response-handlers id)
+               (log-racket-langserver-info "Client rejected server request ~v: ~v" id error-val)]
+              [else (log-racket-langserver-info "Unknown client reply id: ~v" id)])]
+           [else (log-racket-langserver-info "Invalid client reply: ~v" msg)])]
         ;; Batch Request
         [(? (non-empty-listof (and/c hash? jsexpr?)) batch)
          (for ([msg (in-list batch)])
@@ -178,7 +211,11 @@
           [else
            (match method
              ["initialize"
-              (initialize id params)]
+              (define response (initialize id params))
+              (when (hash-has-key? response 'result)
+                (define capabilities (hash-ref params 'capabilities (hasheq)))
+                (set! refresh-features (client-refresh-features capabilities)))
+              response]
              ["shutdown"
               (source-controller-shutdown! source-controller)
               (shutdown id)]
@@ -249,6 +286,19 @@
   (error-response id ErrorCode-InternalError err))
 
 ;;; Requests
+
+(define visual-refresh-features
+  '([semantic-tokens semanticTokens "workspace/semanticTokens/refresh"]
+    [inlay-hints inlayHint "workspace/inlayHint/refresh"]))
+
+(define (feature->refresh-method feature)
+  (caddr (assq feature visual-refresh-features)))
+
+(define (client-refresh-features capabilities)
+  (define ws (hash-ref capabilities 'workspace hasheq))
+  (for/list ([entry (in-list visual-refresh-features)]
+             #:when (eq? #t (hash-ref (hash-ref ws (cadr entry) hasheq) 'refreshSupport #f)))
+    (car entry)))
 
 (define (record-client-capabilities! capabilities)
   (workspace/client-capability-workspace/configuration?

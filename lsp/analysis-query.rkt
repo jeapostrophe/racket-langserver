@@ -32,12 +32,12 @@
          (struct-out Visual-Delivery))
 
 ;; A session-consumer command: queue the response only after rechecking the
-;; requester view. The degraded view is carried for subsequent refresh recovery.
+;; requester view. A degraded response permits refresh after a delayed fallback.
 (struct/contract Visual-Delivery
   ([response (and/c hash? jsexpr?)]
    [feature (or/c 'inlay-hints 'semantic-tokens)]
    [request-view Source-View?]
-   [degraded-view (or/c #f Source-View?)])
+   [degraded? boolean?])
   #:transparent)
 
 ;; Seconds allowed for one analysis or visual query, measured from construction.
@@ -136,7 +136,7 @@
                     (Source-View-revision view))))
         (define (read-visual degraded?)
           (Visual-Delivery (success/enc request-id (read-result (SafeDoc-doc sd)))
-                           feature view (and degraded? view)))
+                           feature view degraded?))
 
         (cond
           [(or (not view) (not (eq? view (SafeDoc-source-view sd))))

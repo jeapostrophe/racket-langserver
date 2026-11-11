@@ -42,6 +42,7 @@
          source-controller-close!
          source-controller-invalidate!
          source-controller-set-notifier!
+         source-controller-set-analysis-accepted!
          source-controller-shutdown!
          source-controller-view
          source-controller-snapshot
@@ -92,7 +93,8 @@
    [reader Disk-Reader?]
    [scheduler Analysis-Scheduler?]
    [closed-analysis Closed-Analysis-Cache?]
-   [publisher Analysis-Publisher?]))
+   [publisher Analysis-Publisher?]
+   [(analysis-accepted #:mutable) (-> any/c)]))
 
 ;; Timeouts are seconds. The workspace supplies publication only, not session
 ;; isolation for request-layer workspace access. Zero cache capacity disables
@@ -111,12 +113,17 @@
                      (make-analysis-scheduler events #:analyze analyze #:resyntax resyntax
                                               #:slots slots #:timeout analysis-timeout)
                      (make-closed-analysis-cache closed-analysis-limit)
-                     (make-analysis-publisher workspace)))
+                     (make-analysis-publisher workspace) void))
 
 (define current-source-controller (make-parameter (make-source-controller)))
 
 (define (source-controller-set-notifier! controller notify)
   (set-analysis-notifier! (Source-Controller-publisher controller) notify))
+
+;; Consumer-only notification after fresh open-buffer analysis is installed.
+;; Restored products, closed-file analysis, and Resyntax do not trigger it.
+(define (source-controller-set-analysis-accepted! controller accepted)
+  (set-Source-Controller-analysis-accepted! controller accepted))
 
 (define (source-controller-events controller)
   (Source-Controller-events controller))
@@ -362,6 +369,8 @@
      (when (memq (Analysis-Outcome-state outcome) '(failed timed-out))
        (hash-set! (Source-Controller-dependencies controller) (source-id source) #f))
      (unless succeeded? (discard-analysis! controller source))
+     (when (and succeeded? (source-buffer controller source))
+       ((Source-Controller-analysis-accepted controller)))
      (when (and succeeded? (source-buffer controller source) (get-resyntax-enabled))
        (schedule-resyntax! (Source-Controller-scheduler controller) snapshot completion))]
     [(resyntax)

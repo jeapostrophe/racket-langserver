@@ -65,7 +65,7 @@
             (parameterize ([current-analysis-request-timeout 0])
               (query (lambda (doc) (doc-inlay-hints doc whole)))))
           (check-true (Visual-Delivery? fallback))
-          (check-not-false (Visual-Delivery-degraded-view fallback))
+          (check-true (Visual-Delivery-degraded? fallback))
           (check-false (sync/timeout 0 (completion)))
           (define broken-reader (visual-query sd 3 'inlay-hints
                                               (lambda (_) (raise 'reader-failed))))
