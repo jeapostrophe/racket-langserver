@@ -13,6 +13,7 @@
          "../stdio-server.rkt")
 
 (define-runtime-path scratch-path "../../.agent-scratch")
+(define-runtime-path hover-path "../../lsp/compose/hover.rkt")
 (define scratch (simplify-path scratch-path #f))
 
 (define (target-text root value)
@@ -116,7 +117,8 @@
               (define hover (result id))
               (check-equal? (hash-ref hover 'range) (->jsexpr (Range (Pos 3 6) (Pos 3 12))))
               (check-true (string-contains? (hash-ref hover 'contents)
-                                            (format ";; Target comment\n(define shared ~a)" value))))
+                                            (format ";; Target comment\n(define shared ~a)" value))
+                          (format "Unexpected hover contents: ~s" (hash-ref hover 'contents))))
             (send! "initialize" (hasheq 'processId (json-null) 'capabilities (hasheq)
                                         'rootUri (json-null) 'rootPath (json-null)) 1)
             (result 1)
@@ -196,5 +198,10 @@
             (check-eq? (sync/timeout 5 frame-reader) frame-reader)
             (check-false frame-failure)
             (check-false (hash-ref diagnostics b-uri #f))
-            (printf "Transport: unchanged target +1 expansion; each changed snapshot +1; cancellation and independent queries precede gate release.\n"))))
+            (printf "Transport: unchanged target +1 expansion; each changed snapshot +1; cancellation and independent queries precede gate release.\n"))
+          ;; This test holds expansion behind a gate and requires target source.
+          ;; The production 200 ms hover budget permits a local fallback under load.
+          #:arguments
+          (list "-e" (format "((dynamic-require '(file ~s) 'current-hover-target-timeout) 20)"
+                             (path->string hover-path)))))
       (lambda () (delete-directory/files root)))))

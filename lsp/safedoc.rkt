@@ -48,6 +48,17 @@
     (SafeDoc-rwlock safe-doc)
     (λ () (proc safe-doc))))
 
+;; Check whether available analysis matches a specific source view.
+(define (available-analysis-exact-for-view? available view)
+  (and available
+       (eq? (Source-Snapshot-revision (Available-Analysis-snapshot available))
+            (Source-View-revision view))))
+
+;; Check whether installed analysis on an open buffer matches the given view.
+(define (safedoc-exact-for-view? safe-doc view)
+  (with-read-safedoc safe-doc
+    (λ (sd) (available-analysis-exact-for-view? (SafeDoc-available sd) view))))
+
 (provide SafeDoc?
          SafeDoc-doc
          SafeDoc-source-view
@@ -60,4 +71,9 @@
          with-read-doc
          with-write-doc
          with-read-safedoc
-         with-write-safedoc)
+         with-write-safedoc
+         (contract-out
+           [available-analysis-exact-for-view?
+            (-> (or/c #f Available-Analysis?) Source-View? boolean?)]
+           [safedoc-exact-for-view?
+            (-> SafeDoc? Source-View? boolean?)]))

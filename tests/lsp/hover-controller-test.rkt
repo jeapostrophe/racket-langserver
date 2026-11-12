@@ -138,7 +138,9 @@
         (await gates)
         (open! session b unsaved)
         (define fresh (await gates))
-        (check-error (response session 1) ErrorCode-RequestFailed "Hover target changed")
+        (define fallback (hash-ref (response session 1) 'result))
+        (check-true (string-contains? (hash-ref fallback 'contents) "imported from"))
+        (check-false (string-contains? (hash-ref fallback 'contents) "**Source**"))
         (release-gate! fresh)
         (request session 2 a)
         (check-hover session 2 ";; Unsaved\n(define shared 2)")
@@ -258,3 +260,22 @@
         (check-eq? 'succeeded (Analysis-Outcome-state (await (acquire session b))))
         (close! session b)
         (barrier session)))))
+
+(module+ test
+  (test-case "hover target budget returns its real local card while analysis stays shared"
+    (define gates (make-async-channel))
+    (with-example
+      (gated-analyzer gates)
+      (lambda (session a b _root)
+        (request session 401 a)
+        (define held (await gates))
+        (define fallback (hash-ref (response session 401) 'result))
+        (check-true (string-contains? (hash-ref fallback 'contents) "imported from"))
+        (check-false (string-contains? (hash-ref fallback 'contents) "**Source**"))
+        (define peer (acquire session b))
+        (check-false (sync/timeout 0 peer))
+        (release-gate! held)
+        (check-eq? 'succeeded (Analysis-Outcome-state (await peer)))
+        (request session 402 a)
+        (check-hover session 402 "(define shared 1)"))
+      #:hover-timeout 0.1)))

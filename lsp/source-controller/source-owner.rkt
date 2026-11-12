@@ -42,6 +42,7 @@
          source-controller-close!
          source-controller-invalidate!
          source-controller-set-notifier!
+         source-controller-set-analysis-accepted!
          source-controller-shutdown!
          source-controller-view
          source-controller-snapshot
@@ -50,28 +51,32 @@
          (struct-out Analysis-Handle)
          (struct-out Source-Result)
          (struct-out Source-Failure)
+         (struct-out Source-Read-Timeout)
          (struct-out Disk-Missing))
 
 ;; Failed command or disk read. `reason` is a symbol such as `shutdown`,
-;; `closed`, `reader-exited`, or `read-timeout`, or the value raised while
+;; `closed` or `reader-exited`, or the value raised while
 ;; handling the command or reading the source.
 (struct/contract Source-Failure
   ([reason any/c])
   #:transparent)
+
+;; Supervisor read deadlines retain their origin across observation acceptance.
+(struct/contract Source-Read-Timeout () #:transparent)
 
 ;; Current knowledge of one source after observation.
 ;;
 ;; view: Present for every file, including failed or missing reads. `#f` only
 ;;   for a virtual source with no open buffer.
 ;; snapshot: Frozen text when buffer or disk text is available; otherwise `#f`.
-;; error: Failure of this observation (`closed`, `reader-exited`, `read-timeout`,
-;;   or a raised reader error). Shutdown is reported as a bare `Source-Failure`
+;; error: An ordinary Source-Failure or a distinct Source-Read-Timeout.
+;;   Shutdown is reported as a bare `Source-Failure`
 ;;   on the command reply, not in this field. A missing file is `file-not-found`
 ;;   on the view, with no error.
 (struct/contract Source-Result
   ([view (or/c #f Source-View?)]
    [snapshot (or/c #f Source-Snapshot?)]
-   [error (or/c #f Source-Failure?)])
+   [error (or/c #f Source-Failure? Source-Read-Timeout?)])
   #:transparent)
 
 ;; Private composition root. Subsystem representations and mutable fields
@@ -88,7 +93,8 @@
    [reader Disk-Reader?]
    [scheduler Analysis-Scheduler?]
    [closed-analysis Closed-Analysis-Cache?]
-   [publisher Analysis-Publisher?]))
+   [publisher Analysis-Publisher?]
+   [(analysis-accepted #:mutable) (-> any/c)]))
 
 ;; Timeouts are seconds. The workspace supplies publication only, not session
 ;; isolation for request-layer workspace access. Zero cache capacity disables
@@ -107,12 +113,17 @@
                      (make-analysis-scheduler events #:analyze analyze #:resyntax resyntax
                                               #:slots slots #:timeout analysis-timeout)
                      (make-closed-analysis-cache closed-analysis-limit)
-                     (make-analysis-publisher workspace)))
+                     (make-analysis-publisher workspace) void))
 
 (define current-source-controller (make-parameter (make-source-controller)))
 
 (define (source-controller-set-notifier! controller notify)
   (set-analysis-notifier! (Source-Controller-publisher controller) notify))
+
+;; Consumer-only notification after fresh open-buffer analysis is installed.
+;; Restored products, closed-file analysis, and Resyntax do not trigger it.
+(define (source-controller-set-analysis-accepted! controller accepted)
+  (set-Source-Controller-analysis-accepted! controller accepted))
 
 (define (source-controller-events controller)
   (Source-Controller-events controller))
@@ -155,14 +166,17 @@
 ;; Worker envelopes are interpreted here so the public dispatcher has no
 ;; dependency on reader/scheduler representations. Acceptance still runs inline.
 (define (source-controller-handle-completion! controller event)
-  (match event
-    [(? Disk-Read-Completed?)
+  (cond
+    [(Disk-Read-Completed? event)
      (finish-disk-read! (Source-Controller-reader controller) event
                         (lambda (view result) (accept-disk-observation! controller view result)))]
-    [(? Analysis-Completed?)
+    [(Analysis-Completed? event)
      (finish-analysis-task! (Source-Controller-scheduler controller) event
                             (lambda (snapshot kind completion parent result)
-                              (accept-analysis-result! controller snapshot kind completion parent result)))]))
+                              (accept-analysis-result!
+                                controller snapshot kind completion parent result)))]
+    [else
+     (error 'source-controller-handle-completion! "unexpected controller event: ~v" event)]))
 
 (define (source-controller-current-view? controller view)
   (eq? view (source-controller-view controller (Source-View-source view))))
@@ -172,10 +186,11 @@
                             (lambda (snapshot) (snapshot-current? controller snapshot))))
 
 (define (source-controller-observe! controller source)
-  (match (source-controller-view controller source)
-    [#f (current-result controller source (Source-Failure 'closed))]
-    [(struct* Source-View ([origin 'buffer])) (current-result controller source)]
-    [view (request-disk-read! (Source-Controller-reader controller) view)]))
+  (define view (source-controller-view controller source))
+  (cond
+    [(not view) (current-result controller source (Source-Failure 'closed))]
+    [(eq? 'buffer (Source-View-origin view)) (current-result controller source)]
+    [else (request-disk-read! (Source-Controller-reader controller) view)]))
 
 ;; Commit source knowledge and invalidate obsolete analysis before the reader
 ;; answers observers or starts the next read from the successor disk view.
@@ -185,7 +200,8 @@
     (match result
       [(? string? text) (values 'text-available text #f)]
       [(Disk-Missing) (values 'file-not-found #f #f)]
-      [(Disk-Read-Failure reason) (values 'unknown #f (Source-Failure reason))]))
+      [(Disk-Read-Failure reason) (values 'unknown #f (Source-Failure reason))]
+      [(Disk-Read-Timeout) (values 'unknown #f (Source-Read-Timeout))]))
   (source-store-observe! (Source-Controller-store controller) started-view content-state text)
   (define next-view (source-controller-view controller source))
   (unless (eq? started-view next-view)
@@ -340,7 +356,9 @@
       (cond
         [(not (snapshot-current? controller snapshot)) (Analysis-Outcome 'stopped 'source-changed)]
         [(Analysis-Outcome? result) result]
-        [(and (eq? kind 'analysis) (source-buffer controller source) (stale-imports? controller result))
+        [(and (eq? kind 'analysis)
+              (source-buffer controller source)
+              (stale-imports? controller result))
          (restart-buffers! controller (list (cons source (source-buffer controller source))))
          (Analysis-Outcome 'stopped 'dependency-changed)]
         [(eq? kind 'analysis) (record-analysis! controller snapshot result completion)]
@@ -349,16 +367,19 @@
          (when buffer
            (with-write-safedoc buffer
              (lambda (sd)
-               (publish-document-resyntax! (Source-Controller-publisher controller) sd parent result))))
+               (publish-document-resyntax! (Source-Controller-publisher controller)
+                                           sd parent result))))
          (Analysis-Outcome 'succeeded #f)])))
   (define succeeded? (eq? 'succeeded (Analysis-Outcome-state outcome)))
   (case kind
     [(analysis)
-     (when (eq? 'failed (Analysis-Outcome-state outcome))
-       (hash-set! (Source-Controller-dependencies controller) (source-id source) #f))
+     (when (memq (Analysis-Outcome-state outcome) '(failed timed-out))
+       (hash-remove! (Source-Controller-dependencies controller) (source-id source)))
      (unless succeeded? (discard-analysis! controller source))
-     (when (and succeeded? (source-buffer controller source) (get-resyntax-enabled))
-       (schedule-resyntax! (Source-Controller-scheduler controller) snapshot completion))]
+     (when (and succeeded? (source-buffer controller source))
+       ((Source-Controller-analysis-accepted controller))
+       (when (get-resyntax-enabled)
+         (schedule-resyntax! (Source-Controller-scheduler controller) snapshot completion)))]
     [(resyntax)
      (unless succeeded? (log-racket-langserver-info "Resyntax discarded: ~v" outcome))])
   outcome)
