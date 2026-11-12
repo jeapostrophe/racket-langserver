@@ -90,8 +90,8 @@
 ;;   deadline. `stopped` when the attempt was cancelled or the source was no
 ;;   longer eligible.
 ;; value: An `Analysis-Summary` after successful Check Syntax. `#f` after
-;;   Check Syntax errors, a supervisor timeout, or successful Resyntax. The reason after `failed`
-;;   or `stopped`.
+;;   Check Syntax errors, a supervisor timeout, or successful Resyntax.
+;;   The reason after `failed` or `stopped`.
 (struct/contract Analysis-Outcome
   ([state (or/c 'succeeded 'errors 'failed 'timed-out 'stopped)]
    [value any/c])

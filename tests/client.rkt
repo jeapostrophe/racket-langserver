@@ -49,7 +49,7 @@
   (receive-response (Session-responses session) (Session-pending session) id timeout))
 
 (define (receive-response responses pending id [timeout 5])
-  (define deadline (+ (current-deadline-milliseconds) (* timeout 1000)))
+  (define deadline (deadline-after timeout))
   (define result
     (or (hash-ref pending id #f)
         (let loop ()

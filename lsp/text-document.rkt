@@ -282,11 +282,6 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-;; Visual query results may be immediate protocol JSON, an immediate delivery command,
-;; or a deferred thunk computing either variant.
-(define visual-result/c
-  (or/c Visual-Delivery? (and/c hash? jsexpr?) (-> (or/c Visual-Delivery? (and/c hash? jsexpr?)))))
-
 (provide
   did-open!
   did-change!

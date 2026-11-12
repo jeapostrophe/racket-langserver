@@ -23,7 +23,7 @@
                                   #:timeout-result timeout-result
                                   #:done done)
   (define handle (Supervised-Worker (make-custodian)))
-  (define deadline (+ (current-deadline-milliseconds) (* 1000 seconds)))
+  (define deadline (deadline-after seconds))
   (define result-ch (make-async-channel))
   (define worker
     (parameterize ([current-custodian (Supervised-Worker-custodian handle)]

@@ -41,8 +41,10 @@
            source-controller-ensure-analysis!
            source-controller-refresh-analysis!))
 
-;; Commands on `events`, beside worker completions. Request threads never
-;; construct these records; the functions below submit them.
+;; Commands on `events`, beside worker completions. `server%` also routes
+;; `Visual-Delivery` values through this queue and intercepts them in
+;; `process-source-event` before calling `source-controller-handle!`.
+;; Request threads never construct command records; the functions below submit them.
 ;;
 ;; reply: The submitter's one-shot wait, completed by the consumer in
 ;;   `answer!`. Shared by every command below.

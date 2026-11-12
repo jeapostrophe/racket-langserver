@@ -5,7 +5,6 @@
 (require rackunit
          racket/async-channel
          "../../common/interfaces.rkt"
-         "../../common/path-util.rkt"
          "../../common/source.rkt"
          "../../common/time.rkt"
          "../../doclib/doc.rkt"
@@ -26,10 +25,11 @@
 (define text "#lang racket/base\n(define value 1)\n")
 (define requester (path->source (build-path scratch "timeout-requester.rkt")))
 (define target-path (build-path scratch "timeout-target.rkt"))
+(define target-source (path->source target-path))
 (define binding (Module-Binding target-path '() 0 'value))
 
 (define (with-target proc #:read [read (lambda (_) text)]
-                     #:analyze [analyze analyze-source]
+                     #:analyze [analyze stub-analysis-product]
                      #:read-timeout [read-timeout 3]
                      #:analysis-timeout [analysis-timeout 90])
   (define custodian (make-custodian))
@@ -45,8 +45,9 @@
           (drive-controller controller (with-read-safedoc sd SafeDoc-analysis-completion) 90)
           (define view (with-read-safedoc sd SafeDoc-source-view))
           (define (query seconds feature #:compose [compose (lambda (_ detail) detail)]
+                         #:deadline [deadline (deadline-after seconds)]
                          #:fallback [fallback (lambda () "local")])
-            (target-query 1 controller (+ (current-deadline-milliseconds) (* 1000 seconds))
+            (target-query 1 controller deadline
                           view binding feature (lambda (_facts _binding) "detail") compose
                           #:fallback (and (equal? feature "Hover") fallback)))
           (define (run deferred)
@@ -71,31 +72,37 @@
       #:read (lambda (_) (async-channel-put reads #t) text)))
 
   (test-case "only actual read and analysis deadlines permit hover fallback"
-    (for ([stage (in-list '(read analysis))])
-      (for ([mode (in-list '(deadline raised-symbol permission forged-timeout forged-stop))])
-        (define (work)
-          (case mode
-            [(deadline) (sync never-evt)]
-            [(raised-symbol) (raise (if (eq? stage 'read) 'read-timeout 'analysis-timeout))]
-            [(forged-timeout) (raise (Analysis-Outcome 'timed-out #f))]
-            [(forged-stop) (raise (Analysis-Outcome 'stopped 'forged))]
-            [(permission)
-             (raise (exn:fail:filesystem:errno "permission denied" (current-continuation-marks)
-                                               '(13 . posix)))]))
-        (with-target
-          (lambda (_controller _sd query run)
-            (define hover (run (query 5 "Hover")))
-            (if (eq? mode 'deadline)
-                (check-equal? (hash-ref hover 'result) "local")
-                (check-error hover ErrorCode-RequestFailed))
-            (check-error (run (query 5 "Definition")) ErrorCode-RequestFailed))
-          #:read-timeout 0.1 #:analysis-timeout 0.5
-          #:read (if (eq? stage 'read) (lambda (_) (work)) (lambda (_) text))
-          #:analyze (lambda (snapshot)
-                      (if (and (eq? stage 'analysis)
-                               (equal? (Source-Snapshot-id snapshot) (source-id (path->source target-path))))
-                          (work)
-                          (analyze-source snapshot)))))))
+    (for ([case-spec (in-list '((read deadline)
+                                (read raised-symbol)
+                                (read permission)
+                                (analysis deadline)
+                                (analysis forged-timeout)
+                                (analysis forged-stop)))])
+      (define stage (car case-spec))
+      (define mode (cadr case-spec))
+      (define (work)
+        (case mode
+          [(deadline) (sync never-evt)]
+          [(raised-symbol) (raise 'read-timeout)]
+          [(forged-timeout) (raise (Analysis-Outcome 'timed-out #f))]
+          [(forged-stop) (raise (Analysis-Outcome 'stopped 'forged))]
+          [(permission)
+           (raise (exn:fail:filesystem:errno "permission denied" (current-continuation-marks)
+                                             '(13 . posix)))]))
+      (with-target
+        (lambda (_controller _sd query run)
+          (define hover (run (query 5 "Hover")))
+          (if (eq? mode 'deadline)
+              (check-equal? (hash-ref hover 'result) "local")
+              (check-error hover ErrorCode-RequestFailed))
+          (check-error (run (query 5 "Definition")) ErrorCode-RequestFailed))
+        #:read-timeout 0.05 #:analysis-timeout 0.05
+        #:read (if (eq? stage 'read) (lambda (_) (work)) (lambda (_) text))
+        #:analyze (lambda (snapshot)
+                    (if (and (eq? stage 'analysis)
+                             (equal? (Source-Snapshot-id snapshot) (source-id target-source)))
+                        (work)
+                        (stub-analysis-product snapshot))))))
 
   (test-case "fallback exceptions stay errors and requester changes win during composition"
     (with-target
@@ -119,12 +126,16 @@
   (test-case "normal composition failures at expiry cannot become local fallback"
     (with-target
       (lambda (_controller _sd query run)
+        (define deadline (deadline-after 0.3))
+        (define compose-called? #f)
         (check-error
-          (run (query 0.5 "Hover"
+          (run (query 0.3 "Hover" #:deadline deadline
                       #:compose (lambda (_ detail)
-                                  (sync (deadline-evt (+ (current-deadline-milliseconds) 500)))
+                                  (set! compose-called? #t)
+                                  (sync (deadline-evt (+ deadline 5)))
                                   (raise 'composition-failed))))
-          ErrorCode-RequestFailed))))
+          ErrorCode-RequestFailed)
+        (check-true compose-called?))))
 
   (test-case "ready worker failures beat a simultaneously ready target deadline"
     (with-target

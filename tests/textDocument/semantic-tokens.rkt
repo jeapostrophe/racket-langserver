@@ -44,7 +44,8 @@ END
         (define range-req
           (make-request lsp "textDocument/semanticTokens/range" range-params))
         (client-send lsp range-req)
-        (check-equal? (hash-ref (client-wait-response range-req) 'result) (hasheq 'data '(1 0 21 5 0)))
+        (check-equal? (hash-ref (client-wait-response range-req) 'result)
+                      (hasheq 'data '(1 0 21 5 0)))
 
         (client-send lsp
                      (make-notification

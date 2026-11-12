@@ -91,13 +91,13 @@
 
     (define (deliver-visual! delivery)
       (define response (Visual-Delivery-response delivery))
-      (define id (hash-ref response 'id (json-null)))
+      (define id (hash-ref response 'id))
       (define view (Visual-Delivery-request-view delivery))
       (cond
         [(sync/timeout 0 (Source-View-changed view))
-         (send-response (error-response id ErrorCode-ContentModified "Document changed or closed"))]
+         (send-response (content-modified-response id))]
         [(sync/timeout 0 (source-controller-shutdown-evt source-controller))
-         (send-response (error-response id ErrorCode-RequestFailed "Server shut down"))]
+         (send-response (shutdown-response id))]
         [else
          ;; Queue the fallback first: acceptance may already have sent a refresh
          ;; before this delayed delivery reached the consumer.
@@ -112,8 +112,9 @@
       (unless (sync/timeout 0 (source-controller-shutdown-evt source-controller))
         (send-request (feature->refresh-method feature) (hasheq) void)))
 
-    ;; Both immediate and deferred visual results return to the consumer queue.
-    ;; A worker must never send the command's return value as a second response.
+    ;; Both immediate and deferred visual results return through the consumer event
+    ;; queue alongside controller events. A worker must never send the command's
+    ;; return value as a second response.
     (define (route-response response)
       (if (Visual-Delivery? response)
           (async-channel-put (source-controller-events source-controller) response)
@@ -122,6 +123,7 @@
     (define/public (send-response msg)
       (async-channel-put response-channel msg))
 
+    ;; Must run on the session consumer; mutates response-handlers and server-request-id.
     (define/public (send-request method params handler)
       ; register handler
       (hash-set! response-handlers server-request-id handler)
@@ -160,8 +162,8 @@
          (define params (hash-ref msg 'params hasheq))
          (handle-notification method params)]
         ;; Response: error takes precedence over result in a loose reply envelope.
-        [(and (hash-table ['jsonrpc "2.0"] ['id id])
-              (? (λ (m) (or (hash-has-key? m 'error) (hash-has-key? m 'result)))))
+        [(hash-table ['jsonrpc "2.0"] ['id id])
+         #:when (or (hash-has-key? msg 'error) (hash-has-key? msg 'result))
          (define handler (hash-ref response-handlers id #f))
          (cond
            [handler
@@ -201,8 +203,8 @@
              ["initialize"
               (define response (initialize id params))
               (when (hash-has-key? response 'result)
-                (define capabilities (hash-ref params 'capabilities (hasheq)))
-                (set! refresh-features (client-refresh-features capabilities)))
+                (set! refresh-features
+                      (client-refresh-features (hash-ref params 'capabilities))))
               response]
              ["shutdown"
               (source-controller-shutdown! source-controller)
@@ -275,21 +277,31 @@
 
 ;;; Requests
 
+(struct Refresh-Spec (feature capability method))
+
 (define visual-refresh-features
-  '([semantic-tokens semanticTokens "workspace/semanticTokens/refresh"]
-    [inlay-hints inlayHint "workspace/inlayHint/refresh"]))
+  (list (Refresh-Spec 'semantic-tokens 'semanticTokens "workspace/semanticTokens/refresh")
+        (Refresh-Spec 'inlay-hints 'inlayHint "workspace/inlayHint/refresh")))
 
 (define (feature->refresh-method feature)
-  (caddr (assq feature visual-refresh-features)))
+  (define spec
+    (for/first ([entry (in-list visual-refresh-features)]
+                #:when (eq? feature (Refresh-Spec-feature entry)))
+      entry))
+  (unless spec
+    (error 'feature->refresh-method "unknown visual feature: ~v" feature))
+  (Refresh-Spec-method spec))
+
+(define (refresh-supported? ws key)
+  (define cfg (hash-ref ws key #f))
+  (and (hash? cfg) (eq? #t (hash-ref cfg 'refreshSupport #f))))
 
 (define (client-refresh-features capabilities)
-  (define ws (hash-ref capabilities 'workspace #f))
+  (define ws (and (hash? capabilities) (hash-ref capabilities 'workspace #f)))
   (if (hash? ws)
-      (for/list ([entry (in-list visual-refresh-features)]
-                 #:when (let ([feature-cfg (hash-ref ws (cadr entry) #f)])
-                          (and (hash? feature-cfg)
-                               (eq? #t (hash-ref feature-cfg 'refreshSupport #f)))))
-        (car entry))
+      (for/list ([spec (in-list visual-refresh-features)]
+                 #:when (refresh-supported? ws (Refresh-Spec-capability spec)))
+        (Refresh-Spec-feature spec))
       '()))
 
 (define (record-client-capabilities! capabilities)

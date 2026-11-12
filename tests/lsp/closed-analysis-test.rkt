@@ -137,13 +137,16 @@
                       (define held (await gates))
                       (barrier session)
                       (define fresh (acquire session path))
-                      (define previous-tokens (query session path 430 "textDocument/semanticTokens/full"))
+                      (define previous-tokens
+                        (query session path 430 "textDocument/semanticTokens/full"))
                       (check-true (pair? (hash-ref previous-tokens 'data)))
                       (release-gate! held failure)
                       (check-eq? (Analysis-Outcome-state (await-analysis fresh))
                                  (if (eq? failure 'fail) 'failed 'errors))
                       (when (eq? failure 'errors)
-                        (check-equal? (query session path 431 "textDocument/semanticTokens/full") previous-tokens))
+                        (check-equal?
+                          (query session path 431 "textDocument/semanticTokens/full")
+                          previous-tokens))
                       (close! session path)
                       (barrier session)
                       (open! session path text)

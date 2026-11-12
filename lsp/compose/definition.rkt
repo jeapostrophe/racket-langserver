@@ -2,7 +2,8 @@
 
 ;; textDocument/definition. A local location, or no binding, is returned
 ;; immediately. A module binding is resolved by `target-query`.
-(require "../../common/interfaces.rkt"
+(require racket/contract/base
+         "../../common/interfaces.rkt"
          "../../common/time.rkt"
          "../../doclib/doc.rkt"
          "target.rkt"
@@ -12,14 +13,15 @@
          "../safedoc.rkt"
          "../source-controller.rkt")
 
-(provide definition-query current-definition-target-timeout)
-
 ;; Seconds for the entire target lookup, including deferred dispatch and queues.
 (define current-definition-target-timeout (make-parameter 10.0))
 
+(provide definition-query
+         (contract-out
+           [current-definition-target-timeout (parameter/c (and/c real? (>=/c 0)))]))
+
 (define (definition-query safe-doc id uri pos)
-  (define deadline (+ (current-deadline-milliseconds)
-                      (* 1000 (current-definition-target-timeout))))
+  (define deadline (deadline-after (current-definition-target-timeout)))
   (define controller (current-source-controller))
   (define-values (view target)
     (with-read-safedoc safe-doc

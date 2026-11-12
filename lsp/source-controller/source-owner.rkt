@@ -166,14 +166,17 @@
 ;; Worker envelopes are interpreted here so the public dispatcher has no
 ;; dependency on reader/scheduler representations. Acceptance still runs inline.
 (define (source-controller-handle-completion! controller event)
-  (match event
-    [(? Disk-Read-Completed?)
+  (cond
+    [(Disk-Read-Completed? event)
      (finish-disk-read! (Source-Controller-reader controller) event
                         (lambda (view result) (accept-disk-observation! controller view result)))]
-    [(? Analysis-Completed?)
+    [(Analysis-Completed? event)
      (finish-analysis-task! (Source-Controller-scheduler controller) event
                             (lambda (snapshot kind completion parent result)
-                              (accept-analysis-result! controller snapshot kind completion parent result)))]))
+                              (accept-analysis-result!
+                                controller snapshot kind completion parent result)))]
+    [else
+     (error 'source-controller-handle-completion! "unexpected controller event: ~v" event)]))
 
 (define (source-controller-current-view? controller view)
   (eq? view (source-controller-view controller (Source-View-source view))))
@@ -183,10 +186,11 @@
                             (lambda (snapshot) (snapshot-current? controller snapshot))))
 
 (define (source-controller-observe! controller source)
-  (match (source-controller-view controller source)
-    [#f (current-result controller source (Source-Failure 'closed))]
-    [(struct* Source-View ([origin 'buffer])) (current-result controller source)]
-    [view (request-disk-read! (Source-Controller-reader controller) view)]))
+  (define view (source-controller-view controller source))
+  (cond
+    [(not view) (current-result controller source (Source-Failure 'closed))]
+    [(eq? 'buffer (Source-View-origin view)) (current-result controller source)]
+    [else (request-disk-read! (Source-Controller-reader controller) view)]))
 
 ;; Commit source knowledge and invalidate obsolete analysis before the reader
 ;; answers observers or starts the next read from the successor disk view.
@@ -352,7 +356,9 @@
       (cond
         [(not (snapshot-current? controller snapshot)) (Analysis-Outcome 'stopped 'source-changed)]
         [(Analysis-Outcome? result) result]
-        [(and (eq? kind 'analysis) (source-buffer controller source) (stale-imports? controller result))
+        [(and (eq? kind 'analysis)
+              (source-buffer controller source)
+              (stale-imports? controller result))
          (restart-buffers! controller (list (cons source (source-buffer controller source))))
          (Analysis-Outcome 'stopped 'dependency-changed)]
         [(eq? kind 'analysis) (record-analysis! controller snapshot result completion)]
@@ -361,13 +367,14 @@
          (when buffer
            (with-write-safedoc buffer
              (lambda (sd)
-               (publish-document-resyntax! (Source-Controller-publisher controller) sd parent result))))
+               (publish-document-resyntax! (Source-Controller-publisher controller)
+                                           sd parent result))))
          (Analysis-Outcome 'succeeded #f)])))
   (define succeeded? (eq? 'succeeded (Analysis-Outcome-state outcome)))
   (case kind
     [(analysis)
      (when (memq (Analysis-Outcome-state outcome) '(failed timed-out))
-       (hash-set! (Source-Controller-dependencies controller) (source-id source) #f))
+       (hash-remove! (Source-Controller-dependencies controller) (source-id source)))
      (unless succeeded? (discard-analysis! controller source))
      (when (and succeeded? (source-buffer controller source))
        ((Source-Controller-analysis-accepted controller))
