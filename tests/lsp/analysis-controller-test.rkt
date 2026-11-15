@@ -69,7 +69,7 @@
 
 (module+ test
   (for ([failure (in-list '(raise errors))])
-    (test-case (format "exact waiter rechecks availability after a later ~a refresh" failure)
+    (test-case (format "visual waiter rechecks availability after a later ~a refresh" failure)
       (define probes (make-async-channel))
       (define controller
         (make-source-controller
@@ -81,18 +81,17 @@
                          (define product (analyze-source snapshot))
                          (struct-copy Analysis-Product product [succeeded? #f] [summary #f])]
                         [else (analyze-source snapshot)]))))
-      (define path (build-path scratch "exact-refresh-race.rkt"))
+      (define path (build-path scratch "visual-refresh-race.rkt"))
       (with-buffer controller path
                    (lambda (sd source)
                      (define first-gate (await probes))
                      (define first (with-read-safedoc sd SafeDoc-analysis-completion))
                      (define read-called? #f)
                      (define deferred
-                       (analysis-query sd 900
-                                       (lambda (_)
-                                         (set! read-called? #t)
-                                         "unavailable trace")
-                                       '()))
+                       (visual-query sd 900 'inlay-hints
+                                     (lambda (_)
+                                       (set! read-called? #t)
+                                       "adjusted trace")))
                      (check-true (procedure? deferred))
                      (release-gate! first-gate)
                      (check-eq? 'succeeded
@@ -103,10 +102,15 @@
                      (release-gate! second-gate failure)
                      (drive-controller controller second)
                      (define response (deferred))
-                     (check-false read-called?)
-                     (if (eq? failure 'raise)
-                         (check-error response ErrorCode-RequestFailed)
-                         (check-equal? (hash-ref response 'result) '()))))))
+                     (cond
+                       [(eq? failure 'raise)
+                        (check-false read-called?)
+                        (check-error response ErrorCode-RequestFailed)]
+                       [else
+                        (check-true read-called?)
+                        (check-true (Visual-Delivery-degraded? response))
+                        (check-equal? (hash-ref (Visual-Delivery-response response) 'result)
+                                      "adjusted trace")])))))
 
   (test-case "named commands reject obsolete snapshots and report shutdown"
     (define probes (make-async-channel))
@@ -371,8 +375,8 @@
                     (await probes)
                     (define peer (acquire session path))
                     (request session "textDocument/semanticTokens/full" 17 path)
-                    (check-equal? (await timed-out) (Analysis-Outcome 'failed 'analysis-timeout))
-                    (check-error (response session 17) ErrorCode-RequestFailed)
+                    (check-equal? (await timed-out) (Analysis-Outcome 'timed-out #f))
+                    (check-equal? (hash-ref (response session 17) 'result) (hasheq 'data '()))
                     (check-eq? (await timed-out) (await peer))
                     (check-equal? (notifications session) '())
                     (close! session path)
@@ -404,11 +408,13 @@
                     (release-gate! first-probe)
                     (define outcome (await first))
                     ;; Worker death and the deadline can be ready together.
-                    (check-eq? 'failed (Analysis-Outcome-state outcome))
-                    (check-not-false (memq (Analysis-Outcome-value outcome)
-                                           '(worker-exited analysis-timeout)))
+                    (check-not-false
+                      (member outcome (list (Analysis-Outcome 'failed 'worker-exited)
+                                            (Analysis-Outcome 'timed-out #f))))
                     (check-eq? (await first) (await peer))
-                    (check-error (response session 18) ErrorCode-RequestFailed)
+                    (if (eq? 'timed-out (Analysis-Outcome-state outcome))
+                        (check-equal? (hash-ref (response session 18) 'result) '())
+                        (check-error (response session 18) ErrorCode-RequestFailed))
                     (define next-probe (await probes))
                     (check-equal? (Source-Snapshot-id (Gate-input next-probe))
                                   (source-id (path->source b)))
@@ -454,7 +460,7 @@
                     (open! session b text)
                     (barrier session)
                     (request session "textDocument/inlayHint" 9 b)
-                    (check-error (response session 9) ErrorCode-RequestFailed)
+                    (check-equal? (hash-ref (response session 9) 'result) '())
                     (define peer (acquire session b))
                     (check-false (sync/timeout 0 probes))
                     (release-gate! held)
@@ -618,6 +624,8 @@
         (release-gate! (await probes))
         (barrier session)
         (await (acquire session path))
+        (request session "textDocument/semanticTokens/full" 11 path)
+        (define previous-tokens (hash-ref (response session 11) 'result))
         (set! fail-next? #t)
         (notify session "workspace/didRenameFiles"
                 (hasheq 'files (list (hasheq 'oldUri (path->uri path)
@@ -631,7 +639,7 @@
         (check-false (hash-has-key? (Session-pending session) 13))
         (release-gate! probe)
         (check-equal? (hash-ref (response session 12) 'result) '())
-        (check-equal? (hash-ref (response session 13) 'result) (hasheq 'data '()))
+        (check-equal? (hash-ref (response session 13) 'result) previous-tokens)
         (close! session path)
         (barrier session))))
 
@@ -736,7 +744,7 @@
       (lambda () (set-resyntax-enabled! old-enabled)))))
 
 (module+ test
-  (test-case "available analysis answers exact queries during a held same-revision refresh"
+  (test-case "available analysis answers visual queries during a held same-revision refresh"
     (define probes (make-async-channel))
     (define controller (make-source-controller #:analyze (controlled-analyzer probes) #:resyntax #f))
     (with-buffer controller (build-path scratch "available-refresh.rkt")
@@ -754,8 +762,9 @@
                    (check-true (Analysis-Summary? (Analysis-Handle-reusable-summary acquisition)))
                    (check-eq? fresh (Analysis-Handle-completion-evt acquisition))
                    (check-false (sync/timeout 0 fresh))
-                   (define response (analysis-query sd 202 (lambda (_) "available") '()))
-                   (check-equal? (hash-ref response 'result) "available")
+                   (define response (visual-query sd 202 'inlay-hints (lambda (_) "available")))
+                   (check-false (Visual-Delivery-degraded? response))
+                   (check-equal? (hash-ref (Visual-Delivery-response response) 'result) "available")
                    (check-false (sync/timeout 0 fresh))
                    (release-gate! held)
                    (check-eq? 'succeeded

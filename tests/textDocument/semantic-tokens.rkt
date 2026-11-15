@@ -17,7 +17,7 @@ END
            "with-document.rkt")
 
   (test-case
-    "semantic tokens return empty data for unsuccessful current analysis"
+    "semantic tokens retain current lexer comments through unsuccessful analysis"
     (with-document uri failing-code
       (lambda (lsp)
         (define semantic-tokens-req
@@ -35,7 +35,7 @@ END
         (define response-ready (sync/timeout 1.0 response-channel))
 
         (check-not-false response-ready)
-        (check-equal? (hash-ref response-ready 'result) (hasheq 'data '()))
+        (check-equal? (hash-ref response-ready 'result) (hasheq 'data '(1 0 21 5 0)))
 
         (define range-params
           (hasheq 'textDocument (hasheq 'uri uri)
@@ -44,7 +44,8 @@ END
         (define range-req
           (make-request lsp "textDocument/semanticTokens/range" range-params))
         (client-send lsp range-req)
-        (check-equal? (hash-ref (client-wait-response range-req) 'result) (hasheq 'data '()))
+        (check-equal? (hash-ref (client-wait-response range-req) 'result)
+                      (hasheq 'data '(1 0 21 5 0)))
 
         (client-send lsp
                      (make-notification

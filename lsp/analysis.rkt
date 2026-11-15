@@ -86,13 +86,14 @@
 ;;
 ;; state: `succeeded` when Check Syntax produced facts, or when Resyntax
 ;;   finished. `errors` when Check Syntax finished without facts. `failed`
-;;   when the worker raised, exited, or timed out. `stopped` when the attempt
-;;   was cancelled or the source was no longer eligible.
+;;   when the worker raised or exited. `timed-out` only for the supervisor
+;;   deadline. `stopped` when the attempt was cancelled or the source was no
+;;   longer eligible.
 ;; value: An `Analysis-Summary` after successful Check Syntax. `#f` after
-;;   Check Syntax errors or successful Resyntax. The reason after `failed`
-;;   or `stopped`.
+;;   Check Syntax errors, a supervisor timeout, or successful Resyntax.
+;;   The reason after `failed` or `stopped`.
 (struct/contract Analysis-Outcome
-  ([state (or/c 'succeeded 'errors 'failed 'stopped)]
+  ([state (or/c 'succeeded 'errors 'failed 'timed-out 'stopped)]
    [value any/c])
   #:transparent)
 

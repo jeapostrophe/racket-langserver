@@ -1,6 +1,6 @@
 #lang racket/base
 
-(provide current-deadline-milliseconds deadline-evt)
+(provide current-deadline-milliseconds deadline-after deadline-evt)
 
 ;; The clock and alarm must use the same time base. Older Racket versions
 ;; lack the monotonic clock or the two-argument alarm-evt.
@@ -11,6 +11,10 @@
 
 (define current-deadline-milliseconds
   (or monotonic-milliseconds current-inexact-milliseconds))
+
+;; Deadline timestamp `seconds` after the current deadline clock.
+(define (deadline-after seconds)
+  (+ (current-deadline-milliseconds) (* 1000 seconds)))
 
 (define (deadline-evt deadline)
   (if monotonic-milliseconds

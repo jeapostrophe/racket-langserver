@@ -225,8 +225,9 @@
                     (await probes)
                     (define queued (refresh session path))
                     (controller-barrier session)
-                    (check-equal? 'read-timeout
-                                  (Source-Failure-reason (Source-Result-error (await first))))
+                    (define failure (Source-Result-error (await first)))
+                    (check-true (Source-Read-Timeout? failure))
+                    (check-false (Source-Failure? failure))
                     (release! (await probes) "later")
                     (check-equal? "later" (result-text (await queued))))))
 

@@ -4,17 +4,23 @@
 ;; Session ownership and protocol helpers live in the existing shared test client.
 (require rackunit
          racket/async-channel
+         racket/class
          racket/runtime-path
          "../client.rkt"
          "../../common/source.rkt"
          "../../common/json-util.rkt"
+         "../../doclib/doc-trace.rkt"
+         "../../doclib/editor.rkt"
+         "../../doclib/lexer.rkt"
+         "../../lsp/analysis.rkt"
          "../../lsp/source-controller.rkt"
          (only-in (submod "../../lsp/source-controller.rkt" owner) source-controller-handle!)
          "../../workspace/source-store.rkt")
 
 (provide await observation acquire view refresh notify open! close! change! request!
          check-error barrier controller-barrier shutdown! response with-session drive-controller
-         scratch (struct-out Session) (struct-out Gate) wait-at-gate release-gate!)
+         scratch (struct-out Session) (struct-out Gate) wait-at-gate release-gate!
+         stub-analysis-product)
 
 (define-runtime-path scratch-path "../../.agent-scratch")
 (define scratch (simplify-path scratch-path #f))
@@ -90,3 +96,13 @@
 
 (define (release-gate! gate [command 'go])
   (async-channel-put (Gate-release gate) command))
+
+(define (stub-analysis-product snapshot)
+  (define src (Source-Snapshot-source snapshot))
+  (define trace
+    (new build-trace%
+      [source src]
+      [doc-text (new lsp-editor%)]
+      [lexer-state (build-lexer-state "" (source-uri src))]))
+  (Analysis-Product #t (Analysis-Summary (hash) (hash)) '() trace
+                    (send trace get-contribution) (hash)))

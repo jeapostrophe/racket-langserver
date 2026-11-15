@@ -27,6 +27,14 @@
           'id id
           'error err*))
 
+;; Standard error when an open document changes or closes mid-request.
+(define (content-modified-response id)
+  (error-response id ErrorCode-ContentModified "Document changed or closed"))
+
+;; Standard error when the session shuts down mid-request.
+(define (shutdown-response id)
+  (error-response id ErrorCode-RequestFailed "Server shut down"))
+
 (provide
   (contract-out
     [success/enc
@@ -36,5 +44,9 @@
     [error-response
      (->* ((or/c number? string? (json-null)) (or/c number? ErrorCode?) string?)
           (any/c)
-          jsexpr?)]))
+          jsexpr?)]
+    [content-modified-response
+     ((or/c number? string? (json-null)) . -> . jsexpr?)]
+    [shutdown-response
+     ((or/c number? string? (json-null)) . -> . jsexpr?)]))
 

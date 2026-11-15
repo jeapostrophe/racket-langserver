@@ -22,6 +22,7 @@
          (struct-out Analysis-Handle)
          (struct-out Source-Result)
          (struct-out Source-Failure)
+         (struct-out Source-Read-Timeout)
          (struct-out Disk-Missing))
 
 ;; These operations run only on the session consumer. Request threads use the
@@ -33,14 +34,17 @@
            source-controller-close!
            source-controller-invalidate!
            source-controller-set-notifier!
+           source-controller-set-analysis-accepted!
            source-controller-shutdown!
            source-controller-view
            source-controller-snapshot
            source-controller-ensure-analysis!
            source-controller-refresh-analysis!))
 
-;; Commands on `events`, beside worker completions. Request threads never
-;; construct these records; the functions below submit them.
+;; Commands on `events`, beside worker completions. `server%` also routes
+;; `Visual-Delivery` values through this queue and intercepts them in
+;; `process-source-event` before calling `source-controller-handle!`.
+;; Request threads never construct command records; the functions below submit them.
 ;;
 ;; reply: The submitter's one-shot wait, completed by the consumer in
 ;;   `answer!`. Shared by every command below.

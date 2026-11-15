@@ -172,7 +172,7 @@
                       (Source-Snapshot-text snapshot) (Source-Snapshot-uri snapshot))))
       #:fail (lambda (reason) (Analysis-Outcome 'failed reason))
       #:exited 'worker-exited
-      #:timed-out 'analysis-timeout
+      #:timeout-result (lambda () (Analysis-Outcome 'timed-out #f))
       #:done (lambda (result) (Analysis-Completed attempt result))))
   (set-Analysis-Attempt-worker! attempt worker))
 
