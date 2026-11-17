@@ -3,19 +3,18 @@
 (module+ test
   (require rackunit
            "../client.rkt"
-           "../../common/interfaces.rkt"
+           "../json-dsl.rkt"
            "../../common/json-util.rkt")
 
   (define expected-diagnostic
-    (->jsexpr
-      (Diagnostic
-        (Range (Pos 0 0) (Pos 0 11))
-        DiagnosticSeverity-Error
-        "Racket"
-        (string-append
-          "Cannot find language \"racke\".\n"
-          "  module path: racke/lang/reader\n"
-          "Check that the language name is correct and the package is installed."))))
+    (json {#:range {#:start {#:line 0 #:character 0}
+                    #:end {#:line 0 #:character 11}}
+           #:severity 1
+           #:source "Racket"
+           #:message (string-append
+                       "Cannot find language \"racke\".\n"
+                       "  module path: racke/lang/reader\n"
+                       "Check that the language name is correct and the package is installed.")}))
 
   (test-case "document sync publishes and clears diagnostics across open, edit, and close"
     (define uri "file:///test.rkt")

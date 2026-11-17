@@ -11,6 +11,7 @@
            "../../common/json-util.rkt"
            "../../common/path-util.rkt"
            "../../common/settings.rkt"
+           "../../common/source.rkt"
            "../../lsp/analysis.rkt"
            "../../lsp/source-controller.rkt"
            "../../workspace/source-store.rkt")
@@ -143,6 +144,46 @@
                       (check-false (available session path))
                       (close! session path)
                       (barrier session)))))
+
+  (test-case "cross-file definition jump survives closing target while target refresh is held"
+    (define gates (make-async-channel))
+    (with-temp-dir
+      "closed-analysis"
+      (lambda (root)
+        (define target (build-path root "target.rkt"))
+        (define caller (build-path root "caller.rkt"))
+        (define target-source "#lang racket/base\n(provide target-sym)\n(define target-sym 1)\n")
+        (define caller-source (format "#lang racket/base\n(require (file ~s))\ntarget-sym\n"
+                                      (path->string target)))
+        (write-text target target-source)
+        (write-text caller caller-source)
+        (with-session
+          (make-source-controller
+            #:resyntax #f
+            #:analyze (lambda (snapshot)
+                        (if (equal? (Source-Snapshot-id snapshot)
+                                    (source-id (path->source target)))
+                            ((analyzer gates) snapshot)
+                            (analyze-source snapshot))))
+          (lambda (session)
+            (open! session caller caller-source)
+            (barrier session)
+            (await-analysis (acquire session caller))
+            (open-analyzed! session gates target target-source)
+            (define expected (query session caller 440 "textDocument/definition" (Pos 2 0)))
+            (check-equal? (hash-ref expected 'uri) (path->uri target))
+            (close! session target)
+            (barrier session)
+            (request! session 441 "textDocument/definition" caller
+                      (hasheq 'position (->jsexpr (Pos 2 0))))
+            (define held (await gates))
+            (define fresh (acquire session target))
+            (check-equal? (hash-ref (response session 441) 'result) expected)
+            (check-false (sync/timeout 0 fresh))
+            (release-gate! held)
+            (await-analysis fresh)
+            (close! session caller)
+            (barrier session))))))
 
   (test-case "unchanged Typed Racket source shows retained dependency type then fresh replacement"
     (define gates (make-async-channel))

@@ -133,10 +133,15 @@
                (hash-set! pending received msg))
              (loop)]))))
   (hash-remove! pending id)
+  (unless (equal? (hash-ref result 'jsonrpc #f) "2.0")
+    (error 'stdio-response "expected jsonrpc 2.0 in response: ~s" result))
   result)
 
 (define (stdio-result client id [timeout 20])
-  (hash-ref (stdio-response client id timeout) 'result))
+  (define resp (stdio-response client id timeout))
+  (when (hash-has-key? resp 'error)
+    (error 'stdio-result "unexpected error response: ~s" resp))
+  (hash-ref resp 'result))
 
 (define (stdio-initialize! client [id 1] #:capabilities [capabilities (hasheq)])
   (stdio-send! client
