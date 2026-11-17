@@ -1,85 +1,45 @@
-#lang racket
+#lang racket/base
 
 ;; Failed expansion preserves adjusted hints whose source groups survived edits.
 ;; Edit-aware adjustment itself is covered by tests/lib/inlay-hint-edit-test.rkt.
-
-(define uri "file:///test.rkt")
-
-(define code
-#<<END
-#lang racket
-
-(struct point (x y))
-
-(point 1 2)
-END
-  )
-
 (module+ test
   (require rackunit
+           "../../common/interfaces.rkt"
+           "../../common/json-util.rkt"
+           "../json-dsl.rkt"
+           "inlay-hint-support.rkt"
            "with-document.rkt")
 
-  (define (hint->triple hint)
-    (define position (hash-ref hint 'position))
-    (list (hash-ref position 'line)
-          (hash-ref position 'character)
-          (hash-ref hint 'label)))
+  (define uri "file:///test.rkt")
+  (define code "#lang racket\n\n(struct point (x y))\n\n(point 1 2)\n")
 
-  (with-document uri code
-    (λ (lsp)
+  (test-case "inlay hints track shifts across failing edits and invalidate disturbed groups"
+    (with-document uri code
+      (lambda (lsp)
+        (define (replace! version start-line start-char end-line end-char text)
+          (notify lsp "textDocument/didChange"
+                  (json {#:textDocument (->jsexpr (DocIdentifier version uri))
+                         #:contentChanges [(->jsexpr
+                                             (ContentChangeEvent-Incremental
+                                               (Range (Pos start-line start-char)
+                                                      (Pos end-line end-char))
+                                               (Nothing)
+                                               text))]}))
+          (client-wait-notification lsp))
 
-      (define (replace! version start-line start-char end-line end-char text)
-        (client-send lsp
-                     (make-notification
-                       "textDocument/didChange"
-                       (hasheq 'textDocument
-                               (hasheq 'uri uri 'version version)
-                               'contentChanges
-                               (list (hasheq 'range
-                                             (hasheq 'start
-                                                     (hasheq 'line start-line
-                                                             'character start-char)
-                                                     'end
-                                                     (hasheq 'line end-line
-                                                             'character end-char))
-                                             'text text)))))
-        ;; Await the current failure before querying its settled outcome.
-        (client-wait-notification lsp))
+        (define (hints)
+          (map hint->triple (inlay-hints-for-range lsp uri)))
 
-      (define (hints-response)
-        (define req
-          (make-request lsp
-                        "textDocument/inlayHint"
-                        (hasheq 'textDocument
-                                (hasheq 'uri uri)
-                                'range
-                                (hasheq 'start (hasheq 'line 0 'character 0)
-                                        'end (hasheq 'line 30 'character 0)))))
-        (client-send lsp req)
-        (client-wait-response req))
+        (check-equal? (hints) '((4 7 "x ") (4 9 "y ")))
 
-      (define (hints)
-        (map hint->triple (hash-ref (hints-response) 'result)))
+        ;; An unrelated incomplete edit moves the surviving hints.
+        (replace! 1 1 0 1 0 "(define\n")
+        (check-equal? (hints) '((5 7 "x ") (5 9 "y ")))
 
-      (define (check-empty)
-        (check-equal? (hash-ref (hints-response) 'result) '()))
+        ;; Editing a constructor call invalidates that call's hint group.
+        (replace! 2 5 7 5 8 "100")
+        (check-equal? (inlay-hints-for-range lsp uri) '())
 
-      (check-equal? (hints)
-                    (list '(4 7 "x ")
-                          '(4 9 "y ")))
-
-      ;; An unrelated incomplete edit moves the surviving hints.
-      (replace! 1 1 0 1 0 "(define\n")
-      (check-equal? (hints) (list '(5 7 "x ") '(5 9 "y ")))
-
-      ;; Editing a constructor call invalidates that call's hint group.
-      (replace! 2 5 7 5 8 "100")
-      (check-empty)
-
-      (client-send lsp
-                   (make-notification "textDocument/didChange"
-                                      (hasheq 'textDocument (hasheq 'uri uri 'version 3)
-                                              'contentChanges (list (hasheq 'text code)))))
-      (client-wait-notification lsp)
-      (check-equal? (hints)
-                    (list '(4 7 "x ") '(4 9 "y "))))))
+        (change! lsp uri code 3)
+        (client-wait-notification lsp)
+        (check-equal? (hints) '((4 7 "x ") (4 9 "y ")))))))

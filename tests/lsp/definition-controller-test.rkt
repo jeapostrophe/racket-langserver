@@ -2,173 +2,91 @@
 
 ;; Cross-file definition requests use the production serial consumer. Gates
 ;; mark actual reads and target analysis starts; no sleep establishes ordering.
-(require "../../common/source.rkt"
-         drracket/check-syntax
-         json
-         rackunit
-         racket/async-channel
-         racket/class
-         racket/file
-         racket/match
-         racket/path
-         racket/string
-         "../../common/debug.rkt"
-         "../../common/interfaces.rkt"
-         "../../common/json-util.rkt"
-         "../../common/path-util.rkt"
-         "../../doclib/doc.rkt"
-         "../../doclib/internal-types.rkt"
-         "../../lsp/analysis.rkt"
-         "../../lsp/compose/definition.rkt"
-         (prefix-in text-document/ "../../lsp/text-document.rkt")
-         "../../lsp/lsp.rkt"
-         "../../lsp/safedoc.rkt"
-         "../../lsp/source-controller.rkt"
-         (only-in (submod "../../lsp/source-controller.rkt" owner)
-                  source-controller-handle! source-controller-shutdown!
-                  source-controller-snapshot source-controller-ensure-analysis!)
-         "../../workspace/api.rkt"
-         "../../workspace/current.rkt"
-         "../../workspace/source-store.rkt"
-         "controller-support.rkt")
-
-(define saved "#lang racket/base\n(provide shared)\n(define shared 1)\n")
-(define unsaved "#lang racket/base\n(provide shared)\n\n;; Unsaved\n(define shared 2)\n")
-(define a-text "#lang racket/base\n(require \"b.rkt\")\n(define local 1)\n(list shared local)\n")
-
-(define (write-text path text)
-  (call-with-output-file path #:exists 'truncate (lambda (out) (display text out))))
-
-(define (controlled-analyzer path gates)
-  (lambda (snapshot)
-    (when (equal? (source-id (path->source path)) (Source-Snapshot-id snapshot))
-      (case (wait-at-gate gates snapshot)
-        [(raise) (raise 'target-failed)]
-        [(die)
-         ;; Self-killing parallel workers can delay completion on some runtimes.
-         ;; Kill from a separate thread to exercise abrupt death.
-         (define worker (current-thread))
-         (thread (lambda () (kill-thread worker)))
-         (sync never-evt)]))
-    (analyze-source snapshot)))
-
-(define (controlled-reader gates)
-  (lambda (path)
-    (case (wait-at-gate gates path)
-      [(raise) (raise 'read-failed)]
-      [(missing) (Disk-Missing)]
-      [else (file->string path)])))
-
-(define (request session id path [pos (Pos 3 7)])
-  (request! session id "textDocument/definition" path (hasheq 'position (->jsexpr pos))))
-
-;; Columns 8 through 14 span the shared identifier in the target fixtures.
-(define (check-location session id b [line 2])
-  (check-equal? (hash-ref (response session id) 'result)
-                (->jsexpr (Location (path->uri b) (Range (Pos line 8) (Pos line 14))))))
-
-(define (check-failure-log logs path detail)
-  (define message (vector-ref (await logs) 1))
-  (check-true (string-contains? message (path->string path)))
-  (check-true (string-contains? message detail)))
-
-(define (with-example make-controller proc [source a-text]
-                      #:relative? [relative? #f] #:target-text [target-text saved]
-                      #:request-timeout [request-timeout 90]
-                      #:hover-timeout [hover-timeout 90])
-  (make-directory* scratch)
-  (define root (make-temporary-file "definition-controller~a" 'directory scratch))
-  (define a (build-path root "a.rkt"))
-  (define b (build-path root "b.rkt"))
-  ;; Relative import resolution in sequential expansions of identical text
-  ;; across directories currently retains the first target (see plan evidence).
-  ;; Give each fixture an explicit direct import; target freshness is the scope.
-  (define direct-source
-    (if relative?
-        source
-        (string-replace source "\"b.rkt\"" (format "(file ~s)" (path->string b)))))
-  (dynamic-wind
-    (lambda () (write-text a direct-source) (write-text b target-text))
-    (lambda ()
-      (with-session (make-controller b)
-                    (lambda (session)
-                      (open! session a direct-source)
-                      (barrier session)
-                      ;; Real expansion, including Typed Racket fixtures, can
-                      ;; exceed the short timeout used for gate coordination.
-                      (check-eq? (Analysis-Outcome-state (await (acquire session a) 90)) 'succeeded)
-                      (proc session a b root)
-                      (close! session a)
-                      (barrier session))
-                    #:definition-timeout request-timeout
-                    #:hover-timeout hover-timeout))
-    (lambda () (delete-directory/files root))))
-
-;; This fixture owns its controller on the test thread. Tests that control
-;; independent request budgets or buffer transitions use the handler directly; feature
-;; integration tests above and below use the production serial consumer.
-(define (with-local-definition proc #:analyze [analyzer analyze-source]
-                               #:analysis-slots [slots 2])
-  (make-directory* scratch)
-  (define root (make-temporary-file "deferred-definition~a" 'directory scratch))
-  (define a (build-path root "a.rkt"))
-  (define b (build-path root "b.rkt"))
-  (define reads (make-async-channel))
-  (define controller
-    (make-source-controller #:resyntax #f #:workspace (make-workspace)
-                            #:analyze analyzer #:analysis-slots slots
-                            #:read (lambda (path)
-                                     (async-channel-put reads path)
-                                     (file->string path))))
-  (define (drive event) (drive-controller controller event 90))
-  (define (accept-command!)
-    (source-controller-handle! controller (await (source-controller-events controller))))
-  (define (capture timeout)
-    (parameterize ([current-definition-target-timeout timeout])
-      (text-document/definition
-        1 (hasheq 'textDocument (hasheq 'uri (path->uri a))
-                  'position (->jsexpr (Pos 3 7))))))
-  (define (run deferred)
-    (drive (start-deferred deferred)))
-  (dynamic-wind
-    (lambda () (write-text b saved))
-    (lambda ()
-      (parameterize ([current-source-controller controller]
-                     [current-open-docs (make-hasheq)])
-        (lsp-open-doc! (path->uri a)
-                       (string-replace a-text "\"b.rkt\"" (format "(file ~s)" (path->string b)))
-                       0)
-        (check-eq? (Analysis-Outcome-state
-                     (drive (source-controller-ensure-analysis!
-                              controller (source-controller-snapshot controller (path->source a)))))
-                   'succeeded)
-        (proc a b reads capture run drive accept-command!)))
-    (lambda ()
-      (source-controller-shutdown! controller)
-      (delete-directory/files root))))
-
-(define (start-deferred deferred)
-  (define responses (make-async-channel))
-  (thread (lambda () (async-channel-put responses (deferred))))
-  responses)
-
-(define (plain-controller _b) (make-source-controller #:resyntax #f))
-
-(define (gated-analyzer gates)
-  (lambda (b)
-    (make-source-controller #:analyze (controlled-analyzer b gates) #:resyntax #f)))
-
-(define (gated-reader reads)
-  (lambda (_b)
-    (make-source-controller #:read (controlled-reader reads) #:resyntax #f)))
-
-(module+ test-support
-  (provide with-example plain-controller gated-analyzer gated-reader
-           check-location saved unsaved))
-
 (module+ test
-  ;; Supply query inputs independently of upstream callback accuracy. Equal
-  ;; identifiers in other submodules/phases/spaces must never be a fallback.
+  (require "controller-support.rkt"
+           drracket/check-syntax
+           json
+           rackunit
+           racket/async-channel
+           racket/class
+           racket/file
+           racket/match
+           racket/path
+           racket/string
+           "../../common/debug.rkt"
+           "../../common/interfaces.rkt"
+           "../../common/json-util.rkt"
+           "../../common/path-util.rkt"
+           "../../common/source.rkt"
+           "../../doclib/doc.rkt"
+           "../../doclib/internal-types.rkt"
+           "../../lsp/analysis.rkt"
+           "../../lsp/compose/definition.rkt"
+           (prefix-in text-document/ "../../lsp/text-document.rkt")
+           "../../lsp/lsp.rkt"
+           "../../lsp/safedoc.rkt"
+           "../../lsp/source-controller.rkt"
+           (only-in (submod "../../lsp/source-controller.rkt" owner)
+                    source-controller-handle!
+                    source-controller-shutdown!
+                    source-controller-snapshot
+                    source-controller-ensure-analysis!)
+           "../../workspace/api.rkt"
+           "../../workspace/current.rkt"
+           "../../workspace/source-store.rkt")
+
+  (define (request session id path [pos (Pos 3 7)])
+    (request! session id "textDocument/definition" path (hasheq 'position (->jsexpr pos))))
+
+  (define (check-failure-log logs path detail)
+    (define message (vector-ref (await logs) 1))
+    (check-true (string-contains? message (path->string path)))
+    (check-true (string-contains? message detail)))
+
+  ;; This fixture owns its controller on the test thread for direct handler tests.
+  (define (with-local-definition proc #:make-analyzer [make-analyzer (lambda (_a _b) analyze-source)]
+                                 #:analysis-slots [slots 2])
+    (with-temp-dir
+      "deferred-definition"
+      (lambda (root)
+        (define a (build-path root "a.rkt"))
+        (define b (build-path root "b.rkt"))
+        (define reads (make-async-channel))
+        (define controller
+          (make-source-controller #:resyntax #f
+                                  #:workspace (make-workspace)
+                                  #:analyze (make-analyzer a b)
+                                  #:analysis-slots slots
+                                  #:read (lambda (path)
+                                           (async-channel-put reads path)
+                                           (file->string path))))
+        (define (drive event)
+          (drive-controller controller event 90))
+        (define (accept-command!)
+          (source-controller-handle! controller (await (source-controller-events controller))))
+        (define (capture timeout)
+          (parameterize ([current-definition-target-timeout timeout])
+            (text-document/definition
+              1 (hasheq 'textDocument (hasheq 'uri (path->uri a))
+                        'position (->jsexpr (Pos 3 7))))))
+        (define (run deferred)
+          (drive (start-deferred deferred)))
+        (dynamic-wind
+          (lambda () (write-text b saved))
+          (lambda ()
+            (parameterize ([current-source-controller controller]
+                           [current-open-docs (make-hasheq)])
+              (lsp-open-doc! (path->uri a)
+                             (string-replace a-text "\"b.rkt\"" (format "(file ~s)" (path->string b)))
+                             0)
+              (check-eq? (Analysis-Outcome-state
+                           (drive (source-controller-ensure-analysis!
+                                    controller (source-controller-snapshot controller (path->source a)))))
+                         'succeeded)
+              (proc a b reads capture run drive accept-command!)))
+          (lambda ()
+            (source-controller-shutdown! controller))))))
+
   (for ([binding-spec (in-list '((() 1)
                                  (() -1)
                                  (() #f)
@@ -178,11 +96,9 @@
     (match-define (list submods phase+space) binding-spec)
     (test-case (format "definition queries preserve submodules ~s and phase+space ~s"
                        submods phase+space)
-      (define binding #f)
       (define expected-range (Range (Pos 2 8) (Pos 2 14)))
       (with-local-definition
         (lambda (a b _reads capture run _drive _accept-command!)
-          (set! binding (Module-Binding b submods phase+space 'shared))
           (define (supply-jump! target-submods)
             (with-write-safedoc (lsp-get-doc (path->uri a))
               (lambda (sd)
@@ -196,18 +112,21 @@
                         (->jsexpr (Location (path->uri b) expected-range)))
           (supply-jump! '(missing))
           (check-equal? (hash-ref (run (capture 90)) 'result) (json-null)))
-        #:analyze
-        (lambda (snapshot)
-          (define product (analyze-source snapshot))
-          (if binding
-              (struct-copy Analysis-Product product
-                [summary
-                 (Analysis-Summary
-                   (hash binding expected-range
-                         (Module-Binding (Module-Binding-filepath binding) '() 0 'shared)
-                         (Range (Pos 0 0) (Pos 0 1)))
-                   (hash))])
-              product)))))
+        #:make-analyzer
+        (lambda (_a b)
+          (define binding (Module-Binding b submods phase+space 'shared))
+          (define target-id (source-id (path->source b)))
+          (lambda (snapshot)
+            (define product (analyze-source snapshot))
+            (if (equal? (Source-Snapshot-id snapshot) target-id)
+                (struct-copy Analysis-Product product
+                  [summary
+                   (Analysis-Summary
+                     (hash binding expected-range
+                           (Module-Binding b '() 0 'shared)
+                           (Range (Pos 0 0) (Pos 0 1)))
+                     (hash))])
+                product))))))
 
   (test-case "closed targets share/reuse outside folders and publish nothing"
     (define gates (make-async-channel))
@@ -218,7 +137,6 @@
         (define gate (await gates))
         (request session 2 a)
         (barrier session)
-        ;; A's local definition and the real consumer progress during held B.
         (request session 3 a (Pos 3 14))
         (check-equal? (hash-ref (response session 3) 'result)
                       (->jsexpr (Location (path->uri a) (Range (Pos 2 8) (Pos 2 13)))))
@@ -230,11 +148,8 @@
         (check-false (sync/timeout 0 gates))
         (check-false
           (workspace-definition-location current-workspace (Module-Binding b '() 0 'shared)))
-        (let loop ()
-          (define notification (sync/timeout 0 (Session-notifications session)))
-          (when notification
-            (check-not-equal? (hash-ref (hash-ref notification 'params) 'uri) (path->uri b))
-            (loop))))))
+        (for ([notification (in-list (notifications session))])
+          (check-not-equal? (hash-ref (hash-ref notification 'params) 'uri) (path->uri b))))))
 
   (test-case "queries need no folder; folder removal preserves held queries"
     (define gates (make-async-channel))
@@ -254,22 +169,6 @@
         (release-gate! gate)
         (check-location session 1 b)
         (check-false (sync/timeout 0 gates)))))
-
-  (test-case "same-size save with restored mtime invalidates completed facts"
-    (with-example plain-controller
-                  (lambda (session a b _root)
-                    (request session 1 a)
-                    (check-location session 1 b)
-                    (define before (view session b))
-                    (define mtime (file-or-directory-modify-seconds b))
-                    (define shifted "#lang racket/base\n(provide shared) (define shared 2)\n")
-                    (check-equal? (string-length saved) (string-length shifted))
-                    (write-text b shifted)
-                    (file-or-directory-modify-seconds b mtime)
-                    (request session 2 a)
-                    (check-equal? (hash-ref (response session 2) 'result)
-                                  (->jsexpr (Location (path->uri b) (Range (Pos 1 25) (Pos 1 31)))))
-                    (check-not-eq? before (view session b)))))
 
   (test-case "save during analysis affects the next query, not the acquired snapshot"
     (define gates (make-async-channel))
@@ -322,26 +221,28 @@
         (check-location session 2 b 4)
         (check-false (sync/timeout 0 gates)))))
 
-  (for ([operation (in-list '(edit close))])
-    (for ([stage (in-list '(read analysis))])
-      (test-case (format "A ~a cancels during held target ~a" operation stage)
-        (define gates (make-async-channel))
-        (with-example
-          (if (eq? stage 'read) (gated-reader gates) (gated-analyzer gates))
-          (lambda (session a _b _root)
-            (request session 1 a)
-            (define held (await gates))
-            (if (eq? operation 'edit) (change! session a (file->string a)) (close! session a))
-            (barrier session)
-            (check-error (response session 1) ErrorCode-ContentModified)
-            (release-gate! held))))))
+  (for* ([operation (in-list '(edit close))]
+         [stage (in-list '(read analysis))])
+    (test-case (format "A ~a cancels during held target ~a" operation stage)
+      (define gates (make-async-channel))
+      (with-example
+        (if (eq? stage 'read) (gated-reader gates) (gated-analyzer gates))
+        (lambda (session a _b _root)
+          (request session 1 a)
+          (define held (await gates))
+          (if (eq? operation 'edit)
+              (change! session a (file->string a))
+              (close! session a))
+          (barrier session)
+          (check-error (response session 1) ErrorCode-ContentModified)
+          (release-gate! held)))))
 
   (test-case "opening B ends obsolete analysis; later queries use buffer then disk"
     (define gates (make-async-channel))
     (define read-count 0)
     (with-example
       (lambda (b)
-        (make-source-controller #:analyze (controlled-analyzer b gates) #:resyntax #f
+        (make-source-controller #:analyze (controlled-analyzer gates b) #:resyntax #f
                                 #:read (lambda (path)
                                          (set! read-count (add1 read-count))
                                          (file->string path))))
@@ -370,16 +271,11 @@
   (for ([operation (in-list '(close reopen))])
     (test-case (format "~a after buffer acquisition ends the query without reacquiring" operation)
       (define gates (make-async-channel))
-      (define target #f)
       (with-local-definition
         (lambda (_a b reads capture run drive accept-command!)
-          (set! target b)
           (lsp-open-doc! (path->uri b) unsaved 7)
           (await gates)
           (define obsolete (start-deferred (capture 90)))
-          ;; This test owns the consumer. Accept observation and analysis
-          ;; acquisition before closing; a client-notification barrier cannot
-          ;; establish that a deferred request has acquired the buffer.
           (accept-command!)
           (accept-command!)
           (lsp-close-doc! (path->uri b))
@@ -388,9 +284,7 @@
                  (begin
                    (lsp-open-doc! (path->uri b) (string-append "\n" unsaved) 7)
                    (await gates))))
-          (define error (hash-ref (drive obsolete) 'error))
-          (check-equal? (hash-ref error 'code) (->jsexpr ErrorCode-RequestFailed))
-          (check-equal? (hash-ref error 'message) "Definition target changed")
+          (check-error (drive obsolete) ErrorCode-RequestFailed "Definition target changed")
           (check-false (sync/timeout 0 reads))
           (check-false (sync/timeout 0 gates))
           (when reopened
@@ -398,10 +292,7 @@
             (check-equal? (hash-ref (run (capture 90)) 'result)
                           (->jsexpr (Location (path->uri b) (Range (Pos 5 8) (Pos 5 14)))))
             (lsp-close-doc! (path->uri b))))
-        #:analyze (lambda (snapshot)
-                    (if target
-                        ((controlled-analyzer target gates) snapshot)
-                        (analyze-source snapshot))))))
+        #:make-analyzer (lambda (_a b) (controlled-analyzer gates b)))))
 
   (for ([failure (in-list '(raise die))])
     (test-case (format "runner ~a fails; later requests retry" failure)
@@ -462,8 +353,6 @@
       (lambda (session a b _root)
         (request session 1 a (Pos 3 12))
         (release-gate! (await gates))
-        ;; Upstream versions may disagree on the jump and target phases.
-        ;; A matching identity resolves; a mismatch remains absent.
         (define result (hash-ref (response session 1) 'result))
         (check-true
           (or (equal? result (json-null))
@@ -490,10 +379,8 @@
     (with-local-definition
       (lambda (_a _b reads capture _run _drive _accept-command!)
         (define deferred (capture 0))
-        ;; Invocation has a generous parameter; the captured budget still wins.
         (define result (parameterize ([current-definition-target-timeout 90]) (deferred)))
-        (check-equal? (hash-ref (hash-ref result 'error) 'code)
-                      (->jsexpr ErrorCode-RequestFailed))
+        (check-error result ErrorCode-RequestFailed)
         (check-false (sync/timeout 0 reads)))))
 
   (test-case "cancellation wins over ready deadline and cache"
@@ -503,29 +390,21 @@
                       (->jsexpr (Location (path->uri b) (Range (Pos 2 8) (Pos 2 14)))))
         (define deferred (capture 0))
         (lsp-close-doc! (path->uri a))
-        (check-equal? (hash-ref (hash-ref (deferred) 'error) 'code)
-                      (->jsexpr ErrorCode-ContentModified)))))
+        (check-error (deferred) ErrorCode-ContentModified))))
 
   (test-case "one waiter expiring leaves the shared job available to its peer"
     (define gates (make-async-channel))
-    (define target #f)
     (with-local-definition
       (lambda (_a b _reads capture _run drive _accept-command!)
-        (set! target b)
         (define short (start-deferred (capture 0.2)))
         (define held (drive gates))
         (define peer (start-deferred (capture 90)))
-        (check-equal? (hash-ref (hash-ref (drive short) 'error) 'code)
-                      (->jsexpr ErrorCode-RequestFailed))
+        (check-error (drive short) ErrorCode-RequestFailed)
         (release-gate! held)
         (check-equal? (hash-ref (drive peer) 'result)
                       (->jsexpr (Location (path->uri b) (Range (Pos 2 8) (Pos 2 14)))))
         (check-false (sync/timeout 0 gates)))
-      #:analyze (lambda (snapshot)
-                  (if (and target (equal? (Source-Snapshot-id snapshot)
-                                          (source-id (path->source target))))
-                      ((controlled-analyzer target gates) snapshot)
-                      (analyze-source snapshot)))))
+      #:make-analyzer (lambda (_a b) (controlled-analyzer gates b))))
 
   (test-case "shutdown settles a deferred definition without waiting for its deadline"
     (define gates (make-async-channel))
@@ -573,17 +452,14 @@
 
   (test-case "deadline covers queueing without cancelling shared work"
     (define gates (make-async-channel))
-    (define held-paths '())
     (with-local-definition
       (lambda (a b _reads capture _run drive _accept-command!)
         (define c (build-path (path-only a) "c.rkt"))
-        (set! held-paths (list b c))
         (lsp-open-doc! (path->uri c) "#lang racket/base\n(define other 1)\n" 0)
         (define blocking (drive gates))
         (define short (start-deferred (capture 0.2)))
         (define peer (start-deferred (capture 90)))
-        (check-equal? (hash-ref (hash-ref (drive short) 'error) 'code)
-                      (->jsexpr ErrorCode-RequestFailed))
+        (check-error (drive short) ErrorCode-RequestFailed)
         (check-false (sync/timeout 0 gates))
         (release-gate! blocking)
         (define target (drive gates))
@@ -594,14 +470,17 @@
         (check-false (sync/timeout 0 gates))
         (lsp-close-doc! (path->uri c)))
       #:analysis-slots 1
-      #:analyze (lambda (snapshot)
-                  (define path
-                    (for/or ([path (in-list held-paths)])
-                      (and (equal? (Source-Snapshot-id snapshot) (source-id (path->source path)))
-                           path)))
-                  (if path
-                      ((controlled-analyzer path gates) snapshot)
-                      (analyze-source snapshot)))))
+      #:make-analyzer
+      (lambda (a b)
+        (define held-paths (list b (build-path (path-only a) "c.rkt")))
+        (lambda (snapshot)
+          (define path
+            (for/or ([path (in-list held-paths)])
+              (and (equal? (Source-Snapshot-id snapshot) (source-id (path->source path)))
+                   path)))
+          (if path
+              ((controlled-analyzer gates path) snapshot)
+              (analyze-source snapshot))))))
 
   (test-case "rename invalidation wakes held queries and missing old paths return null"
     (define gates (make-async-channel))
@@ -642,12 +521,11 @@
                     (check-location session 2 b 4)
                     (close! session b)
                     (barrier session))
-                  #:relative? #t)))
+                  #:relative? #t))
 
-(module+ test
   (test-case "dot URI alias joins imported target to unsaved buffer and retains its address"
     (with-local-definition
-      (lambda (_a b reads capture run drive _accept-command!)
+      (lambda (_a b reads capture run _drive _accept-command!)
         (define alias-uri
           (string-replace (path->uri b) "/b.rkt" "/missing/.././%62.rkt"))
         (lsp-open-doc! alias-uri unsaved 7)

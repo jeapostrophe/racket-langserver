@@ -1,28 +1,28 @@
 #lang racket/base
 
-(require "../../../common/source.rkt"
-         "../../../common/interfaces.rkt"
-         "../../../doclib/internal-types.rkt"
-         "../../../lsp/compose/references.rkt"
-         "../../../workspace/api.rkt"
-         racket/list
-         rackunit)
-
-(define root
-  (build-path (current-directory) ".reference-compose-test"))
-
-(define module-binding
-  (Module-Binding (build-path root "definition.rkt") '() 0 'value))
-
-(define (location uri start-line start-char end-line end-char)
-  (Location uri
-            (Range (Pos start-line start-char)
-                   (Pos end-line end-char))))
-
-(define (contribution path locations)
-  (Doc-Contribution path (hash module-binding locations) (hash)))
-
 (module+ test
+  (require "../../silent-logger.rkt"
+           "../../../common/source.rkt"
+           "../../../common/interfaces.rkt"
+           "../../../doclib/internal-types.rkt"
+           "../../../lsp/compose/references.rkt"
+           "../../../workspace/api.rkt"
+           racket/list
+           rackunit)
+
+  (define root
+    (build-path (current-directory) ".reference-compose-test"))
+
+  (define module-binding
+    (Module-Binding (build-path root "definition.rkt") '() 0 'value))
+
+  (define (location uri start-line start-char end-line end-char)
+    (Location uri
+              (Range (Pos start-line start-char)
+                     (Pos end-line end-char))))
+
+  (define (contribution path locations)
+    (Doc-Contribution path (hash module-binding locations) (hash)))
   (test-case
     "reference locations replace stale request uses with live locations"
     (define workspace (make-workspace))

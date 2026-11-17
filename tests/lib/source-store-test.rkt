@@ -133,9 +133,8 @@
     (check-true (changed? old))
     (check-false (source-store-observe! store old 'text-available "late"))
     (define fresh (source-store-observe! store invalidated 'text-available "same"))
-    (check-not-eq? (Source-View-revision old) (Source-View-revision fresh))))
+    (check-not-eq? (Source-View-revision old) (Source-View-revision fresh)))
 
-(module+ test
   (test-case "dot aliases share unsaved authority, cleanup, and retained disk URI"
     (define store (make-source-store))
     (define uri (string-append "file://localhost" (substring (path->uri path) 7)))

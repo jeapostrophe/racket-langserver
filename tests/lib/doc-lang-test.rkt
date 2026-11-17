@@ -1,7 +1,8 @@
-#lang racket
+#lang racket/base
 
 (module+ test
   (require rackunit
+           racket/match
            "../../common/interfaces.rkt"
            "../../doclib/doc-lang.rkt"
            "../../doclib/lexer.rkt")
@@ -12,20 +13,17 @@
   (define (policy text [uri #f])
     (source->language-policy (build-lexer-snapshot text) uri))
 
-  (define (range start end)
-    (CharRange start end))
-
   (define (header-range text)
-    (range 0 (string-length text)))
+    (CharRange 0 (string-length text)))
 
   (define (check-policy text
                         #:uri [uri #f]
                         #:status status
                         #:language language
                         #:body-mode body-mode
-                        #:format? format?
-                        #:require-header? require-header?
-                        #:expand? expand?)
+                        #:format? [format? #f]
+                        #:require-header? [require-header? #t]
+                        #:expand? [expand? #t])
     (define actual (policy text uri))
     (check-equal? (Language-Policy-header-status actual) status)
     (check-equal? (Language-Policy-policy-language actual) language)
@@ -125,7 +123,7 @@
     (check-equal?
       (parse-header "; preamble\n#; (define ignored 1)\n#lang rhombus\nfun f(): 1\n")
       (HashLang-Header '("rhombus")
-                       (range 33 46)
+                       (CharRange 33 46)
                        13)))
 
   (test-case
@@ -138,7 +136,7 @@
                                      1))
     (check-equal? (parse-header "#lang reader\n(define x 1)\n")
                   (HashLangReader-Header "(define x 1)"
-                                         (range 0 (string-length "#lang reader\n(define x 1)"))
+                                         (CharRange 0 (string-length "#lang reader\n(define x 1)"))
                                          1))
     (check-equal? (parse-header "#reader\n")
                   (Incomplete-Header 'reader
@@ -175,127 +173,51 @@
                                 ("rosette" rosette)
                                 ("rosette/safe" rosette)
                                 ("pie" pie)))])
+      (match-define (list lang expected-family) lang+name)
       (define actual
         (Language-Policy-policy-language
-          (policy (format "#lang ~a\n1\n" (first lang+name)))))
-      (check-equal? actual (second lang+name))))
+          (policy (format "#lang ~a\n1\n" lang))))
+      (check-equal? actual expected-family)))
 
-  (test-case
-    "source->language-policy applies selector policy"
+  (test-case "source->language-policy applies selector policy"
     (check-policy "#lang errortrace racket/base\n1\n"
-                  #:status 'complete
-                  #:language 'racket
-                  #:body-mode 'sexp
-                  #:format? #t
-                  #:require-header? #t
-                  #:expand? #t)
+                  #:status 'complete #:language 'racket #:body-mode 'sexp #:format? #t)
     (check-policy "#lang errortrace at-exp racket/base\n@(define x 1)\n"
-                  #:status 'complete
-                  #:language 'at-exp
-                  #:body-mode 'non-sexp
-                  #:format? #f
-                  #:require-header? #t
-                  #:expand? #t)
+                  #:status 'complete #:language 'at-exp #:body-mode 'non-sexp)
     (check-policy "#lang at-exp racket/base\n@(define x 1)\n"
-                  #:status 'complete
-                  #:language 'at-exp
-                  #:body-mode 'non-sexp
-                  #:format? #f
-                  #:require-header? #t
-                  #:expand? #t)
+                  #:status 'complete #:language 'at-exp #:body-mode 'non-sexp)
     (check-policy "#lang s-exp racket/base\n(define x 1)\n"
-                  #:status 'complete
-                  #:language 's-exp
-                  #:body-mode 'sexp
-                  #:format? #t
-                  #:require-header? #t
-                  #:expand? #t)
+                  #:status 'complete #:language 's-exp #:body-mode 'sexp #:format? #t)
     (check-policy "#reader scribble/reader\n@title{demo}\n"
-                  #:status 'complete
-                  #:language 'scribble
-                  #:body-mode 'non-sexp
-                  #:format? #f
-                  #:require-header? #t
-                  #:expand? #t)
+                  #:status 'complete #:language 'scribble #:body-mode 'non-sexp)
     (check-policy "#lang reader syntax/module-reader\nracket/base\n"
-                  #:status 'complete
-                  #:language 'unrecognized-language
-                  #:body-mode 'unknown
-                  #:format? #f
-                  #:require-header? #t
-                  #:expand? #t)
+                  #:status 'complete #:language 'unrecognized-language #:body-mode 'unknown)
     (check-policy "(module demo typed/racket/base (define x 1))\n"
-                  #:status 'complete
-                  #:language 'typed/racket
-                  #:body-mode 'sexp
-                  #:format? #t
-                  #:require-header? #t
-                  #:expand? #t)
+                  #:status 'complete #:language 'typed/racket #:body-mode 'sexp #:format? #t)
     (check-policy "#lang not-a-real-language\n1\n"
                   #:uri "file:///tmp/demo.rhm"
-                  #:status 'complete
-                  #:language 'unrecognized-language
-                  #:body-mode 'unknown
-                  #:format? #f
-                  #:require-header? #t
-                  #:expand? #t)
+                  #:status 'complete #:language 'unrecognized-language #:body-mode 'unknown)
     (check-policy "#lang \n1\n"
-                  #:status 'incomplete
-                  #:language #f
-                  #:body-mode 'unknown
-                  #:format? #f
-                  #:require-header? #t
-                  #:expand? #t))
+                  #:status 'incomplete #:language #f #:body-mode 'unknown))
 
-  (test-case
-    "source->language-policy falls back by suffix only for missing headers"
+  (test-case "source->language-policy falls back by suffix only for missing headers"
     (check-policy "(define x 1)\n"
-                  #:status 'missing
-                  #:language #f
-                  #:body-mode 'unknown
-                  #:format? #f
-                  #:require-header? #t
-                  #:expand? #t)
+                  #:status 'missing #:language #f #:body-mode 'unknown)
     (check-policy "fun f(): 1\n"
                   #:uri "file:///tmp/demo.rhm"
-                  #:status 'missing
-                  #:language 'rhombus
-                  #:body-mode 'non-sexp
-                  #:format? #f
-                  #:require-header? #t
-                  #:expand? #t)
+                  #:status 'missing #:language 'rhombus #:body-mode 'non-sexp)
     (check-policy "@title{demo}\n"
                   #:uri "file:///tmp/demo.scrbl"
-                  #:status 'missing
-                  #:language 'scribble
-                  #:body-mode 'non-sexp
-                  #:format? #f
-                  #:require-header? #t
-                  #:expand? #t)
+                  #:status 'missing #:language 'scribble #:body-mode 'non-sexp)
     (check-policy "(define x 1)\n"
                   #:uri "file:///tmp/demo.rkt"
-                  #:status 'missing
-                  #:language #f
-                  #:body-mode 'unknown
-                  #:format? #f
-                  #:require-header? #t
-                  #:expand? #t))
+                  #:status 'missing #:language #f #:body-mode 'unknown))
 
-  (test-case
-    "rktd files keep data-file policy"
+  (test-case "rktd files keep data-file policy"
     (check-policy "#lang racket/base\n1\n"
                   #:uri "file:///tmp/demo.rktd"
-                  #:status 'complete
-                  #:language 'racket
-                  #:body-mode 'sexp
-                  #:format? #t
-                  #:require-header? #t
-                  #:expand? #t)
+                  #:status 'complete #:language 'racket #:body-mode 'sexp #:format? #t)
     (check-policy "(define x 1)\n"
                   #:uri "file:///tmp/demo.rktd"
-                  #:status 'missing
-                  #:language 'racket-data
-                  #:body-mode 'unknown
-                  #:format? #f
-                  #:require-header? #f
-                  #:expand? #f)))
+                  #:status 'missing #:language 'racket-data #:body-mode 'unknown
+                  #:require-header? #f #:expand? #f)))

@@ -1,64 +1,33 @@
-#lang racket
-
-(define uri "file:///test.rkt")
-
-(define code
-#<<END
 #lang racket/base
-
-(define (bob)
-  (+ 1 2))
-END
-  )
 
 (module+ test
   (require rackunit
-           json
+           "../../common/interfaces.rkt"
+           "../../common/json-util.rkt"
+           "../json-dsl.rkt"
            "with-document.rkt")
 
-  (with-document uri code
-    (λ (lsp)
-      ;; Insert a new line with indentation after line 2
-      (let ([notif (make-notification
-                     "textDocument/didChange"
-                     (hasheq 'textDocument
-                             (hasheq 'uri uri
-                                     'version 0)
-                             'contentChanges
-                             (list
-                               (hasheq 'range
-                                       (hasheq 'start
-                                               (hasheq 'line 2
-                                                       'character 13)
-                                               'end
-                                               (hasheq 'line 2
-                                                       'character 13))
-                                       'rangeLength 0
-                                       'text "\n"))))])
-        (client-send lsp notif)
-        (client-wait-notification lsp))
+  (define uri "file:///test.rkt")
+  (define code "#lang racket/base\n\n(define (bob)\n  (+ 1 2))\n")
 
-      ;; Format on type for pre-indented new line 3
-      (let* ([req (make-request lsp
-                                "textDocument/onTypeFormatting"
-                                (hasheq 'textDocument
-                                        (hasheq 'uri uri)
-                                        'position
-                                        (hasheq 'line 3
-                                                'character 0)
-                                        'ch "\n"
-                                        'options (hasheq 'tabSize 4
-                                                         'insertSpaces #t)))]
-             [res (make-expected-response req
-                                          (list
-                                            (hasheq 'range
-                                                    (hasheq 'start
-                                                            (hasheq 'line 3
-                                                                    'character 0)
-                                                            'end
-                                                            (hasheq 'line 3
-                                                                    'character 0))
-                                                    'newText "  ")))])
-        (client-send lsp req)
-        (check-equal? (jsexpr->string (client-wait-response req)) (jsexpr->string res))))))
+  (test-case "textDocument/onTypeFormatting indents a newly inserted newline"
+    (with-document uri code
+      (lambda (lsp)
+        (notify lsp "textDocument/didChange"
+                (json {#:textDocument (->jsexpr (DocIdentifier 1 uri))
+                       #:contentChanges [(->jsexpr
+                                           (ContentChangeEvent-Incremental
+                                             (Range (Pos 2 13) (Pos 2 13))
+                                             0
+                                             "\n"))]}))
+        (client-wait-notification lsp)
 
+        (define result
+          (lsp-result! lsp
+                       "textDocument/onTypeFormatting"
+                       uri
+                       (json {#:position (->jsexpr (Pos 3 0))
+                              #:ch "\n"
+                              #:options {#:tabSize 4 #:insertSpaces #t}})))
+        (check-equal? (map jsexpr->TextEdit result)
+                      (list (TextEdit (Range (Pos 3 0) (Pos 3 0)) "  ")))))))

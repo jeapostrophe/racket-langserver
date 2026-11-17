@@ -1,10 +1,22 @@
 #lang racket/base
 
-;; Real stdio tests need strict framing: the production reader skips stray lines.
-(require json
-         racket/runtime-path)
+;; Helpers for spawning the real stdio server process and exchanging strict
+;; Content-Length framed JSON-RPC messages.
+(provide (struct-out Stdio-Client)
+         call-with-stdio-client
+         stdio-send!
+         stdio-receive
+         stdio-response
+         stdio-result
+         stdio-initialize!
+         stdio-shutdown-and-exit!)
 
-(provide read-frame call-with-server-process)
+(require json
+         racket/async-channel
+         racket/port
+         racket/runtime-path
+         "../common/time.rkt"
+         "../lsp/msg-io.rkt")
 
 (define-runtime-path main-path "../main.rkt")
 
@@ -14,7 +26,8 @@
     [(eof-object? header) eof]
     [else
      (define found (regexp-match #rx"^Content-Length: ([0-9]+)$" header))
-     (unless found (error 'read-frame "unexpected protocol header: ~s" header))
+     (unless found
+       (error 'read-frame "unexpected protocol header: ~s" header))
      (unless (equal? (read-line in 'return-linefeed) "")
        (error 'read-frame "missing header separator"))
      (define size (string->number (cadr found)))
@@ -45,4 +58,112 @@
       (custodian-shutdown-all readers)
       (close-output-port stdin)
       (close-input-port stdout)
-      (when stderr (close-input-port stderr)))))
+      (when stderr
+        (close-input-port stderr)))))
+
+(struct Stdio-Client
+  (process stdin messages pending frame-reader error-reader stderr-output)
+  #:transparent)
+
+(define (call-with-stdio-client proc
+                                #:arguments [arguments '()]
+                                #:environment [environment (current-environment-variables)]
+                                #:stderr [error-port #f]
+                                #:on-message [on-message void])
+  (call-with-server-process
+    #:arguments arguments
+    #:environment environment
+    #:stderr error-port
+    (lambda (server stdout stdin stderr)
+      (define messages (make-async-channel))
+      (define stderr-output (open-output-string))
+      (define error-reader
+        (and stderr
+             (thread (lambda () (copy-port stderr stderr-output)))))
+      (define frame-reader
+        (thread
+          (lambda ()
+            (with-handlers ([exn? (lambda (e) (async-channel-put messages e))])
+              (let loop ()
+                (define msg (read-frame stdout))
+                (cond
+                  [(eof-object? msg)
+                   (async-channel-put messages eof)]
+                  [else
+                   (on-message msg)
+                   (async-channel-put messages msg)
+                   (loop)]))))))
+      (proc (Stdio-Client server stdin messages (make-hash) frame-reader error-reader stderr-output)))))
+
+(define (stdio-send! client method [params #f] [id #f])
+  (define base
+    (hasheq 'jsonrpc "2.0"
+            'method method))
+  (define with-params
+    (if params (hash-set base 'params params) base))
+  (display-message/flush (if id (hash-set with-params 'id id) with-params)
+                         (Stdio-Client-stdin client)))
+
+(define (stdio-receive client [timeout 30])
+  (define msg (sync/timeout timeout (Stdio-Client-messages client)))
+  (unless msg
+    (error 'stdio-receive "server message timed out after ~a seconds" timeout))
+  (when (exn? msg)
+    (raise msg))
+  msg)
+
+(define (stdio-response client id [timeout 20])
+  (define pending (Stdio-Client-pending client))
+  (define deadline (deadline-after timeout))
+  (define result
+    (or (hash-ref pending id #f)
+        (let loop ()
+          (define remaining
+            (max 0 (/ (- deadline (current-deadline-milliseconds)) 1000)))
+          (when (zero? remaining)
+            (error 'stdio-response "response deadline expired for ~a" id))
+          (define msg (stdio-receive client remaining))
+          (when (eof-object? msg)
+            (error 'stdio-response "unexpected EOF waiting for ~a" id))
+          (define received (hash-ref msg 'id #f))
+          (cond
+            [(equal? received id) msg]
+            [else
+             (when received
+               (hash-set! pending received msg))
+             (loop)]))))
+  (hash-remove! pending id)
+  result)
+
+(define (stdio-result client id [timeout 20])
+  (hash-ref (stdio-response client id timeout) 'result))
+
+(define (stdio-initialize! client [id 1] #:capabilities [capabilities (hasheq)])
+  (stdio-send! client
+               "initialize"
+               (hasheq 'processId (json-null)
+                       'capabilities capabilities
+                       'rootUri (json-null)
+                       'rootPath (json-null))
+               id)
+  (stdio-result client id))
+
+(define (stdio-shutdown-and-exit! client [id 999])
+  (stdio-send! client "shutdown" (hasheq) id)
+  (define resp (stdio-result client id))
+  (stdio-send! client "exit" (hasheq))
+  (define exited (sync/timeout 20 (Stdio-Client-process client)))
+  (unless exited
+    (error 'stdio-shutdown-and-exit! "server process did not exit"))
+  (define reader-done (sync/timeout 5 (Stdio-Client-frame-reader client)))
+  (unless reader-done
+    (error 'stdio-shutdown-and-exit! "frame reader did not reach EOF"))
+  (when (Stdio-Client-error-reader client)
+    (sync/timeout 5 (Stdio-Client-error-reader client)))
+  (let drain ()
+    (define msg (sync/timeout 0 (Stdio-Client-messages client)))
+    (when (exn? msg)
+      (raise msg))
+    (when msg
+      (drain)))
+  (values resp (subprocess-status (Stdio-Client-process client))))

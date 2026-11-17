@@ -4,7 +4,6 @@
          "../../common/interfaces.rkt"
          "../../doclib/internal-types.rkt"
          "../../workspace/contribution-store.rkt"
-         racket/path
          racket/set
          rackunit)
 
@@ -30,35 +29,23 @@
     (for/hash ([entry (in-list definition-entries)])
       (values (car entry) (cdr entry)))))
 
-;; Rebuild the derived index from path->contribution using the same mutable
+;; Rebuild a derived index from path->contribution using the same mutable
 ;; shape as Contribution-Store, so check-equal? can compare them directly.
-(define (rebuild-module-binding->path->locations store)
-  (define module-binding->path->locations (make-hash))
+(define (rebuild-module-binding-index store contribution->entries)
+  (define index (make-hash))
   (for* ([(source contribution)
           (in-hash (Contribution-Store-path->contribution store))]
-         [(module-binding locations)
-          (in-hash (Doc-Contribution-references contribution))])
-    (define path->locations
-      (hash-ref! module-binding->path->locations module-binding make-hash))
-    (hash-set! path->locations source locations))
-  module-binding->path->locations)
-
-(define (rebuild-module-binding->path->definition store)
-  (define module-binding->path->definition (make-hash))
-  (for* ([(source contribution)
-          (in-hash (Contribution-Store-path->contribution store))]
-         [(module-binding definition)
-          (in-hash (Doc-Contribution-definitions contribution))])
-    (define path->definition
-      (hash-ref! module-binding->path->definition module-binding make-hash))
-    (hash-set! path->definition source definition))
-  module-binding->path->definition)
+         [(module-binding entry)
+          (in-hash (contribution->entries contribution))])
+    (define path->entry (hash-ref! index module-binding make-hash))
+    (hash-set! path->entry source entry))
+  index)
 
 (define (check-store-consistent store)
   (check-equal? (Contribution-Store-module-binding->path->locations store)
-                (rebuild-module-binding->path->locations store))
+                (rebuild-module-binding-index store Doc-Contribution-references))
   (check-equal? (Contribution-Store-module-binding->path->definition store)
-                (rebuild-module-binding->path->definition store)))
+                (rebuild-module-binding-index store Doc-Contribution-definitions)))
 
 (module+ test
   (test-case

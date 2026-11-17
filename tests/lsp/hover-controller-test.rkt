@@ -1,47 +1,42 @@
 #lang racket/base
 
-(require "../../common/source.rkt"
-         json
-         rackunit
-         racket/async-channel
-         racket/file
-         racket/string
-         "../../common/interfaces.rkt"
-         "../../common/json-util.rkt"
-         "../../common/path-util.rkt"
-         "../../doclib/doc.rkt"
-         "../../doclib/hover.rkt"
-         "../../lsp/analysis.rkt"
-         "../../lsp/lsp.rkt"
-         "../../lsp/safedoc.rkt"
-         "../../lsp/source-controller.rkt"
-         "../../workspace/source-store.rkt"
-         "controller-support.rkt"
-         (submod "definition-controller-test.rkt" test-support))
-
-(define (request session id a [method "textDocument/hover"] [pos (Pos 3 7)])
-  (request! session id method a (hasheq 'position (->jsexpr pos))))
-
-(define (check-hover session id text)
-  (define result (hash-ref (response session id) 'result))
-  (check-equal? (hash-ref result 'range) (->jsexpr (Range (Pos 3 6) (Pos 3 12))))
-  (define contents (hash-ref result 'contents))
-  (check-true (string-contains? contents "**Source**"))
-  (check-true (string-contains? contents text) contents)
-  (check-true (string-contains? contents "**Mouse-over status**"))
-  (check-true (string-contains? contents "imported from"))
-  result)
-
 (module+ test
+  (require "controller-support.rkt"
+           rackunit
+           racket/async-channel
+           racket/file
+           racket/string
+           "../../common/interfaces.rkt"
+           "../../common/json-util.rkt"
+           "../../common/path-util.rkt"
+           "../../common/source.rkt"
+           "../../doclib/hover.rkt"
+           "../../lsp/analysis.rkt"
+           "../../lsp/source-controller.rkt"
+           "../../workspace/source-store.rkt")
+
+  (define (request session id a [method "textDocument/hover"] [pos (Pos 3 7)])
+    (request! session id method a (hasheq 'position (->jsexpr pos))))
+
+  (define (check-hover session id expected-text)
+    (define result (hash-ref (response session id) 'result))
+    (check-equal? (hash-ref result 'range) (->jsexpr (Range (Pos 3 6) (Pos 3 12))))
+    (define contents (hash-ref result 'contents))
+    (check-true (string-contains? contents "**Source**"))
+    (check-true (string-contains? contents expected-text) contents)
+    (check-true (string-contains? contents "**Mouse-over status**"))
+    (check-true (string-contains? contents "imported from"))
+    result)
+
   (test-case "documented imported hover skips target reads and analysis"
-    (make-directory* scratch)
-    (define a (make-temporary-file "documented-hover~a.rkt" #f scratch))
-    (define starts (make-async-channel))
-    (define reads (make-async-channel))
-    (define text "#lang racket/base\n(list 1)\n")
-    (dynamic-wind
-      (lambda () (display-to-file text a #:exists 'truncate))
-      (lambda ()
+    (with-temp-dir
+      "documented-hover"
+      (lambda (root)
+        (define a (build-path root "a.rkt"))
+        (define starts (make-async-channel))
+        (define reads (make-async-channel))
+        (define text "#lang racket/base\n(list 1)\n")
+        (write-text a text)
         (with-session
           (make-source-controller
             #:resyntax #f
@@ -63,13 +58,11 @@
             (check-true (string-contains? contents "**Signature**"))
             (check-true (string-contains? contents "imported from"))
             (check-false (string-contains? contents "**Source**"))
-            (check-equal? (hash-ref result 'range)
-                          (->jsexpr (Range (Pos 1 1) (Pos 1 5))))
+            (check-equal? (hash-ref result 'range) (->jsexpr (Range (Pos 1 1) (Pos 1 5))))
             (check-false (sync/timeout 0 reads))
             (check-false (sync/timeout 0 starts))
             (close! session a)
-            (barrier session))))
-      (lambda () (delete-file a))))
+            (barrier session))))))
 
   (test-case "definition and hover share held analysis and alternating cached reads"
     (define gates (make-async-channel))
@@ -81,8 +74,8 @@
         (request session 2 a "textDocument/definition")
         (request session 3 a)
         (request session 4 a "textDocument/hover" (Pos 3 14))
-        (check-true (string-contains? (hash-ref (hash-ref (response session 4) 'result)
-                                                'contents) "(define local 1)"))
+        (check-true (string-contains? (hash-ref (hash-ref (response session 4) 'result) 'contents)
+                                      "(define local 1)"))
         (release-gate! held)
         (check-hover session 1 "(define shared 1)")
         (check-location session 2 b)
@@ -123,7 +116,7 @@
         (release-gate! (await reads))
         (check-hover session 1 "(define shared 1)")
         (check-false (sync/timeout 0 reads))
-        (display-to-file unsaved b #:exists 'truncate)
+        (write-text b unsaved)
         (request session 2 a)
         (release-gate! (await reads))
         (check-hover session 2 ";; Unsaved\n(define shared 2)")
@@ -155,7 +148,9 @@
         (lambda (session a _b _root)
           (request session 1 a)
           (define held (await gates))
-          (if (eq? operation 'edit) (change! session a (file->string a)) (close! session a))
+          (if (eq? operation 'edit)
+              (change! session a (file->string a))
+              (close! session a))
           (barrier session)
           (check-error (response session 1) ErrorCode-ContentModified)
           (release-gate! held)))))
@@ -168,7 +163,7 @@
                     (define missing (hash-ref (response session 1) 'result))
                     (check-true (string-contains? (hash-ref missing 'contents) "imported from"))
                     (check-false (string-contains? (hash-ref missing 'contents) "**Source**"))
-                    (display-to-file "#lang racket/base\n(" b)
+                    (write-text b "#lang racket/base\n(")
                     (request session 2 a)
                     (check-equal? (hash-ref (response session 2) 'result) missing))))
 
@@ -189,19 +184,17 @@
       plain-controller
       (lambda (session a _b _root)
         (request session 1 a)
-        ;; A's inferred type must survive composition with B's source detail.
         (define result (check-hover session 1 "(define shared 1)"))
         (check-true (string-contains? (hash-ref result 'contents) "**Type**")))
       "#lang typed/racket/base\n(require \"b.rkt\")\n(define local 1)\n(list shared local)\n"
-      ;; Older Typed Racket can report contracted imports under generated names
-      ;; while the target declaration keeps its original name.
       #:target-text (string-append "#lang typed/racket/base\n(require typed/racket/unsafe)\n"
                                    "(unsafe-provide shared)\n(define shared 1)\n")))
 
   (test-case "virtual imported hover stays document-local without target reads"
     (with-example
-      (lambda (_b) (make-source-controller #:resyntax #f
-                                           #:read (lambda (_) (error 'disk "unexpected read"))))
+      (lambda (_b)
+        (make-source-controller #:resyntax #f
+                                #:read (lambda (_) (error 'disk "unexpected read"))))
       (lambda (session a _b _root)
         (define uri "untitled:imported-hover")
         (open! session uri (file->string a) 0)
@@ -224,9 +217,8 @@
         (define summaries (Analysis-Summary-hover-summaries (Analysis-Outcome-value outcome)))
         (for ([summary (in-hash-values summaries)])
           (check-true (immutable? (Hover-Code-Summary-text summary)))
-          (check-true (immutable? (Hover-Code-Summary-fence-language summary))))))))
+          (check-true (immutable? (Hover-Code-Summary-fence-language summary)))))))
 
-(module+ test
   (test-case "retained definitions and hover share refresh across close and reopen"
     (define gates (make-async-channel))
     (with-example
@@ -255,13 +247,12 @@
         (request session 304 a)
         (check-hover session 304 "(define shared 1)")
         (check-false (sync/timeout 0 gates))
-        (release-gate! refresh) ; invalidated completion cannot replace the new lifetime
+        (release-gate! refresh)
         (release-gate! reopened)
         (check-eq? 'succeeded (Analysis-Outcome-state (await (acquire session b))))
         (close! session b)
-        (barrier session)))))
+        (barrier session))))
 
-(module+ test
   (test-case "hover target budget returns its real local card while analysis stays shared"
     (define gates (make-async-channel))
     (with-example

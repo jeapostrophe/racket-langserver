@@ -1,34 +1,24 @@
-#lang racket
-
-(define uri "file:///test.rkt")
-
-(define code
-#<<END
 #lang racket/base
-
-(list )
-END
-  )
 
 (module+ test
   (require rackunit
-           "with-document.rkt"
-           "../../common/json-util.rkt")
+           "../../common/interfaces.rkt"
+           "../../common/json-util.rkt"
+           "../json-dsl.rkt"
+           "with-document.rkt")
 
-  (with-document uri code
-    (λ (lsp)
+  (define uri "file:///test.rkt")
+  (define code "#lang racket/base\n\n(list )\n")
 
-      (define help-req
-        (make-request lsp
-                      "textDocument/signatureHelp"
-                      (hasheq 'textDocument
-                              (hasheq 'uri uri)
-                              'position
-                              (hasheq 'line 2 'character 6))))
-      (client-send lsp help-req)
-
-      (let ([resp (client-wait-response help-req)])
-        (check-true (jsexpr-has-key? resp '(result signatures)))
-        (check-true (list? (jsexpr-ref resp '(result signatures))))
-        (check-true (not (null? (jsexpr-ref resp '(result signatures)))))))))
-
+  (test-case "textDocument/signatureHelp returns non-empty signatures inside call"
+    (with-document uri code
+      (lambda (lsp)
+        (define result
+          (lsp-result! lsp
+                       "textDocument/signatureHelp"
+                       uri
+                       (json {#:position (->jsexpr (Pos 2 6))})))
+        (check-true (hash-has-key? result 'signatures))
+        (define signatures (hash-ref result 'signatures))
+        (check-pred list? signatures)
+        (check-false (null? signatures))))))

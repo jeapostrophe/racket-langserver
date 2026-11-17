@@ -1,8 +1,14 @@
-#lang racket
+#lang racket/base
 
-(define uri "file:///test.rkt")
+(module+ test
+  (require rackunit
+           "../../../common/interfaces.rkt"
+           "../../../common/json-util.rkt"
+           "../../json-dsl.rkt"
+           "../with-document.rkt")
 
-(define code
+  (define uri "file:///test.rkt")
+  (define code
 #<<END
 #lang racket/base
 
@@ -11,24 +17,28 @@
 (let ([x 1])
   x)
 END
-  )
+    )
 
-(module+ test
-  (require rackunit
-           json
-           "../with-document.rkt")
+  (test-case "rename and prepareRename update only the bound lexical variable"
+    (with-document uri code
+      (lambda (lsp)
+        (define rename-result
+          (lsp-result! lsp
+                       "textDocument/rename"
+                       uri
+                       (json {#:position (->jsexpr (Pos 5 2))
+                              #:newName "new-x"})))
+        (check-equal?
+          (jsexpr->WorkspaceEdit rename-result)
+          (WorkspaceEdit
+            (hasheq (string->symbol uri)
+                    (list (TextEdit (Range (Pos 4 7) (Pos 4 8)) "new-x")
+                          (TextEdit (Range (Pos 5 2) (Pos 5 3)) "new-x")))))
 
-  (with-document uri code
-    (λ (lsp)
-      (let ([req (read-json (open-input-file "req1.json"))]
-            [resp (read-json (open-input-file "resp1.json"))])
-        (client-send lsp req)
-        (check-equal? (jsexpr->string (client-wait-response req))
-                      (jsexpr->string resp)))
-
-      (let ([req (read-json (open-input-file "req2.json"))]
-            [resp (read-json (open-input-file "resp2.json"))])
-        (client-send lsp req)
-        (check-equal? (jsexpr->string (client-wait-response req))
-                      (jsexpr->string resp))))))
-
+        (define prepare-result
+          (lsp-result! lsp
+                       "textDocument/prepareRename"
+                       uri
+                       (json {#:position (->jsexpr (Pos 5 2))})))
+        (check-equal? (jsexpr->Range prepare-result)
+                      (Range (Pos 5 2) (Pos 5 3)))))))

@@ -1,6 +1,7 @@
 #lang racket/base
 
-(require rackunit
+(require "../silent-logger.rkt"
+         rackunit
          racket/class
          "../../common/interfaces.rkt"
          "../../doclib/editor.rkt"
@@ -59,6 +60,11 @@
                   #:backend 'fixw
                   #:formatting-options (formatting-options 2 #t (hasheq)))
       (list (TextEdit (Range (Pos 2 0) (Pos 2 5)) "  \"\U0001F600\")"))))
+
+  (test-case
+    "unchanged fmt output produces no replacement"
+    (parameterize ([current-fmt-runner (lambda (_arguments text) (values 0 text ""))])
+      (check-false (fmt-format-document racket-text empty-fmt-settings))))
 
   (test-case
     "fmt forwards fmtSettings and ignores Format Document extras"

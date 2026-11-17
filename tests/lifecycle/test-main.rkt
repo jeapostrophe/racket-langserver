@@ -1,62 +1,53 @@
 #lang racket/base
-(require racket/os)
-
-(define init-req
-  (hasheq 'jsonrpc "2.0"
-          'id 0
-          'method "initialize"
-          'params (hasheq 'processId (getpid)
-                          'rootPath "/home/conor/racket-langserver/"
-                          'rootUri "file:///home/conor/racket-langserver/"
-                          'capabilities (hasheq))))
-
-(define shutdown-req
-  (hasheq 'jsonrpc "2.0"
-          'id 1
-          'method "shutdown"))
-
-(define exit-notf
-  (hasheq 'jsonrpc "2.0"
-          'method "exit"))
 
 (module+ test
-  (require rackunit
-           json
-           racket/port
-           "../stdio-server.rkt"
-           compiler/module-suffix
-           "../../lsp/msg-io.rkt"
+  (require compiler/module-suffix
+           rackunit
+           "../../common/interfaces.rkt"
            "../../common/json-util.rkt"
-           "../../common/interfaces.rkt")
+           "../json-dsl.rkt"
+           "../stdio-server.rkt")
 
-  (call-with-server-process
-    (lambda (sp stdout stdin stderr)
-      (thread (lambda () (copy-port stderr (current-error-port))))
+  (define expected-capabilities
+    (json
+      {#:codeActionProvider #t
+       #:completionProvider {#:triggerCharacters ["("]}
+       #:definitionProvider #t
+       #:documentFormattingProvider #t
+       #:documentHighlightProvider #t
+       #:documentOnTypeFormattingProvider {#:firstTriggerCharacter ")"
+                                           #:moreTriggerCharacter ["\n" "]"]}
+       #:documentRangeFormattingProvider #t
+       #:documentSymbolProvider #t
+       #:hoverProvider #t
+       #:inlayHintProvider #t
+       #:referencesProvider #t
+       #:renameProvider #t
+       #:semanticTokensProvider
+       {#:full #t
+        #:range #t
+        #:legend {#:tokenModifiers (map ->jsexpr *semantic-token-modifiers*)
+                  #:tokenTypes (map ->jsexpr *semantic-token-types*)}}
+       #:signatureHelpProvider {#:triggerCharacters [" " ")" "]"]}
+       #:textDocumentSync {#:change (->jsexpr TextDocumentSyncKind-Incremental)
+                           #:openClose #t
+                           #:willSave #f
+                           #:willSaveWaitUntil #f}
+       #:workspace
+       {#:workspaceFolders {#:changeNotifications #t}
+        #:fileOperations
+        {#:didRename
+         {#:filters
+          (for/list ([ext (in-list (get-module-suffixes))])
+            (json {#:scheme "file"
+                   #:pattern {#:glob (format "**/*.~a" ext)}}))}}}}))
 
-      ;; Initialize request
-      (display-message/flush init-req stdin)
-      (let ([resp (read-frame stdout)])
-        (define expected-json (read-json (open-input-file "init_resp.json")))
-        (define json (jsexpr-set expected-json '(result capabilities semanticTokensProvider legend)
-                                 (hasheq 'tokenModifiers (map ->jsexpr *semantic-token-modifiers*)
-                                         'tokenTypes (map ->jsexpr *semantic-token-types*))))
-        (set! json (jsexpr-set json '(result capabilities workspace fileOperations didRename filters)
-                               (map (lambda (ext)
-                                      (hasheq 'scheme "file" 'pattern (hasheq 'glob (format "**/*.~a" ext))))
-                                    (get-module-suffixes))))
-        (check-equal? (jsexpr->string resp)
-                      (jsexpr->string json)))
-
-      ;; Shutdown request
-      (display-message/flush shutdown-req stdin)
-      (let ([resp (read-frame stdout)])
-        (check-equal? (jsexpr->string resp)
-                      (jsexpr->string (hasheq 'id (hash-ref shutdown-req 'id)
-                                              'jsonrpc "2.0"
-                                              'result (json-null)))))
-
-      ;; Exit
-      (display-message/flush exit-notf stdin)
-      (check-not-false (sync/timeout 20 sp))
-      (define st (subprocess-status sp))
-      (check-true (zero? st)))))
+  (test-case "stdio server initializes with advertised capabilities and shuts down cleanly"
+    (call-with-stdio-client
+      (lambda (client)
+        (define init-result (stdio-initialize! client 0))
+        (check-equal? init-result (json {#:capabilities expected-capabilities}))
+        (define-values (shutdown-res exit-code) (stdio-shutdown-and-exit! client 1))
+        (check-equal? shutdown-res (json null))
+        (check-equal? exit-code 0)
+        (check-equal? (get-output-string (Stdio-Client-stderr-output client)) "")))))

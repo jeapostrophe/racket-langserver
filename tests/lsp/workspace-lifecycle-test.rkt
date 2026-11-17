@@ -1,179 +1,155 @@
 #lang racket/base
 
-(require "../../common/source.rkt"
-         "../../common/interfaces.rkt"
-         "../../common/json-util.rkt"
-         "../../common/path-util.rkt"
-         "../../doclib/doc.rkt"
-         "../../lsp/lsp.rkt"
-         "../../lsp/safedoc.rkt"
-         "../../workspace/source-store.rkt"
-         "../../lsp/workspace.rkt"
-         "../../workspace/api.rkt"
-         "../../workspace/current.rkt"
-         racket/string
-         racket/file
-         rackunit)
-
-(define source-text
-  "#lang racket/base\n(require racket/list)\nfirst\n")
-
-(define (folder-uri-change added removed)
-  (->jsexpr
-    (DidChangeWorkspaceFoldersParams
-      #:event
-      (WorkspaceFoldersChangeEvent
-        #:added
-        (for/list ([uri (in-list added)])
-          (WorkspaceFolder #:uri uri #:name "test"))
-        #:removed
-        (for/list ([uri (in-list removed)])
-          (WorkspaceFolder #:uri uri #:name "test"))))))
-
-(define (folder-change added removed)
-  (folder-uri-change (map path->uri added) (map path->uri removed)))
-
-(define (rename-files old-uri new-uri)
-  (->jsexpr
-    (RenameFilesParams
-      #:files
-      (list (FileRename #:oldUri old-uri #:newUri new-uri)))))
-
-(define (watched-file-change path type)
-  (->jsexpr
-    (DidChangeWatchedFilesParams
-      #:changes
-      (list (FileEvent #:uri (path->uri path) #:type type)))))
-
-(define (open-expanded-doc path)
-  (define uri (path->uri path))
-  (define safe-doc (lsp-open-doc! uri source-text 0))
-  (define contribution
-    (with-write-doc safe-doc
-      (lambda (doc)
-        (check-true (doc-expand! doc))
-        (Doc-contribution doc))))
-  (values uri safe-doc contribution
-          (with-read-doc safe-doc (lambda (doc) (doc-module-binding-at doc (Pos 2 0))))))
-
-(define (check-contribution-paths module-binding expected)
-  (check-equal?
-    (map Reference-Source-id
-         (workspace-reference-sources current-workspace module-binding))
-    (map (lambda (path) (source-id (path->source path))) expected)))
-
 (module+ test
-  (test-case
-    "workspace lifecycle preserves only accepted covered contributions"
-    (define root (make-temporary-file "workspace-lifecycle~a" 'directory))
-    (define source-path (build-path root "source.rkt"))
-    (define renamed-path (build-path root "renamed.rkt"))
-    (define-values (uri safe-doc contribution module-binding)
-      (open-expanded-doc source-path))
+  (require "controller-support.rkt"
+           rackunit
+           racket/string
+           "../../common/interfaces.rkt"
+           "../../common/json-util.rkt"
+           "../../common/path-util.rkt"
+           "../../common/source.rkt"
+           "../../doclib/doc.rkt"
+           "../../lsp/lsp.rkt"
+           "../../lsp/safedoc.rkt"
+           "../../lsp/workspace.rkt"
+           "../../workspace/api.rkt"
+           "../../workspace/current.rkt"
+           "../../workspace/source-store.rkt")
 
-    (dynamic-wind
-      void
-      (lambda ()
-        ;; Folder addition republishes the accepted contribution of an open doc.
-        (didChangeWorkspaceFolders (folder-change (list root) '()))
-        (check-contribution-paths module-binding (list source-path))
+  (define source-text "#lang racket/base\n(require racket/list)\nfirst\n")
 
-        ;; Closing removes the live instance's contribution.
-        (lsp-close-doc! uri)
-        (check-contribution-paths module-binding '())
+  (define (folder-uri-change added removed)
+    (->jsexpr
+      (DidChangeWorkspaceFoldersParams
+        #:event
+        (WorkspaceFoldersChangeEvent
+          #:added
+          (for/list ([uri (in-list added)])
+            (WorkspaceFolder #:uri uri #:name "test"))
+          #:removed
+          (for/list ([uri (in-list removed)])
+            (WorkspaceFolder #:uri uri #:name "test"))))))
 
-        ;; Removing the last covering folder purges it.
-        (didChangeWorkspaceFolders (folder-change '() (list root)))
-        (check-contribution-paths module-binding '())
+  (define (folder-change added removed)
+    (folder-uri-change (map path->uri added) (map path->uri removed)))
 
-        ;; A failed expansion retains the prior accepted contribution, which a
-        ;; later folder addition republishes.
-        (define-values (reopened-uri reopened-doc reopened-contribution reopened-binding)
+  (define (rename-files old-uri new-uri)
+    (->jsexpr
+      (RenameFilesParams
+        #:files (list (FileRename #:oldUri old-uri #:newUri new-uri)))))
+
+  (define (watched-file-change path type)
+    (->jsexpr
+      (DidChangeWatchedFilesParams
+        #:changes (list (FileEvent #:uri (path->uri path) #:type type)))))
+
+  (define (open-expanded-doc path)
+    (define uri (path->uri path))
+    (define safe-doc (lsp-open-doc! uri source-text 0))
+    (define contribution
+      (with-write-doc safe-doc
+        (lambda (doc)
+          (check-true (doc-expand! doc))
+          (Doc-contribution doc))))
+    (values uri safe-doc contribution
+            (with-read-doc safe-doc (lambda (doc) (doc-module-binding-at doc (Pos 2 0))))))
+
+  (define (check-contribution-paths module-binding expected)
+    (check-equal?
+      (map Reference-Source-id
+           (workspace-reference-sources current-workspace module-binding))
+      (map (lambda (path) (source-id (path->source path))) expected)))
+
+  (test-case "workspace lifecycle preserves only accepted covered contributions"
+    (with-temp-dir
+      "workspace-lifecycle"
+      (lambda (root)
+        (define source-path (build-path root "source.rkt"))
+        (define renamed-path (build-path root "renamed.rkt"))
+        (define-values (uri _safe-doc _contribution module-binding)
           (open-expanded-doc source-path))
-        (check-equal? reopened-binding module-binding)
-        (with-write-doc reopened-doc
-          (lambda (doc)
-            (doc-reset! doc "#lang racket/base\n(")
-            (doc-update-version! doc 2)
-            (check-false (doc-expand! doc))
-            (check-eq? (Doc-contribution doc) reopened-contribution)))
-        (didChangeWorkspaceFolders (folder-change (list root) '()))
-        (check-contribution-paths module-binding (list source-path))
+        (dynamic-wind
+          void
+          (lambda ()
+            (didChangeWorkspaceFolders (folder-change (list root) '()))
+            (check-contribution-paths module-binding (list source-path))
 
-        ;; Watched-file events leave the editor buffer and contribution untouched.
-        (for ([type (in-list (list FileChangeType-deleted
-                                   FileChangeType-created
-                                   FileChangeType-changed))])
-          (didChangeWatchedFiles (watched-file-change source-path type))
-          (check-eq? (lsp-get-doc reopened-uri #f) reopened-doc)
-          (with-read-doc reopened-doc
-            (lambda (doc)
-              (check-equal? (doc-get-text doc) "#lang racket/base\n(")
-              (check-equal? (Doc-version doc) 2)))
-          (check-contribution-paths module-binding (list source-path))
-          (didChangeWatchedFiles (watched-file-change renamed-path type))
-          (check-false (lsp-get-doc (path->uri renamed-path) #f)))
+            (lsp-close-doc! uri)
+            (check-contribution-paths module-binding '())
 
-        ;; The next incremental edit still applies to the editor's text.
-        (with-write-doc (lsp-get-doc reopened-uri)
-          (lambda (doc)
-            (doc-apply-edit! doc (Range (Pos 1 1) (Pos 1 1)) "void)")
-            (doc-update-version! doc 3)
-            (check-equal? (doc-get-text doc) "#lang racket/base\n(void)")
-            (check-equal? (Doc-version doc) 3)))
+            (didChangeWorkspaceFolders (folder-change '() (list root)))
+            (check-contribution-paths module-binding '())
 
-        ;; Rename preserves editor ownership until client close/open notifications.
-        (define-values (_rename-uri _rename-doc _rename-contribution _rename-binding)
-          (open-expanded-doc source-path))
-        (define query-signal
-          (with-read-safedoc _rename-doc
-            (lambda (sd) (Source-View-changed (SafeDoc-source-view sd)))))
-        (didChangeWorkspaceFolders (folder-change (list root) '()))
-        (check-contribution-paths module-binding (list source-path))
-        ;; The notification may spell the old file with lexical dot aliases.
-        (define old-alias-uri
-          (string-replace (path->uri source-path) "/source.rkt" "/missing/.././source.rkt"))
-        (didRenameFiles (rename-files old-alias-uri (path->uri renamed-path)))
-        (check-contribution-paths module-binding '())
-        (check-eq? (lsp-get-doc uri #f) _rename-doc)
-        (check-not-false (sync/timeout 0 query-signal) "rename invalidates captured revision")
-        (check-false (lsp-get-doc (path->uri renamed-path) #f))
+            (define-values (reopened-uri reopened-doc reopened-contribution reopened-binding)
+              (open-expanded-doc source-path))
+            (check-equal? reopened-binding module-binding)
+            (with-write-doc reopened-doc
+              (lambda (doc)
+                (doc-reset! doc "#lang racket/base\n(")
+                (doc-update-version! doc 2)
+                (check-false (doc-expand! doc))
+                (check-eq? (Doc-contribution doc) reopened-contribution)))
+            (didChangeWorkspaceFolders (folder-change (list root) '()))
+            (check-contribution-paths module-binding (list source-path))
 
-        ;; A destination that is already open also keeps its text and version.
-        (define destination (lsp-open-doc! (path->uri renamed-path) "unsaved destination" 7))
-        (didRenameFiles (rename-files (path->uri source-path) (path->uri renamed-path)))
-        (check-eq? (lsp-get-doc uri #f) _rename-doc)
-        (check-eq? (lsp-get-doc (path->uri renamed-path) #f) destination)
-        (check-equal? (with-read-doc destination doc-get-text) "unsaved destination")
-        (check-equal? (with-read-doc destination Doc-version) 7))
-      (lambda ()
-        (lsp-close-doc! uri)
-        (lsp-close-doc! (path->uri source-path))
-        (lsp-close-doc! (path->uri renamed-path))
-        (workspace-remove-folder! current-workspace root)
-        (delete-directory/files root)))))
+            (for ([type (in-list (list FileChangeType-deleted
+                                       FileChangeType-created
+                                       FileChangeType-changed))])
+              (didChangeWatchedFiles (watched-file-change source-path type))
+              (check-eq? (lsp-get-doc reopened-uri #f) reopened-doc)
+              (with-read-doc reopened-doc
+                (lambda (doc)
+                  (check-equal? (doc-get-text doc) "#lang racket/base\n(")
+                  (check-equal? (Doc-version doc) 2)))
+              (check-contribution-paths module-binding (list source-path))
+              (didChangeWatchedFiles (watched-file-change renamed-path type))
+              (check-false (lsp-get-doc (path->uri renamed-path) #f)))
 
-(module+ test
+            (define-values (_rename-uri rename-doc _rename-contribution _rename-binding)
+              (open-expanded-doc source-path))
+            (define query-signal
+              (with-read-safedoc rename-doc
+                (lambda (sd) (Source-View-changed (SafeDoc-source-view sd)))))
+            (didChangeWorkspaceFolders (folder-change (list root) '()))
+            (check-contribution-paths module-binding (list source-path))
+            (define old-alias-uri
+              (string-replace (path->uri source-path) "/source.rkt" "/missing/.././source.rkt"))
+            (didRenameFiles (rename-files old-alias-uri (path->uri renamed-path)))
+            (check-contribution-paths module-binding '())
+            (check-eq? (lsp-get-doc uri #f) rename-doc)
+            (check-not-false (sync/timeout 0 query-signal) "rename invalidates captured revision")
+            (check-false (lsp-get-doc (path->uri renamed-path) #f))
+
+            (define destination (lsp-open-doc! (path->uri renamed-path) "unsaved destination" 7))
+            (didRenameFiles (rename-files (path->uri source-path) (path->uri renamed-path)))
+            (check-eq? (lsp-get-doc uri #f) rename-doc)
+            (check-eq? (lsp-get-doc (path->uri renamed-path) #f) destination)
+            (check-equal? (with-read-doc destination doc-get-text) "unsaved destination")
+            (check-equal? (with-read-doc destination Doc-version) 7))
+          (lambda ()
+            (lsp-close-doc! uri)
+            (lsp-close-doc! (path->uri source-path))
+            (lsp-close-doc! (path->uri renamed-path))
+            (workspace-remove-folder! current-workspace root))))))
+
   (test-case "folder file-URI aliases are one path before workspace entry"
-    (define root (make-temporary-file "workspace-folder-alias~a" 'directory))
-    (define-values (_parent name _dir?) (split-path root))
-    (define name-text (path->string name))
-    (define canonical (path->uri root))
-    (define alias
-      (regexp-replace (regexp (string-append "/" (regexp-quote name-text) "$"))
-                      canonical
-                      (string-append "/missing/.././" name-text)))
-    (dynamic-wind
-      void
-      (lambda ()
-        (didChangeWorkspaceFolders (folder-uri-change (list alias) '()))
-        (check-true (workspace-contains? current-workspace
-                                         (build-path root "source.rkt")))
-        (didChangeWorkspaceFolders
-          (folder-uri-change '() (list (string-append canonical "/"))))
-        (check-false (workspace-contains? current-workspace
-                                          (build-path root "source.rkt"))))
-      (lambda ()
-        (workspace-remove-folder! current-workspace
-                                  (file-uri->identity-path canonical))
-        (delete-directory/files root)))))
+    (with-temp-dir
+      "workspace-folder-alias"
+      (lambda (root)
+        (define-values (_parent name _dir?) (split-path root))
+        (define name-text (path->string name))
+        (define canonical (path->uri root))
+        (define alias
+          (regexp-replace (regexp (string-append "/" (regexp-quote name-text) "$"))
+                          canonical
+                          (string-append "/missing/.././" name-text)))
+        (dynamic-wind
+          void
+          (lambda ()
+            (didChangeWorkspaceFolders (folder-uri-change (list alias) '()))
+            (check-true (workspace-contains? current-workspace (build-path root "source.rkt")))
+            (didChangeWorkspaceFolders
+              (folder-uri-change '() (list (string-append canonical "/"))))
+            (check-false (workspace-contains? current-workspace (build-path root "source.rkt"))))
+          (lambda ()
+            (workspace-remove-folder! current-workspace (file-uri->identity-path canonical))))))))

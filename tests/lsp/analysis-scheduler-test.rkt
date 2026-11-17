@@ -1,7 +1,8 @@
 #lang racket/base
 
 (module+ test
-  (require rackunit
+  (require "../silent-logger.rkt"
+           rackunit
            racket/async-channel
            "../../common/source.rkt"
            "../../workspace/source-store.rkt"

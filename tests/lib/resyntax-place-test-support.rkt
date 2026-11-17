@@ -47,7 +47,8 @@
         (call-with-test-resyntax-available? #t (lambda () (proc created)))))
     (lambda ()
       (custodian-shutdown-all callers)
-      (for ([worker (in-list workers)]) (place-kill (Controlled-Worker-place worker)))
+      (for ([worker (in-list workers)])
+        (place-kill (Controlled-Worker-place worker)))
       (reset-resyntax-worker!))))
 
 (define (call-with-test-resyntax-available? available? thunk)

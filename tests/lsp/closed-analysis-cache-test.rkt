@@ -1,7 +1,8 @@
 #lang racket/base
 
 (module+ test
-  (require rackunit
+  (require "../silent-logger.rkt"
+           rackunit
            "../../common/source.rkt"
            "../../lsp/analysis.rkt"
            "../../lsp/source-controller/closed-analysis-cache.rkt"
