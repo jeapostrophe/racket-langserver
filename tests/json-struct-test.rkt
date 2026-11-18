@@ -1,13 +1,18 @@
-#lang racket
-(require "../common/json-util.rkt" rackunit syntax/macro-testing)
+#lang racket/base
+
+(module export-test racket/base
+  (require "../common/json-util.rkt")
+  (define-json-struct Exported [x exact-integer?])
+  (provide (json-type-out Exported)))
 
 (module+ test
-  (define (capture-fail-exn thunk)
-    (with-handlers ([exn:fail? values])
-      (thunk)
-      (fail "expected an exception")))
+  (require racket/list
+           racket/match
+           rackunit
+           syntax/macro-testing
+           "../common/json-util.rkt"
+           (submod ".." export-test))
 
-  ;; Define test structs
   (define-json-struct Pos
     [line exact-integer?]
     [char exact-integer? #:json character])
@@ -62,24 +67,24 @@
     (check-equal? (Pos-char p2) 20))
 
   (test-case "construction: contract enforcement"
-    (check-exn exn:fail:contract? (λ () (Pos "1" 10)))
-    (check-exn exn:fail:contract? (λ () (Pos #:line 1 #:char "10"))))
+    (check-exn exn:fail:contract? (lambda () (Pos "1" 10)))
+    (check-exn exn:fail:contract? (lambda () (Pos #:line 1 #:char "10"))))
 
   (test-case "construction: syntax errors for mixed and duplicate keywords"
     (check-exn
-      (λ (e)
+      (lambda (e)
         (and (exn:fail:syntax? e)
              (regexp-match? #rx"mixed positional and keyword arguments are not allowed"
                             (exn-message e))))
-      (λ ()
+      (lambda ()
         (convert-compile-time-error
           (Pos 1 #:char 2))))
     (check-exn
-      (λ (e)
+      (lambda (e)
         (and (exn:fail:syntax? e)
              (regexp-match? #rx"duplicate keyword argument #:line"
                             (exn-message e))))
-      (λ ()
+      (lambda ()
         (convert-compile-time-error
           (Pos #:line 1 #:line 2 #:char 3)))))
 
@@ -92,26 +97,14 @@
             [x (or/c string? exact-integer?)])))))
 
   (test-case "matching: Pos matches structs only"
-    (check-equal?
-      (match p1 [(Pos #:line l) l] [_ #f])
-      1)
-    (check-equal?
-      (match p2 [(Pos l c) (list l c)] [_ #f])
-      '(2 20))
-    (check-equal?
-      (match p-hash [(Pos #:line l) l] [_ #f])
-      #f))
+    (check-equal? (match p1 [(Pos #:line l) l] [_ #f]) 1)
+    (check-equal? (match p2 [(Pos l c) (list l c)] [_ #f]) '(2 20))
+    (check-false (match p-hash [(Pos #:line l) l] [_ #f])))
 
   (test-case "matching: Pos-js matches hashes"
-    (check-equal?
-      (match p-hash [(Pos-js #:line l) l] [_ #f])
-      10)
-    (check-equal?
-      (match p-hash-2 [(Pos-js l c) (list l c)] [_ #f])
-      '(3 30))
-    (check-equal?
-      (match p1 [(Pos-js l c) (list l c)] [_ #f])
-      #f))
+    (check-equal? (match p-hash [(Pos-js #:line l) l] [_ #f]) 10)
+    (check-equal? (match p-hash-2 [(Pos-js l c) (list l c)] [_ #f]) '(3 30))
+    (check-false (match p1 [(Pos-js l c) (list l c)] [_ #f])))
 
   (test-case "validation: Pos-js? validates JSON hash only"
     (check-true (Pos-js? p-hash))
@@ -119,38 +112,18 @@
     (check-false (Pos-js? p-hash-invalid)))
 
   (test-case "matching: as-Pos decodes valid JSON hash"
-    (check-equal?
-      (match p-hash
-        [(as-Pos pos) (Pos-line pos)]
-        [_ #f])
-      10)
-    (check-equal?
-      (match p-hash-invalid
-        [(as-Pos _pos) #t]
-        [_ #f])
-      #f)
-    (check-equal?
-      (match p1
-        [(as-Pos _pos) #t]
-        [_ #f])
-      #f))
+    (check-equal? (match p-hash [(as-Pos pos) (Pos-line pos)] [_ #f]) 10)
+    (check-false (match p-hash-invalid [(as-Pos _pos) #t] [_ #f]))
+    (check-false (match p1 [(as-Pos _pos) #t] [_ #f])))
 
   (test-case "matching: jsexpr styles for Pos"
-    ;; optional schema guard for raw JSON
-    (check-equal? (match p-hash [(? Pos-js? (Pos-js #:line l)) l] [_ #f])
-                  10)
-    ;; decode-then-match with as-Name
-    (check-equal? (match p-hash [(as-Pos (Pos #:line l #:char c)) (list l c)] [_ #f])
-                  '(10 5))
-    ;; generated alias: ^Name => (as-Name (Name ...))
-    (check-equal? (match p-hash [(^Pos #:line l #:char c) (list l c)] [_ #f])
-                  '(10 5))
-    (check-equal? (match p-hash [(^Pos l c) (list l c)] [_ #f])
-                  '(10 5)))
+    (check-equal? (match p-hash [(? Pos-js? (Pos-js #:line l)) l] [_ #f]) 10)
+    (check-equal? (match p-hash [(as-Pos (Pos #:line l #:char c)) (list l c)] [_ #f]) '(10 5))
+    (check-equal? (match p-hash [(^Pos #:line l #:char c) (list l c)] [_ #f]) '(10 5))
+    (check-equal? (match p-hash [(^Pos l c) (list l c)] [_ #f]) '(10 5)))
 
   (test-case "encoding: simple and recursive"
-    (check-equal? (->jsexpr p1)
-                  (hasheq 'line 1 'character 10))
+    (check-equal? (->jsexpr p1) (hasheq 'line 1 'character 10))
     (check-equal? (->jsexpr r)
                   (hasheq 'start (hasheq 'line 1 'character 10)
                           'end (hasheq 'line 2 'character 20))))
@@ -217,23 +190,15 @@
     (define from-pos (jsexpr->OrPosHolder (hasheq 'item p-hash)))
     (check-equal? (Pos-line (OrPosHolder-item from-pos)) 10))
 
-  (test-case "decoding: union failure reports field decode error"
-    (define e (capture-fail-exn
-                (lambda ()
-                  (jsexpr->OrPosHolder (hasheq 'item 42)))))
-    (check-not-false (regexp-match? #rx"failed to decode field" (exn-message e))))
-
-  (test-case "decoding: union failure reports unmatched value"
-    (define e (capture-fail-exn
-                (lambda ()
-                  (jsexpr->OrPosHolder (hasheq 'item 42)))))
-    (check-not-false (regexp-match? #rx"no union alternative matched value: 42" (exn-message e))))
-
-  (test-case "decoding: union failure reports expected union"
-    (define e (capture-fail-exn
-                (lambda ()
-                  (jsexpr->OrPosHolder (hasheq 'item 42)))))
-    (check-not-false (regexp-match? #rx"expected: '\\(union string\\? Pos\\)" (exn-message e))))
+  (test-case "decoding: union failure reports field, value, and expected union"
+    (check-exn
+      (lambda (e)
+        (and (exn:fail? e)
+             (regexp-match? #rx"failed to decode field" (exn-message e))
+             (regexp-match? #rx"no union alternative matched value: 42" (exn-message e))
+             (regexp-match? #rx"expected: '\\(union string\\? Pos\\)" (exn-message e))))
+      (lambda ()
+        (jsexpr->OrPosHolder (hasheq 'item 42)))))
 
   (test-case "validation: union json predicate"
     (check-true (OrPosHolder-js? (hasheq 'item "s")))
@@ -278,7 +243,7 @@
     (check-true (TreeNode? (first (TreeNode-children tree))))
     (check-equal? (TreeNode-value (first (TreeNode-children tree))) "leaf"))
 
-  (test-case "decoding: field errors include type field expected value and cause"
+  (test-case "decoding: field errors include type, field, expected, value, and cause"
     (check-exn
       (lambda (e)
         (and (exn:fail:contract? e)
@@ -299,24 +264,24 @@
 
   (test-case "matching: explicit schema guard for invalid hash"
     (match p-hash-invalid
-      [(? Pos-js? (Pos-js l c)) (fail "Should not match invalid types")]
+      [(? Pos-js? (Pos-js _l _c)) (fail "Should not match invalid types")]
       [_ (void)]))
 
   (test-case "matching: variable capture against hash returns hash"
     (match r-hash
-      [(Range-js s e)
+      [(Range-js s _e)
        (check-true (hash? s))
        (check-equal? (hash-ref s 'line) 10)]))
 
   (test-case "matching: native struct destructuring"
     (match (Range (Pos 10 5) (Pos 20 15))
-      [(Range (Pos l1 c1) (Pos l2 c2))
+      [(Range (Pos l1 _c1) (Pos _l2 c2))
        (check-equal? l1 10)
        (check-equal? c2 15)]))
 
   (test-case "matching: variable capture against struct returns struct"
     (match (Range (Pos 10 5) (Pos 20 15))
-      [(Range s e)
+      [(Range s _e)
        (check-true (Pos? s))
        (check-equal? (Pos-line s) 10)]))
 
@@ -328,42 +293,25 @@
          (list sl sc el ec)]
         [_ #f])
       '(10 5 20 15)))
-  )
-
-;; 6. Export Test
-(module export-test racket
-  (require "../common/json-util.rkt")
-  (define-json-struct Exported [x exact-integer?])
-  (provide (json-type-out Exported))
-  )
-
-(module+ test
-  (require (submod ".." export-test) rackunit)
 
   (test-case "Verify json-type-out exports"
-    ;; Struct constructor and predicate
     (define e (Exported 10))
     (check-true (Exported? e))
     (check-equal? (Exported-x e) 10)
 
-    ;; Keyword wrapper (Exported supports keywords)
     (define e-kw (Exported #:x 20))
     (check-equal? (Exported-x e-kw) 20)
 
-    ;; JSON matcher
     (check-match (hasheq 'x 30) (Exported-js 30))
 
-    ;; Contract: JSON-only
     (check-false (Exported-js? e))
     (check-true (Exported-js? (hasheq 'x 40)))
 
-    ;; as-Name should be exported by json-type-out
     (check-equal?
       (match (hasheq 'x 41)
         [(as-Exported ex) (Exported-x ex)]
         [_ #f])
       41)
-    ;; ^Name should be exported by json-type-out
     (check-equal?
       (match (hasheq 'x 42)
         [(^Exported x) x]

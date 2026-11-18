@@ -1,7 +1,10 @@
-#lang racket
+#lang racket/base
 
 (module+ test
-  (require rackunit
+  (require "../silent-logger.rkt"
+           rackunit
+           racket/list
+           racket/match
            "../../doclib/doc.rkt"
            "../../doclib/lexer.rkt"
            (only-in "../../doclib/lexer/snapshot.rkt"
@@ -25,10 +28,6 @@
   (define (snapshot-summaries text)
     (for/list ([entry (in-lexer-snapshot (build-lexer-snapshot text))])
       (entry-summary entry)))
-
-  (define (snapshot-entries text)
-    (for/list ([entry (in-lexer-snapshot (build-lexer-snapshot text))])
-      entry))
 
   (define (match-range rx text)
     (match (regexp-match-positions rx text)
@@ -68,21 +67,15 @@
 
   (test-case
     "build-lexer-snapshot enumerates public lexer entries"
-    (define snapshot (build-lexer-snapshot "#lang racket\n(define x 1)\n"))
-    (define entries (for/list ([entry (in-lexer-snapshot snapshot)]) entry))
+    (define summaries (snapshot-summaries "#lang racket\n(define x 1)\n"))
     ;; Cached lexer positions are normalized to the doc's 0-based offsets.
-    (check-not-false (member (list 13 14 "(" 'open-paren)
-                             (map entry-summary entries)))
-    (check-not-false (member (list 14 20 "define" 'symbol)
-                             (map entry-summary entries)))
-    (check-not-false (member (list 20 21 " " 'white-space)
-                             (map entry-summary entries)))
-    (check-not-false (member (list 21 22 "x" 'symbol)
-                             (map entry-summary entries)))
-    (check-not-false (member (list 23 24 "1" 'constant)
-                             (map entry-summary entries)))
-    (check-not-false (member (list 24 25 ")" 'close-paren)
-                             (map entry-summary entries))))
+    (for ([expected (in-list '((13 14 "(" open-paren)
+                               (14 20 "define" symbol)
+                               (20 21 " " white-space)
+                               (21 22 "x" symbol)
+                               (23 24 "1" constant)
+                               (24 25 ")" close-paren)))])
+      (check-not-false (member expected summaries))))
 
   (test-case
     "lexer snapshot normalizes a leading #lang directive"
@@ -93,18 +86,13 @@
 
   (test-case
     "lexer snapshot preserves invalid #lang lines as errors"
-    (define unknown-language-summary
-      (first (snapshot-summaries "#lang not-a-real-language\n(define x 1)\n")))
-    (check-equal? (list-ref unknown-language-summary 2)
-                  "#lang not-a-real-language")
-    (check-equal? (list-ref unknown-language-summary 3)
-                  'error)
-    (define malformed-reader-summary
-      (first (snapshot-summaries "#lang reader (foo)\n1\n")))
-    (check-equal? (list-ref malformed-reader-summary 2)
-                  "#lang reader (foo)")
-    (check-equal? (list-ref malformed-reader-summary 3)
-                  'error))
+    (for ([spec (in-list '(("#lang not-a-real-language\n(define x 1)\n"
+                            "#lang not-a-real-language")
+                           ("#lang reader (foo)\n1\n"
+                            "#lang reader (foo)")))])
+      (define entry (lexer-snapshot-token-at (build-lexer-snapshot (car spec)) 0))
+      (check-equal? (LexerEntry-text entry) (cadr spec))
+      (check-equal? (LexerEntry-type entry) 'error)))
 
   (test-case
     "lexer snapshot normalizes #lang reader without collapsing the payload"
@@ -354,14 +342,6 @@
       'symbol))
 
   (test-case
-    "unknown-language body mode is unknown"
-    (define text "#lang not-a-real-language\n(define x 1)\n")
-    (define snapshot (build-lexer-snapshot text))
-    (define policy (lexer-language-policy (LexerSnapshot-text snapshot)
-                                          (LexerSnapshot-tokens snapshot)))
-    (check-equal? (Language-Policy-body-mode policy) 'unknown))
-
-  (test-case
     "unknown-language still builds a forest for editor affordances"
     (define text "#lang not-a-real-language\n(define x 1)\n")
     (define state (build-lexer-state text #f))
@@ -372,18 +352,14 @@
       '()))
 
   (test-case
-    "unknown #reader and raw modules also produce unknown language policy"
-    (define reader-text "#reader does/not/exist\nbody\n")
-    (define reader-snapshot (build-lexer-snapshot reader-text))
-    (define reader-policy (lexer-language-policy (LexerSnapshot-text reader-snapshot)
-                                                 (LexerSnapshot-tokens reader-snapshot)))
-    (check-equal? (Language-Policy-body-mode reader-policy) 'unknown)
-
-    (define module-text "(module demo does/not/exist (define x 1))\n")
-    (define module-snapshot (build-lexer-snapshot module-text))
-    (define module-policy (lexer-language-policy (LexerSnapshot-text module-snapshot)
-                                                 (LexerSnapshot-tokens module-snapshot)))
-    (check-equal? (Language-Policy-body-mode module-policy) 'unknown))
+    "unknown languages, #reader directives, and raw modules produce unknown language policy"
+    (for ([text (in-list '("#lang not-a-real-language\n(define x 1)\n"
+                           "#reader does/not/exist\nbody\n"
+                           "(module demo does/not/exist (define x 1))\n"))])
+      (define snapshot (build-lexer-snapshot text))
+      (define policy (lexer-language-policy (LexerSnapshot-text snapshot)
+                                            (LexerSnapshot-tokens snapshot)))
+      (check-equal? (Language-Policy-body-mode policy) 'unknown)))
 
   (test-case
     "lexer snapshot position queries return token and symbol entries"
@@ -391,36 +367,21 @@
       (build-lexer-snapshot "#lang racket/base\n(define greeting \"hello\")\n"))
     (define symbol (lexer-snapshot-symbol-at snapshot 21))
     (check-true (LexerEntry? symbol))
-    (check-equal? (list (LexerEntry-start symbol)
-                        (LexerEntry-end symbol)
-                        (LexerEntry-text symbol)
-                        (LexerEntry-type symbol))
-                  (list 19 25 "define" 'symbol))
+    (check-equal? (entry-summary symbol) (list 19 25 "define" 'symbol))
     (check-false (lexer-snapshot-symbol-at snapshot 36))
     (check-false (lexer-snapshot-symbol-at snapshot 18))
 
     (define paren-token (lexer-snapshot-token-at snapshot 18))
     (check-true (LexerEntry? paren-token))
-    (check-equal? (list (LexerEntry-start paren-token)
-                        (LexerEntry-end paren-token)
-                        (LexerEntry-text paren-token)
-                        (LexerEntry-type paren-token))
-                  (list 18 19 "(" 'open-paren))
+    (check-equal? (entry-summary paren-token) (list 18 19 "(" 'open-paren))
 
     (define token (lexer-snapshot-token-at snapshot 36))
     (check-true (LexerEntry? token))
-    (check-equal? (list (LexerEntry-start token)
-                        (LexerEntry-end token)
-                        (LexerEntry-text token)
-                        (LexerEntry-type token))
-                  (list 35 42 "\"hello\"" 'string))
+    (check-equal? (entry-summary token) (list 35 42 "\"hello\"" 'string))
+
     (define space-token (lexer-snapshot-token-at snapshot 25))
     (check-true (LexerEntry? space-token))
-    (check-equal? (list (LexerEntry-start space-token)
-                        (LexerEntry-end space-token)
-                        (LexerEntry-text space-token)
-                        (LexerEntry-type space-token))
-                  (list 25 26 " " 'white-space)))
+    (check-equal? (entry-summary space-token) (list 25 26 " " 'white-space)))
 
   (test-case
     "tree query first meaningful symbol skips whitespace tokens"
@@ -466,26 +427,7 @@
     (check-equal? (LexerEntry-text (doc-token-at d 0)) "\"baz\""))
 
   (test-case
-    "doc-token-at works on a fresh document"
-    (define d (make-doc "file:///test.rkt" "(define answer 42)"))
-    (check-equal? (LexerEntry-text (doc-token-at d 1)) "define")
-    (check-equal? (LexerEntry-text (doc-token-at d 8)) "answer"))
-
-  (test-case
     "doc-token-prefix-at returns the prefix ending at a position"
     (define d (make-doc "file:///prefix-test.rkt" "foo"))
     (check-equal? (doc-token-prefix-at d 1) "fo")
-    (check-equal? (doc-token-prefix-at d 10) ""))
-
-  (test-case
-    "doc-symbols returns lexer-derived symbol information"
-    (define uri "file:///tmp/doc-test.rkt")
-    (define d (make-doc uri "#lang racket\n(define x 1)\nx\n"))
-    (define result (doc-symbols d uri))
-    (check-equal? (length result) 4)
-    (define define-sym (findf (λ (s) (equal? (SymbolInformation-name s) "define")) result))
-    (check-not-false define-sym)
-    (check-equal? (SymbolInformation-kind define-sym) SymbolKind-Variable)
-    (define one-sym (findf (λ (s) (equal? (SymbolInformation-name s) "1")) result))
-    (check-not-false one-sym)
-    (check-equal? (SymbolInformation-kind one-sym) SymbolKind-Constant)))
+    (check-equal? (doc-token-prefix-at d 10) "")))

@@ -1,9 +1,11 @@
-#lang racket
+#lang racket/base
 
-(require "../../common/dynamic-import.rkt"
+(require "../silent-logger.rkt"
+         "../../common/dynamic-import.rkt"
          "../../common/interfaces.rkt"
          "../../common/json-util.rkt"
          racket/async-channel
+         racket/list
          racket/place
          racket/sandbox
          "../../lsp/resyntax-place.rkt"
@@ -94,7 +96,7 @@
         (check-true (resyntax-worker-live?))
         (check-false (sync/timeout 0 created)))))
 
-  (for ([mode '(break timeout custodian kill death)])
+  (for ([mode (in-list '(break timeout custodian kill death))])
     (test-case
       (format "~a disposes the worker and permits a distinct replacement result" mode)
       (call-with-controlled-workers

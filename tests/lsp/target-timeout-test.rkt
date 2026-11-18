@@ -2,64 +2,76 @@
 
 ;; Target policies use real source observations and supervised work. Only the
 ;; owner runs on this test thread; request threads submit ordinary commands.
-(require rackunit
-         racket/async-channel
-         "../../common/interfaces.rkt"
-         "../../common/source.rkt"
-         "../../common/time.rkt"
-         "../../doclib/doc.rkt"
-         "../../doclib/internal-types.rkt"
-         "../../lsp/analysis.rkt"
-         "../../lsp/compose/target.rkt"
-         "../../lsp/compose/hover.rkt"
-         "../../lsp/compose/definition.rkt"
-         "../../lsp/safedoc.rkt"
-         "../../lsp/source-controller.rkt"
-         (submod "../../lsp/source-controller.rkt" owner)
-         "../../lsp/source-controller/completion-event.rkt"
-         "../../workspace/source-store.rkt"
-         "controller-support.rkt")
-
-(require/expose "../../lsp/compose/target.rkt" (wait-live Target-Request Target-Failure?))
-
-(define text "#lang racket/base\n(define value 1)\n")
-(define requester (path->source (build-path scratch "timeout-requester.rkt")))
-(define target-path (build-path scratch "timeout-target.rkt"))
-(define target-source (path->source target-path))
-(define binding (Module-Binding target-path '() 0 'value))
-
-(define (with-target proc #:read [read (lambda (_) text)]
-                     #:analyze [analyze stub-analysis-product]
-                     #:read-timeout [read-timeout 3]
-                     #:analysis-timeout [analysis-timeout 90])
-  (define custodian (make-custodian))
-  (parameterize ([current-custodian custodian])
-    (define controller
-      (make-source-controller #:read read #:analyze analyze #:resyntax #f
-                              #:read-timeout read-timeout #:analysis-timeout analysis-timeout))
-    (define sd (new-safedoc (source-uri requester) text 0))
-    (parameterize ([current-source-controller controller])
-      (dynamic-wind
-        (lambda () (source-controller-open! controller requester sd))
-        (lambda ()
-          (drive-controller controller (with-read-safedoc sd SafeDoc-analysis-completion) 90)
-          (define view (with-read-safedoc sd SafeDoc-source-view))
-          (define (query seconds feature #:compose [compose (lambda (_ detail) detail)]
-                         #:deadline [deadline (deadline-after seconds)]
-                         #:fallback [fallback (lambda () "local")])
-            (target-query 1 controller deadline
-                          view binding feature (lambda (_facts _binding) "detail") compose
-                          #:fallback (and (equal? feature "Hover") fallback)))
-          (define (run deferred)
-            (define replies (make-async-channel))
-            (thread (lambda () (async-channel-put replies (deferred))))
-            (drive-controller controller replies 90))
-          (proc controller sd query run))
-        (lambda ()
-          (source-controller-shutdown! controller)
-          (custodian-shutdown-all custodian))))))
-
 (module+ test
+  (require "controller-support.rkt"
+           rackunit
+           racket/async-channel
+           racket/class
+           "../../common/interfaces.rkt"
+           "../../common/source.rkt"
+           "../../common/time.rkt"
+           "../../doclib/doc.rkt"
+           "../../doclib/doc-trace.rkt"
+           "../../doclib/editor.rkt"
+           "../../doclib/internal-types.rkt"
+           "../../doclib/lexer.rkt"
+           "../../lsp/analysis.rkt"
+           "../../lsp/compose/target.rkt"
+           "../../lsp/compose/hover.rkt"
+           "../../lsp/compose/definition.rkt"
+           "../../lsp/safedoc.rkt"
+           "../../lsp/source-controller.rkt"
+           (submod "../../lsp/source-controller.rkt" owner)
+           "../../lsp/source-controller/completion-event.rkt"
+           "../../workspace/source-store.rkt")
+
+  (require/expose "../../lsp/compose/target.rkt" (wait-live Target-Request Target-Failure?))
+
+  (define text "#lang racket/base\n(define value 1)\n")
+  (define requester (path->source (build-path scratch "timeout-requester.rkt")))
+  (define target-path (build-path scratch "timeout-target.rkt"))
+  (define target-source (path->source target-path))
+  (define binding (Module-Binding target-path '() 0 'value))
+
+  (define (stub-analysis-product snapshot)
+    (define src (Source-Snapshot-source snapshot))
+    (define trace
+      (new build-trace%
+        [source src]
+        [doc-text (new lsp-editor%)]
+        [lexer-state (build-lexer-state "" (source-uri src))]))
+    (Analysis-Product #t (Analysis-Summary (hash) (hash)) '() trace
+                      (send trace get-contribution) (hash)))
+
+  (define (with-target proc #:read [read (lambda (_) text)]
+                       #:analyze [analyze stub-analysis-product]
+                       #:read-timeout [read-timeout 3]
+                       #:analysis-timeout [analysis-timeout 90])
+    (define custodian (make-custodian))
+    (parameterize ([current-custodian custodian])
+      (define controller
+        (make-source-controller #:read read #:analyze analyze #:resyntax #f
+                                #:read-timeout read-timeout #:analysis-timeout analysis-timeout))
+      (define sd (new-safedoc (source-uri requester) text 0))
+      (parameterize ([current-source-controller controller])
+        (dynamic-wind
+          (lambda () (source-controller-open! controller requester sd))
+          (lambda ()
+            (drive-controller controller (with-read-safedoc sd SafeDoc-analysis-completion) 90)
+            (define v (with-read-safedoc sd SafeDoc-source-view))
+            (define (query seconds feature #:compose [compose (lambda (_ detail) detail)]
+                           #:deadline [deadline (deadline-after seconds)]
+                           #:fallback [fallback (lambda () "local")])
+              (target-query 1 controller deadline
+                            v binding feature (lambda (_facts _binding) "detail") compose
+                            #:fallback (and (equal? feature "Hover") fallback)))
+            (define (run deferred)
+              (drive-controller controller (start-deferred deferred) 90))
+            (proc controller sd query run))
+          (lambda ()
+            (source-controller-shutdown! controller)
+            (custodian-shutdown-all custodian))))))
+
   (test-case "target defaults and already-expired queries start no disk work"
     (check-equal? (current-hover-target-timeout) 0.2)
     (check-equal? (current-definition-target-timeout) 10.0)
@@ -96,7 +108,8 @@
               (check-equal? (hash-ref hover 'result) "local")
               (check-error hover ErrorCode-RequestFailed))
           (check-error (run (query 5 "Definition")) ErrorCode-RequestFailed))
-        #:read-timeout 0.05 #:analysis-timeout 0.05
+        #:read-timeout 0.05
+        #:analysis-timeout 0.05
         #:read (if (eq? stage 'read) (lambda (_) (work)) (lambda (_) text))
         #:analyze (lambda (snapshot)
                     (if (and (eq? stage 'analysis)

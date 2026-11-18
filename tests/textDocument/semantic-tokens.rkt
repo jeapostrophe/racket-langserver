@@ -1,61 +1,31 @@
-#lang racket
-
-(define uri "file:///semantic-tokens-test.rkt")
-
-(define failing-code
-#<<END
 #lang racket/base
-#; (define ignored 1)
-(define x
-END
-  )
 
 (module+ test
   (require rackunit
-           racket/async-channel
+           "../../common/interfaces.rkt"
            "../../common/json-util.rkt"
+           "../json-dsl.rkt"
            "with-document.rkt")
 
-  (test-case
-    "semantic tokens retain current lexer comments through unsuccessful analysis"
+  (define uri "file:///semantic-tokens-test.rkt")
+  (define failing-code "#lang racket/base\n#; (define ignored 1)\n(define x\n")
+
+  (test-case "semantic tokens retain current lexer comments through unsuccessful analysis"
     (with-document uri failing-code
       (lambda (lsp)
-        (define semantic-tokens-req
-          (make-request lsp
-                        "textDocument/semanticTokens/full"
-                        (hasheq 'textDocument
-                                (hasheq 'uri uri))))
-        (client-send lsp semantic-tokens-req)
-
-        (define response-channel (make-async-channel))
-        (thread
-          (lambda ()
-            (async-channel-put response-channel
-                               (client-wait-response semantic-tokens-req))))
-        (define response-ready (sync/timeout 1.0 response-channel))
-
-        (check-not-false response-ready)
-        (check-equal? (hash-ref response-ready 'result) (hasheq 'data '(1 0 21 5 0)))
+        (check-equal?
+          (lsp-result! lsp "textDocument/semanticTokens/full" uri (hasheq) 1.0)
+          (json {#:data '(1 0 21 5 0)}))
 
         (define range-params
-          (hasheq 'textDocument (hasheq 'uri uri)
-                  'range (hasheq 'start (hasheq 'line 0 'character 0)
-                                 'end (hasheq 'line 3 'character 0))))
-        (define range-req
-          (make-request lsp "textDocument/semanticTokens/range" range-params))
-        (client-send lsp range-req)
-        (check-equal? (hash-ref (client-wait-response range-req) 'result)
-                      (hasheq 'data '(1 0 21 5 0)))
+          (json {#:range (->jsexpr (Range (Pos 0 0) (Pos 3 0)))}))
+        (check-equal?
+          (lsp-result! lsp "textDocument/semanticTokens/range" uri range-params)
+          (json {#:data '(1 0 21 5 0)}))
 
-        (client-send lsp
-                     (make-notification
-                       "textDocument/didChange"
-                       (hasheq 'textDocument (hasheq 'uri uri 'version 1)
-                               'contentChanges
-                               (list (hasheq 'text "#lang racket/base\n(define x 1)\nx\n")))))
+        (change! lsp uri "#lang racket/base\n(define x 1)\nx\n" 1)
         (client-wait-notification lsp)
+
         (for ([method (in-list '("textDocument/semanticTokens/full"
                                  "textDocument/semanticTokens/range"))])
-          (define req (make-request lsp method range-params))
-          (client-send lsp req)
-          (check-true (pair? (jsexpr-ref (client-wait-response req) '(result data)))))))))
+          (check-true (pair? (hash-ref (lsp-result! lsp method uri range-params) 'data))))))))

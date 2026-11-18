@@ -1,26 +1,25 @@
 #lang racket/base
 
-(require rackunit
-         racket/async-channel
-         racket/port
-         "../../lsp/source-controller/completion-event.rkt"
-         "../../lsp/source-controller/supervised-worker.rkt")
-
-;; All assertions run on the test thread; background threads only report observations.
-(define (await event)
-  (define result (sync/timeout 3 (wrap-evt event box)))
-  (unless result (error 'await "event did not become ready"))
-  (unbox result))
-
-(define (start events work #:seconds [seconds 2] #:launch [launch thread])
-  (start-supervised-worker! events seconds work
-                            #:launch launch
-                            #:fail (lambda (reason) (list 'failed reason))
-                            #:exited 'exited
-                            #:timeout-result (lambda () '(timed-out))
-                            #:done values))
-
 (module+ test
+  (require "../silent-logger.rkt"
+           rackunit
+           racket/async-channel
+           "../../lsp/source-controller/completion-event.rkt"
+           "../../lsp/source-controller/supervised-worker.rkt")
+
+  ;; All assertions run on the test thread; background threads only report observations.
+  (define (await event)
+    (define result (sync/timeout 3 (wrap-evt event box)))
+    (unless result (error 'await "event did not become ready"))
+    (unbox result))
+
+  (define (start events work #:seconds [seconds 2] #:launch [launch thread])
+    (start-supervised-worker! events seconds work
+                              #:launch launch
+                              #:fail (lambda (reason) (list 'failed reason))
+                              #:exited 'exited
+                              #:timeout-result (lambda () '(timed-out))
+                              #:done values))
   (test-case "completion preserves its first false result for multiple and later readers"
     (define completion (make-completion-event))
     (define replies (make-async-channel))

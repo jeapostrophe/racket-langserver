@@ -1,8 +1,14 @@
-#lang racket
+#lang racket/base
 
-(define uri "file:///test.rkt")
+(module+ test
+  (require rackunit
+           "../../../common/interfaces.rkt"
+           "../../../common/json-util.rkt"
+           "../../json-dsl.rkt"
+           "../with-document.rkt")
 
-(define code
+  (define uri "file:///test.rkt")
+  (define code
 #<<END
 #lang racket/base
 
@@ -11,45 +17,44 @@
 (let ([x 1])
   x)
 END
-  )
+    )
 
-(module+ test
-  (require rackunit
-           json
-           "../with-document.rkt")
+  (define (pos-range start-line start-char end-line end-char)
+    (Range (Pos start-line start-char) (Pos end-line end-char)))
 
-  (with-document uri code
-    (λ (lsp)
+  (define (symbol-entry name kind start-line start-char end-line end-char)
+    (SymbolInformation name kind (Location uri (pos-range start-line start-char end-line end-char))))
 
-      ;; definition
-      (let ([req (read-json (open-input-file "definition-req1.json"))]
-            [resp (read-json (open-input-file "definition-resp1.json"))])
-        (client-send lsp req)
+  (test-case "definition, documentHighlight, documentSymbol, and references locate bound occurrences"
+    (with-document uri code
+      (lambda (lsp)
+        (define def-result
+          (lsp-result! lsp "textDocument/definition" uri (json {#:position (->jsexpr (Pos 5 2))})))
+        (check-equal? (jsexpr->Location def-result)
+                      (Location uri (pos-range 4 7 4 8)))
 
-        (check-equal? (jsexpr->string (client-wait-response req))
-                      (jsexpr->string resp)))
+        (define highlight-result
+          (lsp-result! lsp "textDocument/documentHighlight" uri (json {#:position (->jsexpr (Pos 5 2))})))
+        (check-equal? (map jsexpr->DocumentHighlight highlight-result)
+                      (list (DocumentHighlight (pos-range 4 7 4 8))
+                            (DocumentHighlight (pos-range 5 2 5 3))))
 
-      ;; documentHighlight
-      (let ([req (read-json (open-input-file "highlight-req1.json"))]
-            [resp (read-json (open-input-file "highlight-resp1.json"))])
-        (client-send lsp req)
+        (check-equal?
+          (map jsexpr->SymbolInformation (lsp-result! lsp "textDocument/documentSymbol" uri))
+          (list (symbol-entry "define" SymbolKind-Variable 2 1 2 7)
+                (symbol-entry "x" SymbolKind-Variable 2 8 2 9)
+                (symbol-entry "0" SymbolKind-Constant 2 10 2 11)
+                (symbol-entry "let" SymbolKind-Variable 4 1 4 4)
+                (symbol-entry "x" SymbolKind-Variable 4 7 4 8)
+                (symbol-entry "1" SymbolKind-Constant 4 9 4 10)
+                (symbol-entry "x" SymbolKind-Variable 5 2 5 3)))
 
-        (check-equal? (jsexpr->string (client-wait-response req))
-                      (jsexpr->string resp)))
-
-      ;; symbol
-      (let ([req (read-json (open-input-file "symbol-req1.json"))]
-            [resp (read-json (open-input-file "symbol-resp1.json"))])
-        (client-send lsp req)
-
-        (check-equal? (jsexpr->string (client-wait-response req))
-                      (jsexpr->string resp)))
-
-      ;; references
-      (let ([req (read-json (open-input-file "ref-req1.json"))]
-            [resp (read-json (open-input-file "ref-resp1.json"))])
-        (client-send lsp req)
-
-        (check-equal? (jsexpr->string (client-wait-response req))
-                      (jsexpr->string resp))))))
-
+        (define ref-result
+          (lsp-result! lsp
+                       "textDocument/references"
+                       uri
+                       (json {#:position (->jsexpr (Pos 4 7))
+                              #:context {#:includeDeclaration #t}})))
+        (check-equal? (map jsexpr->Location ref-result)
+                      (list (Location uri (pos-range 4 7 4 8))
+                            (Location uri (pos-range 5 2 5 3))))))))

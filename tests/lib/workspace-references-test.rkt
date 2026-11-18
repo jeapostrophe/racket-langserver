@@ -1,23 +1,19 @@
 #lang racket/base
 
-(require "../../common/source.rkt"
-         "../../common/interfaces.rkt"
-         "../../common/path-util.rkt"
-         "../../doclib/doc.rkt"
-         "../../doclib/internal-types.rkt"
-         "../../lsp/compose/references.rkt"
-         "../../workspace/api.rkt"
-         racket/list
-         racket/file
-         racket/path
-         rackunit)
-
 (module+ test
-  (test-case
-    "reference query combines live document and accepted workspace sources"
-    (define tmp-dir (normalize-path "./.tmp"))
-    (make-directory* tmp-dir)
+  (require "../silent-logger.rkt"
+           rackunit
+           racket/file
+           racket/list
+           "../../common/interfaces.rkt"
+           "../../common/path-util.rkt"
+           "../../doclib/doc.rkt"
+           "../../doclib/internal-types.rkt"
+           "../../lsp/compose/references.rkt"
+           "../../workspace/api.rkt")
 
+  (test-case "reference query combines live document and accepted workspace sources"
+    (define tmp-dir (make-temporary-file "workspace-references~a" 'directory))
     (define lib-path (build-path tmp-dir "lib.rkt"))
     (define lib-text "#lang racket/base\n(provide foo)\n(define (foo) 42)\n")
     (define client-path (build-path tmp-dir "client.rkt"))
@@ -40,71 +36,49 @@
         (workspace-set-contribution! workspace (Doc-contribution lib-doc))
         (workspace-set-contribution! workspace (Doc-contribution client-doc))
 
-        (define document-result
-          (doc-references lib-doc lib-uri (Pos 2 9) #t))
+        (define document-result (doc-references lib-doc lib-uri (Pos 2 9) #t))
         (check-true (Document-Reference-Result? document-result))
         (check-true (Module-Binding? (Document-Reference-Result-module-binding document-result)))
         (check-not-false
           (member (Document-Reference-Result-module-binding document-result)
-                  (hash-keys
-                    (Doc-Contribution-references (Doc-contribution client-doc)))))
+                  (hash-keys (Doc-Contribution-references (Doc-contribution client-doc)))))
 
-        (define locations
-          (reference-locations workspace document-result #t))
         (check-equal?
-          locations
-          (list
-            (Location lib-uri (Range (Pos 2 9) (Pos 2 12)))
-            (Location lib-uri (Range (Pos 1 9) (Pos 1 12)))
-            (Location client-uri (Range (Pos 2 1) (Pos 2 4)))))
+          (reference-locations workspace document-result #t)
+          (list (Location lib-uri (Range (Pos 2 9) (Pos 2 12)))
+                (Location lib-uri (Range (Pos 1 9) (Pos 1 12)))
+                (Location client-uri (Range (Pos 2 1) (Pos 2 4)))))
 
-        ;; A request from an importing document must still include the
-        ;; declaration from the defining document.
-        (define client-result
-          (doc-references client-doc client-uri (Pos 2 1) #t))
+        (define client-result (doc-references client-doc client-uri (Pos 2 1) #t))
         (check-equal?
           (reference-locations workspace client-result #t)
-          (list
-            (Location client-uri (Range (Pos 2 1) (Pos 2 4)))
-            (Location lib-uri (Range (Pos 2 9) (Pos 2 12)))
-            (Location lib-uri (Range (Pos 1 9) (Pos 1 12)))))
+          (list (Location client-uri (Range (Pos 2 1) (Pos 2 4)))
+                (Location lib-uri (Range (Pos 2 9) (Pos 2 12)))
+                (Location lib-uri (Range (Pos 1 9) (Pos 1 12)))))
 
-        (define client-uses-only-result
-          (doc-references client-doc client-uri (Pos 2 1) #f))
+        (define client-uses-only-result (doc-references client-doc client-uri (Pos 2 1) #f))
         (check-equal?
           (reference-locations workspace client-uses-only-result #f)
-          (list
-            (Location client-uri (Range (Pos 2 1) (Pos 2 4)))
-            (Location lib-uri (Range (Pos 1 9) (Pos 1 12)))))
+          (list (Location client-uri (Range (Pos 2 1) (Pos 2 4)))
+                (Location lib-uri (Range (Pos 1 9) (Pos 1 12)))))
 
-        ;; The workspace still has the last accepted lib contribution. The
-        ;; request path must use only the shifted live source after an edit.
         (define accepted-lib-contribution (Doc-contribution lib-doc))
         (doc-apply-edit! lib-doc (Range (Pos 1 0) (Pos 1 0)) ";; shift\n")
-        (define shifted-result
-          (doc-references lib-doc lib-uri (Pos 3 9) #t))
+        (define shifted-result (doc-references lib-doc lib-uri (Pos 3 9) #t))
         (check-eq? (Doc-contribution lib-doc) accepted-lib-contribution)
-        (define shifted-locations
-          (reference-locations workspace shifted-result #t))
+        (define shifted-locations (reference-locations workspace shifted-result #t))
         (check-equal?
           (take shifted-locations 2)
-          (list
-            (Location lib-uri (Range (Pos 3 9) (Pos 3 12)))
-            (Location lib-uri (Range (Pos 2 9) (Pos 2 12)))))
-        (define shifted-uses-only-result
-          (doc-references lib-doc lib-uri (Pos 3 9) #f))
+          (list (Location lib-uri (Range (Pos 3 9) (Pos 3 12)))
+                (Location lib-uri (Range (Pos 2 9) (Pos 2 12)))))
+        (define shifted-uses-only-result (doc-references lib-doc lib-uri (Pos 3 9) #f))
         (check-equal?
           (reference-locations workspace shifted-uses-only-result #f)
-          (list
-            (Location lib-uri (Range (Pos 2 9) (Pos 2 12)))
-            (Location client-uri (Range (Pos 2 1) (Pos 2 4)))))
+          (list (Location lib-uri (Range (Pos 2 9) (Pos 2 12)))
+                (Location client-uri (Range (Pos 2 1) (Pos 2 4)))))
         (check-equal?
           shifted-locations
-          (list
-            (Location lib-uri (Range (Pos 3 9) (Pos 3 12)))
-            (Location lib-uri (Range (Pos 2 9) (Pos 2 12)))
-            (Location client-uri (Range (Pos 2 1) (Pos 2 4))))))
-      (lambda ()
-        (delete-file lib-path)
-        (delete-file client-path)
-        (delete-directory tmp-dir)))))
+          (list (Location lib-uri (Range (Pos 3 9) (Pos 3 12)))
+                (Location lib-uri (Range (Pos 2 9) (Pos 2 12)))
+                (Location client-uri (Range (Pos 2 1) (Pos 2 4))))))
+      (lambda () (delete-directory/files tmp-dir)))))

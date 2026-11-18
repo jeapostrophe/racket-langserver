@@ -1,65 +1,54 @@
 #lang racket/base
 
 ;; Gates prove that restored editor results precede fresh expansion completion.
-(require "../../common/source.rkt"
-         rackunit
-         racket/async-channel
-         racket/file
-         racket/list
-         racket/path
-         racket/runtime-path
-         racket/string
-         "../../common/interfaces.rkt"
-         "../../common/json-util.rkt"
-         "../../common/path-util.rkt"
-         "../../common/settings.rkt"
-         "../../lsp/analysis.rkt"
-         "../../lsp/source-controller.rkt"
-         "../../workspace/source-store.rkt"
-         "controller-support.rkt")
-
-(define (analyzer gates)
-  (lambda (snapshot)
-    (case (wait-at-gate gates snapshot)
-      [(fail) (raise 'refresh-failed)]
-      [(errors)
-       (define product (analyze-source snapshot))
-       (Analysis-Product #f #f (list (hasheq 'message "fresh analysis error"))
-                         (Analysis-Product-trace product) #f #f)]
-      [else (analyze-source snapshot)])))
-
-;; Real expansion can exceed the short waits used for gate coordination.
-(define (await-analysis event)
-  (await event 90))
-
-(define (open-analyzed! session gates path text [version 0])
-  (open! session path text version)
-  (release-gate! (await gates))
-  (barrier session)
-  (check-eq? 'succeeded (Analysis-Outcome-state (await-analysis (acquire session path)))))
-
-(define (available session path)
-  (define snapshot (Source-Result-snapshot (observation session path)))
-  (Analysis-Handle-reusable-summary
-    (await (source-controller-analysis-evt (Session-controller session) snapshot))))
-
-(define (query session path id method [position (Pos 3 0)])
-  (request! session id method path
-            (hasheq 'position (->jsexpr position) 'range (->jsexpr (Range (Pos 0 0) (Pos 20 0)))))
-  (hash-ref (response session id) 'result))
-
-(define (with-files proc)
-  (make-directory* scratch)
-  (define root (make-temporary-file "closed-analysis~a" 'directory scratch))
-  (dynamic-wind void (lambda () (proc root)) (lambda () (delete-directory/files root))))
-
-(define (write-text path text)
-  (display-to-file text path #:exists 'truncate))
-
-(define typed-text
-  "#lang typed/racket\n(struct point ([x : Integer] [y : Integer]))\n(define p (let ([unused 0]) (point 1 2)))\np\n")
-
 (module+ test
+  (require "controller-support.rkt"
+           rackunit
+           racket/async-channel
+           racket/list
+           racket/string
+           "../../common/interfaces.rkt"
+           "../../common/json-util.rkt"
+           "../../common/path-util.rkt"
+           "../../common/settings.rkt"
+           "../../common/source.rkt"
+           "../../lsp/analysis.rkt"
+           "../../lsp/source-controller.rkt"
+           "../../workspace/source-store.rkt")
+
+  (define (analyzer gates)
+    (lambda (snapshot)
+      (case (wait-at-gate gates snapshot)
+        [(fail) (raise 'refresh-failed)]
+        [(errors)
+         (define product (analyze-source snapshot))
+         (Analysis-Product #f #f (list (hasheq 'message "fresh analysis error"))
+                           (Analysis-Product-trace product) #f #f)]
+        [else (analyze-source snapshot)])))
+
+  ;; Real expansion can exceed the short waits used for gate coordination.
+  (define (await-analysis event)
+    (await event 90))
+
+  (define (open-analyzed! session gates path text [version 0])
+    (open! session path text version)
+    (release-gate! (await gates))
+    (barrier session)
+    (check-eq? 'succeeded (Analysis-Outcome-state (await-analysis (acquire session path)))))
+
+  (define (available session path)
+    (define snapshot (Source-Result-snapshot (observation session path)))
+    (Analysis-Handle-reusable-summary
+      (await (source-controller-analysis-evt (Session-controller session) snapshot))))
+
+  (define (query session path id method [position (Pos 3 0)])
+    (request! session id method path
+              (hasheq 'position (->jsexpr position) 'range (->jsexpr (Range (Pos 0 0) (Pos 20 0)))))
+    (hash-ref (response session id) 'result))
+
+  (define typed-text
+    "#lang typed/racket\n(struct point ([x : Integer] [y : Integer]))\n(define p (let ([unused 0]) (point 1 2)))\np\n")
+
   (test-case "real Typed Racket types, navigation, tokens, hints and diagnostics restore before refresh"
     (define gates (make-async-channel))
     (with-session (make-source-controller #:analyze (analyzer gates) #:resyntax #f)
@@ -106,7 +95,9 @@
                     (define live (build-path scratch "eviction-live.rkt"))
                     (for ([path (in-list (list live a b))])
                       (open-analyzed! session gates path text)
-                      (unless (equal? path live) (close! session path) (barrier session)))
+                      (unless (equal? path live)
+                        (close! session path)
+                        (barrier session)))
                     (check-true (pair? (hash-ref (query session live 420 "textDocument/semanticTokens/full") 'data)))
                     (open! session a text)
                     (define cold (await gates))
@@ -120,7 +111,8 @@
                     (check-true (pair? (hash-ref (query session b 421 "textDocument/semanticTokens/full") 'data)))
                     (release-gate! warm)
                     (await-analysis (acquire session b))
-                    (for ([path (in-list (list a b live))]) (close! session path))
+                    (for ([path (in-list (list a b live))])
+                      (close! session path))
                     (barrier session))))
 
   (for ([failure (in-list '(fail errors))])
@@ -137,16 +129,13 @@
                       (define held (await gates))
                       (barrier session)
                       (define fresh (acquire session path))
-                      (define previous-tokens
-                        (query session path 430 "textDocument/semanticTokens/full"))
+                      (define previous-tokens (query session path 430 "textDocument/semanticTokens/full"))
                       (check-true (pair? (hash-ref previous-tokens 'data)))
                       (release-gate! held failure)
                       (check-eq? (Analysis-Outcome-state (await-analysis fresh))
                                  (if (eq? failure 'fail) 'failed 'errors))
                       (when (eq? failure 'errors)
-                        (check-equal?
-                          (query session path 431 "textDocument/semanticTokens/full")
-                          previous-tokens))
+                        (check-equal? (query session path 431 "textDocument/semanticTokens/full") previous-tokens))
                       (close! session path)
                       (barrier session)
                       (open! session path text)
@@ -154,55 +143,52 @@
                       (barrier session)
                       (check-false (available session path))
                       (close! session path)
-                      (barrier session))))))
+                      (barrier session)))))
 
-(define-runtime-path doc-location "../../doclib/doc.rkt")
-(define doc-path (simplify-path doc-location #f))
-
-(module+ test
-  (test-case "doc-check-syntax definition jump survives closing doc.rkt while target refresh is held"
+  (test-case "cross-file definition jump survives closing target while target refresh is held"
     (define gates (make-async-channel))
-    (with-files
+    (with-temp-dir
+      "closed-analysis"
       (lambda (root)
-        (define a (build-path root "jump.rkt"))
-        (define source (format "#lang racket/base\n(require (file ~s))\ndoc-check-syntax\n"
-                               (path->string doc-path)))
-        (write-text a source)
+        (define target (build-path root "target.rkt"))
+        (define caller (build-path root "caller.rkt"))
+        (define target-source "#lang racket/base\n(provide target-sym)\n(define target-sym 1)\n")
+        (define caller-source (format "#lang racket/base\n(require (file ~s))\ntarget-sym\n"
+                                      (path->string target)))
+        (write-text target target-source)
+        (write-text caller caller-source)
         (with-session
           (make-source-controller
             #:resyntax #f
             #:analyze (lambda (snapshot)
                         (if (equal? (Source-Snapshot-id snapshot)
-                                    (source-id (path->source doc-path)))
+                                    (source-id (path->source target)))
                             ((analyzer gates) snapshot)
                             (analyze-source snapshot))))
           (lambda (session)
-            (open! session a source)
+            (open! session caller caller-source)
             (barrier session)
-            (await-analysis (acquire session a))
-            (open! session doc-path (file->string doc-path))
-            (release-gate! (await gates))
+            (await-analysis (acquire session caller))
+            (open-analyzed! session gates target target-source)
+            (define expected (query session caller 440 "textDocument/definition" (Pos 2 0)))
+            (check-equal? (hash-ref expected 'uri) (path->uri target))
+            (close! session target)
             (barrier session)
-            (define accepted (await-analysis (acquire session doc-path)))
-            (check-eq? 'succeeded (Analysis-Outcome-state accepted))
-            (define expected (query session a 440 "textDocument/definition" (Pos 2 0)))
-            (check-equal? (hash-ref expected 'uri) (path->uri doc-path))
-            (close! session doc-path)
-            (barrier session)
-            (request! session 441 "textDocument/definition" a
+            (request! session 441 "textDocument/definition" caller
                       (hasheq 'position (->jsexpr (Pos 2 0))))
             (define held (await gates))
+            (define fresh (acquire session target))
             (check-equal? (hash-ref (response session 441) 'result) expected)
-            (check-false (sync/timeout 0 (acquire session doc-path)))
+            (check-false (sync/timeout 0 fresh))
             (release-gate! held)
-            (await-analysis (acquire session doc-path))
-            (close! session a)
-            (barrier session)))))))
+            (await-analysis fresh)
+            (close! session caller)
+            (barrier session))))))
 
-(module+ test
   (test-case "unchanged Typed Racket source shows retained dependency type then fresh replacement"
     (define gates (make-async-channel))
-    (with-files
+    (with-temp-dir
+      "closed-analysis"
       (lambda (root)
         (define dependency (build-path root "dep.rkt"))
         (define path (build-path root "uses-dep.rkt"))
@@ -230,9 +216,8 @@
                         (check-true (string-contains? (hash-ref replacement 'contents) "String"))
                         (check-not-equal? replacement original)
                         (close! session path)
-                        (barrier session)))))))
+                        (barrier session))))))
 
-(module+ test
   (test-case "closing a restored buffer during refresh retains only its available result"
     (define gates (make-async-channel))
     (define text "#lang racket/base\n(define value 1)\nvalue\n")
@@ -241,7 +226,7 @@
                     (define path (build-path scratch "close-restored-refresh.rkt"))
                     (open-analyzed! session gates path text)
                     (define expected (query session path 460 "textDocument/semanticTokens/full"))
-                    (for ([cycle (in-range 2)])
+                    (for ([_ (in-range 2)])
                       (close! session path)
                       (barrier session)
                       (open! session path text)
@@ -255,14 +240,15 @@
   (test-case "restoration does not start Resyntax before fresh analysis succeeds"
     (define gates (make-async-channel))
     (define resyntax-starts (make-async-channel))
-    (define old-enabled (get-resyntax-enabled))
     (define text "#lang racket/base\n(define value 1)\nvalue\n")
-    (dynamic-wind
-      (lambda () (set-resyntax-enabled! #t))
+    (call-with-resyntax-enabled
+      #t
       (lambda ()
         (with-session
           (make-source-controller #:analyze (analyzer gates)
-                                  #:resyntax (lambda (_text _uri) (async-channel-put resyntax-starts 'started) '()))
+                                  #:resyntax (lambda (_text _uri)
+                                               (async-channel-put resyntax-starts 'started)
+                                               '()))
           (lambda (session)
             (define path (build-path scratch "restored-resyntax.rkt"))
             (open-analyzed! session gates path text)
@@ -278,14 +264,13 @@
             (await-analysis (acquire session path))
             (await resyntax-starts)
             (close! session path)
-            (barrier session))))
-      (lambda () (set-resyntax-enabled! old-enabled)))))
+            (barrier session))))))
 
-(module+ test
   (test-case "closed-file acquisition refreshes LRU recency while fresh analysis is held"
     (define gates (make-async-channel))
     (define text "#lang racket/base\n(define value 1)\nvalue\n")
-    (with-files
+    (with-temp-dir
+      "closed-analysis"
       (lambda (root)
         (define a (build-path root "lru-a.rkt"))
         (define b (build-path root "lru-b.rkt"))
@@ -299,8 +284,6 @@
               (open-analyzed! session gates path text)
               (close! session path)
               (barrier session))
-            ;; Reading A's retained facts must protect it from eviction by C.
-            ;; Hold A's refresh so a replacement cannot supply that protection.
             (check-pred Analysis-Summary? (available session a))
             (define held-a (await gates))
             (open-analyzed! session gates c text)

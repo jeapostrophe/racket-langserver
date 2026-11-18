@@ -1,13 +1,13 @@
 #lang racket/base
 
-(require rackunit
-         racket/async-channel
-         "../../common/source.rkt"
-         "../../workspace/source-store.rkt"
-         "../../lsp/source-controller/completion-event.rkt"
-         "../../lsp/source-controller/disk-reader.rkt")
-
 (module+ test
+  (require "../silent-logger.rkt"
+           rackunit
+           racket/async-channel
+           "../../common/source.rkt"
+           "../../workspace/source-store.rkt"
+           "../../lsp/source-controller/completion-event.rkt"
+           "../../lsp/source-controller/disk-reader.rkt")
   (define source (path->source (string->path "/disk-reader-test.rkt")))
   (define (view)
     (Source-View source (gensym 'revision) 'disk 'unknown never-evt))
@@ -20,9 +20,9 @@
     (check-pred Disk-Read-Completed? message)
     message)
 
-  (define (with-reader events read proc)
+  (define (with-reader events read proc #:timeout [timeout 90])
     (define custodian (make-custodian))
-    (define reader (make-disk-reader events #:read read))
+    (define reader (make-disk-reader events #:read read #:timeout timeout))
     (dynamic-wind
       void
       (lambda () (parameterize ([current-custodian custodian]) (proc reader)))
@@ -108,24 +108,24 @@
   (test-case "only supervisor deadlines produce a top-level disk timeout"
     (for ([mode (in-list '(deadline raised-symbol returned-timeout raised-timeout))])
       (define events (make-async-channel))
-      (define reader
-        (make-disk-reader
-          events #:timeout 0.05
-          #:read (lambda (_)
-                   (case mode
-                     [(deadline) (sync never-evt)]
-                     [(raised-symbol) (raise 'read-timeout)]
-                     [(returned-timeout) (Disk-Read-Timeout)]
-                     [(raised-timeout) (raise (Disk-Read-Timeout))]))))
-      (define initial (view))
-      (define completion (request-disk-read! reader initial))
-      (finish-disk-read!
-        reader (next-message events)
-        (lambda (_ result)
-          (check-equal? (Disk-Read-Failure? result) (not (eq? mode 'deadline)))
-          (check-equal? (Disk-Read-Timeout? result) (eq? mode 'deadline))
-          (when (memq mode '(returned-timeout raised-timeout))
-            (check-equal? (Disk-Read-Failure-reason result) (Disk-Read-Timeout)))
-          (values 'accepted initial)))
-      (check-eq? (await completion) 'accepted)
-      (stop-disk-reader! reader 'shutdown))))
+      (with-reader
+        events
+        (lambda (_)
+          (case mode
+            [(deadline) (sync never-evt)]
+            [(raised-symbol) (raise 'read-timeout)]
+            [(returned-timeout) (Disk-Read-Timeout)]
+            [(raised-timeout) (raise (Disk-Read-Timeout))]))
+        #:timeout 0.05
+        (lambda (reader)
+          (define initial (view))
+          (define completion (request-disk-read! reader initial))
+          (finish-disk-read!
+            reader (next-message events)
+            (lambda (_ result)
+              (check-equal? (Disk-Read-Failure? result) (not (eq? mode 'deadline)))
+              (check-equal? (Disk-Read-Timeout? result) (eq? mode 'deadline))
+              (when (memq mode '(returned-timeout raised-timeout))
+                (check-equal? (Disk-Read-Failure-reason result) (Disk-Read-Timeout)))
+              (values 'accepted initial)))
+          (check-eq? (await completion) 'accepted))))))

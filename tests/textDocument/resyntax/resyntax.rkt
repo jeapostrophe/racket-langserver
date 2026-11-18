@@ -1,97 +1,63 @@
-#lang racket
-
-(require "../../../common/dynamic-import.rkt")
-
-(define uri "file:///test.rkt")
-
-(define code
-#<<END
 #lang racket/base
 
-(format "")
-END
-  )
-
-;; detect if resyntax is available
-(define has-resyntax? #t)
-(dynamic-imports ('resyntax
-                   resyntax-analyze)
-                 (λ () (set! has-resyntax? #f)))
-
 (module+ test
-  (require rackunit
-           json
-           "../with-document.rkt"
-           (only-in "../../client.rkt" with-racket-lsp)
+  (require "../../silent-logger.rkt"
+           rackunit
+           "../../../common/interfaces.rkt"
+           "../../../common/json-util.rkt"
            "../../../common/settings.rkt"
-           "../../../common/json-util.rkt")
+           (only-in "../../../doclib/doc.rkt" doc-resyntax-available?)
+           "../../client.rkt"
+           "../../json-dsl.rkt"
+           "../with-document.rkt")
 
-  (when has-resyntax?
-    (with-racket-lsp
-      (λ (lsp)
-        (define did-open
-          (make-notification
-            "textDocument/didOpen"
-            (hasheq 'textDocument
-                    (hasheq 'uri uri
-                            'languageId "racket"
-                            'version 0
-                            'text code))))
-        (client-send lsp did-open)
+  (define uri "file:///test.rkt")
+  (define code "#lang racket/base\n\n(format \"\")\n")
 
-        (define initial-diag (client-wait-notification lsp))
-        (check-equal? (jsexpr-ref initial-diag '(method)) "textDocument/publishDiagnostics")
+  (define code-action-params
+    (json {#:range (->jsexpr (Range (Pos 2 8) (Pos 2 9)))
+           #:context {#:diagnostics []}}))
 
-        (define resyntax-diag (client-wait-notification lsp))
-        (check-equal? (jsexpr-ref resyntax-diag '(method)) "textDocument/publishDiagnostics")
-        (check-false (empty? (jsexpr-ref resyntax-diag '(params diagnostics))))
+  (when (doc-resyntax-available?)
+    (test-case "resyntax publishes diagnostics and quickfix code actions"
+      (with-racket-lsp
+        (lambda (lsp)
+          (open! lsp uri code 0)
 
-        (let ([req (read-json (open-input-file "req.json"))]
-              [resp (read-json (open-input-file "resp.json"))])
-          (client-send lsp req)
-          (check-equal? (jsexpr->string (client-wait-response req))
-                        (jsexpr->string resp)))
+          (define initial-diag (client-wait-notification lsp))
+          (check-equal? (jsexpr-ref initial-diag '(method)) "textDocument/publishDiagnostics")
 
-        (client-send lsp
-                     (make-notification
-                       "textDocument/didClose"
-                       (hasheq 'textDocument (hasheq 'uri uri)))))))
+          (define resyntax-diag (client-wait-notification lsp))
+          (check-equal? (jsexpr-ref resyntax-diag '(method)) "textDocument/publishDiagnostics")
+          (check-false (null? (jsexpr-ref resyntax-diag '(params diagnostics))))
 
-  (test-case
-    "resyntax disabled: no resyntax code action"
-    (when has-resyntax?
+          (define action-span (Range (Pos 2 0) (Pos 2 11)))
+          (check-equal?
+            (map jsexpr->CodeAction
+                 (lsp-result! lsp "textDocument/codeAction" uri code-action-params))
+            (list
+              (CodeAction
+                "Apply rule [format-identity]"
+                "quickfix"
+                (list (Diagnostic action-span
+                                  DiagnosticSeverity-Information
+                                  "Resyntax"
+                                  "[format-identity] This use of `format` does nothing."))
+                #f
+                (WorkspaceEdit
+                  (hasheq (string->symbol uri)
+                          (list (TextEdit action-span "\"\"")))))))
+
+          (close! lsp uri))))
+
+    (test-case "resyntax disabled: no resyntax code action"
       (define previous-enabled (get-resyntax-enabled))
       (dynamic-wind
-        (λ () (set-resyntax-enabled! #f))
-        (λ ()
-          (with-racket-lsp
-            (λ (lsp)
-              (define did-open
-                (make-notification
-                  "textDocument/didOpen"
-                  (hasheq 'textDocument
-                          (hasheq 'uri uri
-                                  'languageId "racket"
-                                  'version 0
-                                  'text code))))
-              (client-send lsp did-open)
-              (client-wait-notification lsp)
-
-              (define req
-                (make-request
-                  lsp
-                  "textDocument/codeAction"
-                  (hasheq 'context (hasheq 'diagnostics (list))
-                          'range (hasheq 'start (hasheq 'line 2 'character 8)
-                                         'end (hasheq 'line 2 'character 9))
-                          'textDocument (hasheq 'uri uri))))
-
-              (client-send lsp req)
-              (check-equal? (jsexpr-ref (client-wait-response req) '(result)) (list))
-
-              (client-send lsp
-                           (make-notification
-                             "textDocument/didClose"
-                             (hasheq 'textDocument (hasheq 'uri uri)))))))
-        (λ () (set-resyntax-enabled! previous-enabled))))))
-
+        (lambda () (set-resyntax-enabled! #f))
+        (lambda ()
+          (with-document uri code
+            (lambda (lsp)
+              (check-equal?
+                (lsp-result! lsp "textDocument/codeAction" uri code-action-params)
+                '()))))
+        (lambda () (set-resyntax-enabled! previous-enabled))))))

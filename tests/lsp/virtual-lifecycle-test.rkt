@@ -1,30 +1,30 @@
 #lang racket/base
 
-(require "../../common/source.rkt"
-         rackunit
-         "../../common/path-util.rkt"
-         "../../doclib/doc.rkt"
-         "../../lsp/analysis.rkt"
-         "../../lsp/safedoc.rkt"
-         "../../lsp/source-controller.rkt"
-         (submod "../../lsp/source-controller.rkt" owner)
-         "../../workspace/source-store.rkt"
-         "controller-support.rkt")
-
-(define text "#lang racket/base\n(require racket/list)\n(define value (first '(1 2)))\nvalue\n")
-
-(define (start-analysis controller source)
-  (source-controller-ensure-analysis! controller (source-controller-snapshot controller source)))
-
 (module+ test
+  (require "controller-support.rkt"
+           rackunit
+           "../../common/source.rkt"
+           "../../doclib/doc.rkt"
+           "../../lsp/analysis.rkt"
+           "../../lsp/safedoc.rkt"
+           "../../lsp/source-controller.rkt"
+           (submod "../../lsp/source-controller.rkt" owner)
+           "../../workspace/source-store.rkt")
+
+  (define text "#lang racket/base\n(require racket/list)\n(define value (first '(1 2)))\nvalue\n")
+
+  (define (start-analysis controller source)
+    (source-controller-ensure-analysis! controller (source-controller-snapshot controller source)))
+
   (test-case "virtual close invalidates waiters and rejects late completion after reopen"
     (define controller (make-source-controller #:resyntax #f))
     (define uri "git:/project/main.rkt?rev=old#cell")
     (define source (uri->source uri))
     (define old (new-safedoc uri text 7))
     (define published '())
-    (source-controller-set-notifier! controller
-                                     (lambda (_ params) (set! published (cons params published))))
+    (source-controller-set-notifier!
+      controller
+      (lambda (_ params) (set! published (cons params published))))
     (source-controller-open! controller source old)
     (define previous (source-controller-view controller source))
     (define old-snapshot (source-controller-snapshot controller source))
@@ -41,6 +41,7 @@
     (check-false (source-controller-view controller source))
     (check-false (with-read-safedoc old SafeDoc-source-view))
     (check-false (with-read-safedoc old SafeDoc-analysis-completion))
+
     (define reopened (new-safedoc uri text 7))
     (check-equal? (with-read-doc old Doc-uri) (with-read-doc reopened Doc-uri))
     (source-controller-open! controller source reopened)
@@ -62,7 +63,6 @@
     (source-controller-shutdown! controller))
 
   (test-case "virtual refresh never reads disk and invalidation preserves virtual revisions"
-    ;; This thread owns lifecycle transitions and consumes the controller commands.
     (define controller
       (make-source-controller #:read (lambda (_) (error 'disk "virtual source reached disk"))
                               #:resyntax #f))
@@ -76,6 +76,7 @@
         (check-false (Source-Result-view closed))
         (check-equal? (Source-Result-error closed) (Source-Failure 'closed))
         (check-false (Source-Result-snapshot closed))
+
         (define sd (new-safedoc (source-uri source) text 0))
         (source-controller-open! controller source sd)
         (define before (Source-Result-view (observe)))
@@ -84,10 +85,10 @@
         (check-false (Source-Result-error opened))
         (source-controller-invalidate! controller source)
         (check-eq? before (Source-Result-view (observe)))
+
         (source-controller-close! controller source sd)
         (define after-close (observe))
         (check-false (Source-Result-view after-close))
         (check-false (Source-Result-snapshot after-close))
-        (check-equal? (Source-Result-error after-close) (Source-Failure 'closed))
-        (void))
+        (check-equal? (Source-Result-error after-close) (Source-Failure 'closed)))
       (lambda () (source-controller-shutdown! controller)))))

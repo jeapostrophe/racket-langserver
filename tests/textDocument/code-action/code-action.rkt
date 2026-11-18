@@ -1,26 +1,33 @@
-#lang racket
-
-(define uri "file:///test.rkt")
-
-(define code
-#<<END
 #lang racket/base
-
-(define x 0)
-END
-  )
 
 (module+ test
   (require rackunit
-           json
+           "../../../common/interfaces.rkt"
+           "../../../common/json-util.rkt"
+           "../../json-dsl.rkt"
            "../with-document.rkt")
 
-  (with-document uri code
-    (λ (lsp)
-      (let ([req (read-json (open-input-file "req1.json"))]
-            [resp (read-json (open-input-file "resp1.json"))])
-        (client-send lsp req)
+  (define uri "file:///test.rkt")
+  (define code "#lang racket/base\n\n(define x 0)\n")
 
-        (check-equal? (jsexpr->string (client-wait-response req))
-                      (jsexpr->string resp))))))
-
+  (test-case "textDocument/codeAction suggests prefixing unused variable with _"
+    (with-document uri code
+      (lambda (lsp)
+        (define target-range (Range (Pos 2 8) (Pos 2 9)))
+        (define result
+          (lsp-result! lsp
+                       "textDocument/codeAction"
+                       uri
+                       (json {#:range (->jsexpr target-range)
+                              #:context {#:diagnostics []}})))
+        (check-equal?
+          (map jsexpr->CodeAction result)
+          (list
+            (CodeAction
+              "Add prefix `_` to ignore"
+              "quickfix"
+              (list (Diagnostic target-range DiagnosticSeverity-Information uri "unused variable"))
+              #f
+              (WorkspaceEdit
+                (hasheq (string->symbol uri)
+                        (list (TextEdit (Range (Pos 2 8) (Pos 2 8)) "_")))))))))))

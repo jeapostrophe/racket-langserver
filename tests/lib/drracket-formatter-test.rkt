@@ -1,8 +1,9 @@
 #lang racket/base
 
-(require rackunit
+(require "../silent-logger.rkt"
+         rackunit
          racket/class
-         racket/list
+         racket/match
          racket/runtime-path
          racket/sandbox
          racket/string
@@ -146,10 +147,7 @@
                      (list (list (newlines "  (define" "x)") 0 2 "")
                            (list (newlines "(define" "x)") 1 0 "  ")
                            (list (newlines "(define" "   x)") 1 3 " ")))])
-      (define text (first example))
-      (define line (second example))
-      (define delete-amount (third example))
-      (define insert-text (fourth example))
+      (match-define (list text line delete-amount insert-text) example)
       (define textoid (make-textoid text))
       (define updated
         (textoid-replace-leading-whitespace textoid line delete-amount insert-text))
@@ -324,53 +322,24 @@
           (check-equal? (length edits)
                         (if misindented? (sub1 line-count) 0))))))
 
-  (test-case
-    "Scribble uses its language indentation hook without loading GUI"
-    (define text
-      (newlines "#lang scribble/base"
-                "@itemlist["
-                "@item{one}"
-                "]"))
-    (define gui-before? (module-declared? 'racket/gui/base))
-    (define framework-before? (module-declared? 'framework))
-    (define scribble-indent-before?
-      (module-declared? 'scribble/private/indentation))
-    (define edits
-      (drracket-format-edits text
-                             0
-                             3
-                             #:formatting-options default-options))
-    (check-equal? edits
-                  (list (TextEdit (Range (Pos 2 0) (Pos 2 0)) " ")
-                        (TextEdit (Range (Pos 3 0) (Pos 3 0)) " ")))
-    (check-equal? (module-declared? 'racket/gui/base) gui-before?)
-    (check-equal? (module-declared? 'framework) framework-before?)
-    (check-equal? (module-declared? 'scribble/private/indentation)
-                  scribble-indent-before?))
-
-  (test-case
-    "at-exp uses the GUI-free Scribble indenter"
-    (define text
-      (newlines "#lang at-exp racket/base"
-                "@itemlist["
-                "@item{one}"
-                "]"))
-    (define gui-before? (module-declared? 'racket/gui/base))
-    (define framework-before? (module-declared? 'framework))
-    (define scribble-indent-before?
-      (module-declared? 'scribble/private/indentation))
-    (define edits
-      (drracket-format-edits text
-                             0
-                             3
-                             #:formatting-options default-options))
-    (check-equal? edits
-                  (list (TextEdit (Range (Pos 2 0) (Pos 2 0)) " ")
-                        (TextEdit (Range (Pos 3 0) (Pos 3 0)) " ")))
-    (check-equal? (module-declared? 'racket/gui/base) gui-before?)
-    (check-equal? (module-declared? 'framework) framework-before?)
-    (check-equal? (module-declared? 'scribble/private/indentation)
-                  scribble-indent-before?))
+  (for ([spec (in-list '(("Scribble" "#lang scribble/base")
+                         ("at-exp" "#lang at-exp racket/base")))])
+    (match-define (list label lang) spec)
+    (test-case (format "~a uses its language indentation hook without loading GUI" label)
+      (define text (newlines lang "@itemlist[" "@item{one}" "]"))
+      (define gui-before? (module-declared? 'racket/gui/base))
+      (define framework-before? (module-declared? 'framework))
+      (define scribble-indent-before?
+        (module-declared? 'scribble/private/indentation))
+      (define edits
+        (drracket-format-edits text 0 3 #:formatting-options default-options))
+      (check-equal? edits
+                    (list (TextEdit (Range (Pos 2 0) (Pos 2 0)) " ")
+                          (TextEdit (Range (Pos 3 0) (Pos 3 0)) " ")))
+      (check-equal? (module-declared? 'racket/gui/base) gui-before?)
+      (check-equal? (module-declared? 'framework) framework-before?)
+      (check-equal? (module-declared? 'scribble/private/indentation)
+                    scribble-indent-before?)))
 
   (test-case
     "Scribble embedded Racket uses standard indentation when the hook declines"
@@ -452,44 +421,22 @@
                              #:interactive? #t)
       (list (TextEdit (Range (Pos 1 0) (Pos 1 1)) "   "))))
 
-  (test-case
-    "a failing language hook is contained"
-    (define text
-      (newlines "#lang reader \"formatter-hook-reader.rkt\""
-                "fail-hook"))
-    (define doc
-      (make-doc (fixture-uri "failing-hook-source.rkt") text))
-    (check-equal?
-      (doc-format-edits doc
-                        (Range (Pos 1 0) (Pos 1 9))
-                        #:backend 'drracket
-                        #:formatting-options default-options)
-      '()))
-
-  (test-case
-    "a failing language lexer is contained before hooks run"
-    (define text
-      (newlines "#lang reader \"formatter-failing-lexer-reader.rkt\""
-                "value"))
-    (define doc
-      (make-doc (fixture-uri "failing-lexer-source.rkt") text))
-    (check-equal?
-      (doc-format-edits doc
-                        (Range (Pos 1 0) (Pos 1 5))
-                        #:backend 'drracket
-                        #:formatting-options default-options)
-      '()))
-
-  (test-case
-    "an unsupported non-s-expression language returns no edits"
-    (define text
-      (newlines "#lang reader \"formatter-no-hook-reader.rkt\""
-                "value"))
-    (define doc
-      (make-doc (fixture-uri "no-hook-source.rkt") text))
-    (check-equal?
-      (doc-format-edits doc
-                        (Range (Pos 1 0) (Pos 1 5))
-                        #:backend 'drracket
-                        #:formatting-options default-options)
-      '())))
+  (for ([spec (in-list
+                '(("a failing language hook is contained"
+                   "#lang reader \"formatter-hook-reader.rkt\""
+                   "fail-hook")
+                  ("a failing language lexer is contained before hooks run"
+                   "#lang reader \"formatter-failing-lexer-reader.rkt\""
+                   "value")
+                  ("an unsupported non-s-expression language returns no edits"
+                   "#lang reader \"formatter-no-hook-reader.rkt\""
+                   "value")))])
+    (match-define (list title header body) spec)
+    (test-case title
+      (check-equal?
+        (drracket-format-edits (newlines header body)
+                               1
+                               1
+                               #:formatting-options default-options
+                               #:src-dir fixtures-directory)
+        '()))))

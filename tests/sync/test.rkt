@@ -2,50 +2,30 @@
 
 (module+ test
   (require rackunit
-           json
-           racket/port
            "../client.rkt"
+           "../json-dsl.rkt"
            "../../common/json-util.rkt")
 
-  (with-racket-lsp
-    (λ (lsp)
+  (define expected-diagnostic
+    (json {#:range {#:start {#:line 0 #:character 0}
+                    #:end {#:line 0 #:character 11}}
+           #:severity 1
+           #:source "Racket"
+           #:message (string-append
+                       "Cannot find language \"racke\".\n"
+                       "  module path: racke/lang/reader\n"
+                       "Check that the language name is correct and the package is installed.")}))
 
-      ;; didopen
-      (define didopen-req
-        (make-notification "textDocument/didOpen"
-                           (hasheq 'textDocument
-                                   (hasheq 'uri "file:///test.rkt"
-                                           'languageId "racket"
-                                           'version 0
-                                           'text "#lang racke"))))
-      ;; should report "collection not found" diagnostic error
-      (client-send lsp didopen-req)
-      (let ([resp (client-wait-notification lsp)])
-        (check-true (jsexpr-has-key? resp '(params diagnostics)))
-        (check-false (null? (jsexpr-ref resp '(params diagnostics))))
-        (check-true
-          (client-has-diagnostic? resp
-                                  (read-json (open-input-file "diagnostics.json")))))
+  (test-case "document sync publishes and clears diagnostics across open, edit, and close"
+    (define uri "file:///test.rkt")
+    (with-racket-lsp
+      (lambda (lsp)
+        (open! lsp uri "#lang racke" 0)
+        (define open-diag (client-wait-notification lsp))
+        (check-not-false (member expected-diagnostic (jsexpr-ref open-diag '(params diagnostics))))
 
+        (change! lsp uri "#lang racket" 1)
+        (define change-diag (client-wait-notification lsp))
+        (check-equal? (jsexpr-ref change-diag '(params diagnostics)) '())
 
-      (define didchange-req
-        (make-notification "textDocument/didChange"
-                           (hasheq 'textDocument
-                                   (hasheq 'uri "file:///test.rkt"
-                                           'version 1)
-                                   'contentChanges
-                                   (list (hasheq 'text "#lang racket")))))
-      ;; should not report any error
-      (client-send lsp didchange-req)
-      (let ([resp (client-wait-notification lsp)])
-        (check-true (jsexpr-has-key? resp '(params diagnostics)))
-        (check-true (null? (jsexpr-ref resp '(params diagnostics)))))
-
-
-      ;; no response for didClose request
-      (define didclose-req
-        (make-notification "textDocument/didClose"
-                           (hasheq 'textDocument
-                                   (hasheq 'uri "file:///test.rkt"))))
-      (client-send lsp didclose-req))))
-
+        (close! lsp uri)))))

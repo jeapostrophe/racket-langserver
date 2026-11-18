@@ -1,8 +1,11 @@
-#lang racket
+#lang racket/base
 
 (require rackunit
          racket/class
+         racket/list
+         racket/match
          racket/sandbox
+         racket/string
          "../../doclib/editor.rkt")
 
 (define (make-editor [text ""])
@@ -74,18 +77,6 @@
   (check-equal? (send editor line-end-pos line)
                 end))
 
-(define (check-offset-roundtrip editor expected-line/chars)
-  (for ([expected-line/char (in-list expected-line/chars)]
-        [offset (in-naturals)])
-    (check-equal? (send editor pos->line/char offset)
-                  expected-line/char)
-    (check-equal? (send editor line/char->pos
-                        (first expected-line/char)
-                        (second expected-line/char))
-                  offset)
-    (check-equal? (send editor at-line offset)
-                  (first expected-line/char))))
-
 (define (check-editor-agrees-with-string-model editor expected-text)
   (define text-length (string-length expected-text))
   (define newline-offsets (string-newline-offsets expected-text))
@@ -136,6 +127,7 @@
                   (send editor end-pos))
     (check-equal? (send editor line-end-pos 10)
                   (send editor end-pos))
+    (check-equal? (send editor at-line (send editor end-pos)) 2)
     (check-equal? (send editor end-pos) 8)
     (check-equal? (send editor get-text 4 7) "def")
     (check-equal? (send editor get-line 0) "abc")
@@ -159,21 +151,9 @@
   (test-case "editor round-trips positions across CRLF boundaries"
     (define editor (make-editor "a\r\nbc\n"))
 
-    (check-offset-roundtrip editor
-                            (list '(0 0)
-                                  '(0 1)
-                                  '(0 2)
-                                  '(1 0)
-                                  '(1 1)
-                                  '(1 2)
-                                  '(2 0)))
-    (check-line-span editor 0 0 2)
-    (check-line-span editor 1 3 5)
-    (check-line-span editor 2 6 6)
+    (check-editor-agrees-with-string-model editor "a\r\nbc\n")
     (check-equal? (send editor get-char 1) #\return)
-    (check-equal? (send editor get-char 2) #\newline)
-    (check-equal? (send editor get-text 0 3) "a\r\n")
-    (check-equal? (send editor get-text) "a\r\nbc\n"))
+    (check-equal? (send editor get-char 2) #\newline))
 
   (test-case "editor edits CRLF content without normalization"
     (define editor-1 (make-editor "1\r\n2\r\n"))
@@ -216,15 +196,6 @@
                   4)
     (check-equal? (send editor get-text 0 3)
                   "abf"))
-
-  (test-case "editor clamps line lookups at EOF"
-    (define editor (make-editor "abc\n"))
-
-    (define eof (send editor end-pos))
-    (check-equal? eof 4)
-    (check-equal? (send editor line-start-pos 2) eof)
-    (check-equal? (send editor line-end-pos 2) eof)
-    (check-equal? (send editor at-line eof) 1))
 
   (test-case "editor columns count UTF-16 code units"
     ;; U+1F600 is one character and two UTF-16 code units.

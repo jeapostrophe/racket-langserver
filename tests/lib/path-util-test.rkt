@@ -2,7 +2,6 @@
 
 (require rackunit
          racket/file
-         racket/list
          racket/path
          "../../common/path-util.rkt")
 
@@ -44,9 +43,8 @@
         (check-true (directory-contains? root crossed))
         (check-true (directory-contains? nest (build-path nest "file.rkt")))
         (check-false (directory-contains? nest crossed)))
-      (lambda () (delete-directory/files root)))))
+      (lambda () (delete-directory/files root))))
 
-(module+ test
   (test-case "suffix fallback reads URI paths without treating virtual URIs as files"
     (check-equal? (uri->suffix "untitled:buffer.scrbl") "scrbl")
     (check-equal? (uri->suffix "git://remote/main.rhm?rev=.scrbl#cell.rktd") "rhm")
