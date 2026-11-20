@@ -1,118 +1,120 @@
 #lang racket/base
 
 (module+ test
-  (require racket/match
+  (require json
+           racket/match
            rackunit
+           syntax/macro-testing
            "../common/json-util.rkt")
-
-  ;; define-json-enum
   (define-json-enum SymbolKind
     [file 1]
     [module 2]
     [constant 14])
 
-  (test-case "enum: construction and predicate"
-    (check-true (SymbolKind? SymbolKind-constant))
-    (check-equal? (SymbolKind-v SymbolKind-file) 'file))
-
-  (test-case "enum: variant aliases"
-    (check-equal? SymbolKind-file (SymbolKind 'file))
-    (check-equal? SymbolKind-module (SymbolKind 'module))
-    (check-equal? SymbolKind-constant (SymbolKind 'constant)))
-
-  (test-case "enum: encoding and json predicate"
-    (check-equal? (->jsexpr SymbolKind-constant) 14)
-    (check-equal? (->jsexpr SymbolKind-file) 1)
-    (check-true (SymbolKind-js? 14))
-    (check-true (SymbolKind-js? 1))
-    (check-false (SymbolKind-js? 999)))
-
-  (test-case "enum: decode and json matcher"
-    (check-equal? (jsexpr->SymbolKind 1) SymbolKind-file)
-    (check-equal? (jsexpr->SymbolKind 14) SymbolKind-constant)
-    (check-exn exn:fail? (lambda () (jsexpr->SymbolKind 999))))
-
-  (test-case "enum: jsexpr match styles"
-    (check-equal? (match 1 [(SymbolKind-js 'file) 'ok] [_ #f]) 'ok)
-    (check-equal? (match 14 [(? SymbolKind-js? (SymbolKind-js k)) k] [_ #f]) 'constant))
-
-  (test-case "enum: as-Name"
-    (check-equal? (match 1 [(as-SymbolKind k) (SymbolKind-v k)] [_ #f]) 'file)
-    (check-false (match 999 [(as-SymbolKind _) #t] [_ #f])))
-
-  (test-case "enum: ^Name alias"
-    (check-equal? (match 1 [(^SymbolKind 'file) 'ok] [_ #f]) 'ok)
-    (check-false (match 999 [(^SymbolKind _) #t] [_ #f])))
-
-  ;; define-json-union
   (define-json-struct Markup
     [kind string?]
     [value string?])
 
-  (define-json-struct MarkupBox
-    [payload Markup])
-
-  ;; Union of primitive + compound
   (define-json-union DocContent string? Markup)
 
-  (test-case "union: runtime predicate"
-    (check-true (DocContent? "hello"))
-    (check-true (DocContent? (Markup #:kind "markdown" #:value "# hi")))
-    (check-false (DocContent? 42)))
+  (define-json-struct DocBox
+    [payload DocContent])
 
-  (test-case "union: json predicate"
-    (check-true (DocContent-js? "hello"))
-    (check-true (DocContent-js? (hasheq 'kind "markdown" 'value "# hi")))
-    (check-false (DocContent-js? 42)))
+  (define-json-union NestedContent (optional (listof (union string? Markup))))
+  (define-json-union TableContent (hashof Markup))
 
-  (test-case "union: decode and match expander"
-    (check-equal? (jsexpr->DocContent "hello") "hello")
-    (define decoded (jsexpr->DocContent (hasheq 'kind "markdown" 'value "# hi")))
-    (check-true (Markup? decoded))
-    (check-equal? (Markup-kind decoded) "markdown")
-    (check-equal? (match "hi" [(DocContent-js v) v]) "hi")
-    (check-true (Markup? (match (hasheq 'kind "md" 'value "x")
-                           [(DocContent-js v) v]))))
+  (define-json-union RecursiveContent string? RecursiveNode)
+  (define-json-struct RecursiveNode [children (listof RecursiveContent)])
 
-  (test-case "union: decode failure reports unmatched value and expected union"
+  (test-case "enum: construction, predicate, aliases, and encoding"
+    (check-true (SymbolKind? SymbolKind-constant))
+    (check-equal? (SymbolKind-v SymbolKind-file) 'file)
+    (check-eq? SymbolKind-file (SymbolKind 'file))
+    (check-equal? (->jsexpr SymbolKind-constant) 14)
+    (check-equal? (->jsexpr SymbolKind-file) 1)
+    (check-exn exn:fail:contract? (lambda () (SymbolKind 'invalid)))
+    (define eval-count 0)
+    (define-json-enum EvalOnce
+      [a (begin (set! eval-count (add1 eval-count)) "a")])
+    (check-equal? eval-count 1)
+    (check-equal? (->jsexpr EvalOnce-a) "a")
+    (check-equal? (->jsexpr EvalOnce-a) "a")
+    (check-equal? eval-count 1))
+
+  (test-case "enum: decode and jsexpr / ^Name match expanders"
+    (check-eq? (jsexpr-> SymbolKind 1) SymbolKind-file)
+    (check-eq? ((jsexpr-> SymbolKind) 1) SymbolKind-file)
+    (check-false ((jsexpr-> SymbolKind) 999 #f))
+    (check-equal? (jsexpr-> SymbolKind 999 'none) 'none)
+    (check-eq? (jsexpr-> SymbolKind 14) SymbolKind-constant)
+    (check-exn exn:fail:contract? (lambda () (jsexpr-> SymbolKind 999)))
+    (check-false (jsexpr-> SymbolKind 999 #f))
+    (check-equal? (match 1 [(jsexpr SymbolKind (SymbolKind 'file)) 'ok] [_ #f]) 'ok)
+    (check-equal? (match 1 [(^SymbolKind 'file) 'ok] [_ #f]) 'ok)
+    (check-equal? (match 14 [(^SymbolKind tag) tag] [_ #f]) 'constant)
+    (check-false (match 999 [(^SymbolKind _) #t] [_ #f])))
+
+  (test-case "enum: duplicate variant and JSON value rejection (compile-time and runtime)"
+    (check-exn
+      (lambda (e)
+        (and (exn:fail:syntax? e)
+             (regexp-match? #rx"duplicate variant" (exn-message e))))
+      (lambda () (convert-compile-time-error (define-json-enum DupVariant [a 1] [a 2]))))
+    (check-exn
+      (lambda (e)
+        (and (exn:fail:syntax? e)
+             (regexp-match? #rx"duplicate JSON value" (exn-message e))))
+      (lambda () (convert-compile-time-error (define-json-enum DupValue [a 1] [b 1]))))
+    (check-exn
+      (lambda (e)
+        (and (exn:fail:syntax? e)
+             (regexp-match? #rx"reserved" (exn-message e))))
+      (lambda () (convert-compile-time-error (define-json-enum ReservedV [v 1]))))
     (check-exn
       (lambda (e)
         (and (exn:fail? e)
-             (regexp-match? #rx"no union alternative matched value: 42" (exn-message e))
-             (regexp-match? #rx"expected: '\\(union string\\? Markup\\)" (exn-message e))))
-      (lambda () (jsexpr->DocContent 42))))
+             (regexp-match? #rx"duplicate JSON value" (exn-message e))))
+      (lambda ()
+        (let ()
+          (define-json-enum NullDup [a (json-null)] [b (json-null)])
+          NullDup-a))))
 
-  (test-case "union: as-Name"
-    (check-equal? (match "ok" [(as-DocContent v) v] [_ #f]) "ok")
-    (check-true (Markup? (match (hasheq 'kind "md" 'value "x")
-                           [(as-DocContent v) v]
-                           [_ #f])))
-    (check-false (match 42 [(as-DocContent _) #t] [_ #f])))
-
-  (test-case "union: ^Name alias"
-    (check-equal? (match "ok" [(^DocContent v) v] [_ #f]) "ok")
-    (check-true (Markup? (match (hasheq 'kind "md" 'value "x")
-                           [(^DocContent v) v]
-                           [_ #f])))
-    (check-false (match 42 [(^DocContent _) #t] [_ #f])))
-
-  (test-case "union: decode pattern with as-Name"
+  (test-case "union: runtime predicate, decode, and jsexpr match"
+    (check-true (DocContent? "hello"))
+    (check-true (DocContent? (Markup #:kind "markdown" #:value "# hi")))
+    (check-false (DocContent? 42))
+    (check-equal? (jsexpr-> DocContent "hello") "hello")
+    (check-equal? ((jsexpr-> DocContent) "hello") "hello")
+    (check-false (jsexpr-> DocContent 42 #f))
+    (check-equal? (jsexpr-> DocContent (hasheq 'kind "markdown" 'value "# hi"))
+                  (Markup "markdown" "# hi"))
+    (check-exn exn:fail:contract? (lambda () (jsexpr-> DocContent 42)))
+    (check-equal? (match "ok" [(jsexpr DocContent v) v] [_ #f]) "ok")
     (check-equal?
       (match (hasheq 'kind "md" 'value "x")
-        [(as-DocContent (Markup #:kind k #:value v)) (list k v)]
+        [(jsexpr DocContent (Markup #:kind k #:value v)) (list k v)]
         [_ #f])
       '("md" "x"))
-    (check-false
-      (match "plain"
-        [(as-DocContent (Markup #:kind _ #:value _)) #t]
-        [_ #f])))
+    (check-false (match 42 [(jsexpr DocContent _) #t] [_ #f])))
 
-  (test-case "union: encode/decode nested struct field"
-    (check-equal? (->jsexpr "hello") "hello")
-    (check-equal? (->jsexpr (Markup #:kind "md" #:value "x"))
-                  (hasheq 'kind "md" 'value "x"))
-    (define markup-box-json
-      (hasheq 'payload (hasheq 'kind "markdown" 'value "# hello")))
-    (define decoded-box (jsexpr->MarkupBox markup-box-json))
-    (check-true (Markup? (MarkupBox-payload decoded-box)))
-    (check-equal? (->jsexpr decoded-box) markup-box-json)))
+  (test-case "union: optional omitted does not collide with decode failure"
+    (check-true (NestedContent? omitted))
+    (check-true (NestedContent? (list "text" (Markup "md" "value"))))
+    (check-false (NestedContent? (list "text" 1)))
+    (check-true (omitted? (match omitted [(jsexpr NestedContent v) v] [_ #f])))
+    (check-false (match 42 [(jsexpr NestedContent _) #t] [_ #f])))
+
+  (test-case "union: hashof and struct fields"
+    (check-true (TableContent? (hasheq 'a (Markup "md" "value"))))
+    (check-false (TableContent? (hasheq 'a "bad")))
+    (check-false (TableContent? (make-hasheq (list (cons 'a (Markup "md" "value"))))))
+    (define markup-json (hasheq 'payload (hasheq 'kind "md" 'value "x")))
+    (check-equal? (jsexpr-> DocBox markup-json) (DocBox (Markup "md" "x")))
+    (check-equal? (->jsexpr (DocBox "hello")) (hasheq 'payload "hello")))
+
+  (test-case "recursive union and struct types resolve lazily"
+    (define json (hasheq 'children (list "text" (hasheq 'children '()))))
+    (define decoded (jsexpr-> RecursiveContent json))
+    (check-equal? decoded (RecursiveNode (list "text" (RecursiveNode '()))))
+    (check-true (RecursiveContent? decoded))
+    (check-equal? (->jsexpr decoded) json)))

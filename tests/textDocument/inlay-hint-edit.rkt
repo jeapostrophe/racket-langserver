@@ -23,7 +23,7 @@
                                              (ContentChangeEvent-Incremental
                                                (Range (Pos start-line start-char)
                                                       (Pos end-line end-char))
-                                               (Nothing)
+                                               omitted
                                                text))]}))
           (client-wait-notification lsp))
 

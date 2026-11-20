@@ -31,7 +31,7 @@
   #:transparent)
 
 (define default-formatting-settings
-  (Formatting-Settings 'fixw 'fixw (jsexpr->Fmt-Settings (hasheq))))
+  (Formatting-Settings 'fixw 'fixw (Fmt-Settings)))
 
 ;; Process-wide, like `resyntax-enabled?`.
 (define current-formatting-settings default-formatting-settings)

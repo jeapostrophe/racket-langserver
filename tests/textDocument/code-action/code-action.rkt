@@ -21,7 +21,7 @@
                        (json {#:range (->jsexpr target-range)
                               #:context {#:diagnostics []}})))
         (check-equal?
-          (map jsexpr->CodeAction result)
+          (jsexpr-> (listof CodeAction) result)
           (list
             (CodeAction
               "Add prefix `_` to ignore"

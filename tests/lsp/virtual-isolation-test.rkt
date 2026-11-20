@@ -33,23 +33,23 @@
   (define (check-local-results session uri)
     (define pos (->jsexpr (Pos 3 1)))
     (define definition (feature session 1 "textDocument/definition" uri (json {#:position pos})))
-    (check-equal? (Location-uri (jsexpr->Location (hash-ref definition 'result))) uri)
+    (check-equal? (Location-uri (jsexpr-> Location (hash-ref definition 'result))) uri)
     (define references
       (feature session 2 "textDocument/references" uri
                (json {#:position pos #:context {#:includeDeclaration #t}})))
-    (define ref-locs (map jsexpr->Location (hash-ref references 'result)))
+    (define ref-locs (jsexpr-> (listof Location) (hash-ref references 'result)))
     (check-equal? (length ref-locs) 2)
     (for ([location (in-list ref-locs)])
       (check-equal? (Location-uri location) uri))
     (define rename
       (feature session 3 "textDocument/rename" uri (json {#:position pos #:newName "renamed"})))
-    (check-equal? (hash-keys (WorkspaceEdit-changes (jsexpr->WorkspaceEdit (hash-ref rename 'result))))
+    (check-equal? (hash-keys (WorkspaceEdit-changes (jsexpr-> WorkspaceEdit (hash-ref rename 'result))))
                   (list (string->symbol uri)))
     (define actions
       (feature session 4 "textDocument/codeAction" uri
                (json {#:range (->jsexpr (Range (Pos 2 0) (Pos 2 40)))
                       #:context {#:diagnostics []}})))
-    (define action-list (map jsexpr->CodeAction (hash-ref actions 'result)))
+    (define action-list (jsexpr-> (listof CodeAction) (hash-ref actions 'result)))
     (check-not-equal? action-list '())
     (for ([action (in-list action-list)])
       (check-equal? (hash-keys (WorkspaceEdit-changes (CodeAction-edit action)))
@@ -58,7 +58,7 @@
       (feature session 6 "textDocument/references" uri
                (json {#:position (->jsexpr (Pos 2 25))
                       #:context {#:includeDeclaration #t}})))
-    (define imported-locs (map jsexpr->Location (hash-ref imported-references 'result)))
+    (define imported-locs (jsexpr-> (listof Location) (hash-ref imported-references 'result)))
     (check-equal? (length imported-locs) 1)
     (check-equal? (Location-uri (car imported-locs)) uri)
     (check-equal? (hash-ref (feature session 5 "textDocument/definition" uri

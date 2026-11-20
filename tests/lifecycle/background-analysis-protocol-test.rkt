@@ -158,7 +158,7 @@
                                 #:contentChanges [(->jsexpr
                                                     (ContentChangeEvent-Incremental
                                                       (Range (Pos 2 14) (Pos 2 15))
-                                                      (Nothing)
+                                                      omitted
                                                       "2"))]}))
             (check-equal? (hash-ref (hash-ref (stdio-response client 8) 'error) 'code)
                           (->jsexpr ErrorCode-ContentModified))

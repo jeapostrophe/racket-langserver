@@ -7,6 +7,7 @@
          racket/list
          racket/contract
          "../common/interfaces.rkt"
+         "../common/json-util.rkt"
          "responses.rkt"
          "safedoc.rkt"
          "../common/settings.rkt"
@@ -37,7 +38,7 @@
   (void))
 
 (define (did-close! params)
-  (match-define (hash-table ['textDocument (DocItem-js #:uri uri)]) params)
+  (match-define (hash-table ['textDocument (^TextDocumentIdentifier #:uri uri)]) params)
   (lsp-close-doc! uri))
 
 (define (did-change! params)
@@ -66,8 +67,8 @@
 ;; Hover request
 (define (hover id params)
   (match params
-    [(hash-table ['textDocument (DocIdentifier-js #:uri uri)]
-                 ['position (as-Pos pos)])
+    [(hash-table ['textDocument (^TextDocumentIdentifier #:uri uri)]
+                 ['position (jsexpr Pos pos)])
      (define safe-doc (lsp-get-doc uri))
      (hover-query safe-doc id pos)]
     [_
@@ -76,8 +77,8 @@
 ;; Code Action request
 (define (code-action id params)
   (match params
-    [(hash-table ['textDocument (DocIdentifier-js #:uri uri)]
-                 ['range (as-Range range)]
+    [(hash-table ['textDocument (^TextDocumentIdentifier #:uri uri)]
+                 ['range (jsexpr Range range)]
                  ; TODO: _ctx has three fields
                  ; 1. `diagnostics`
                  ; 2. `only: CodeActionKind[]` server should use this to filter out client-unwanted code action
@@ -89,8 +90,8 @@
 ;; Signature Help request
 (define (signatureHelp id params)
   (match params
-    [(hash-table ['textDocument (DocIdentifier-js #:uri uri)]
-                 ['position (as-Pos pos)])
+    [(hash-table ['textDocument (^TextDocumentIdentifier #:uri uri)]
+                 ['position (jsexpr Pos pos)])
      (success-from-doc id uri (λ (doc) (doc-signature-help doc pos)))]
     [_
      (error-response id ErrorCode-InvalidParams "textDocument/signatureHelp failed")]))
@@ -98,8 +99,8 @@
 ;; Completion Request
 (define (completion id params)
   (match params
-    [(hash-table ['textDocument (DocIdentifier-js #:uri uri)]
-                 ['position (as-Pos pos)])
+    [(hash-table ['textDocument (^TextDocumentIdentifier #:uri uri)]
+                 ['position (jsexpr Pos pos)])
      (success-from-doc id uri (λ (doc) (doc-completion doc pos)))]
     [_
      (error-response id ErrorCode-InvalidParams "textDocument/completion failed")]))
@@ -108,8 +109,8 @@
 
 (define (definition id params)
   (match params
-    [(hash-table ['textDocument (DocIdentifier-js #:uri uri)]
-                 ['position (as-Pos pos)])
+    [(hash-table ['textDocument (^TextDocumentIdentifier #:uri uri)]
+                 ['position (jsexpr Pos pos)])
      (define safe-doc (lsp-get-doc uri))
      (definition-query safe-doc id uri pos)]
     [_
@@ -118,8 +119,8 @@
 ;; Reference request
 (define (references id params)
   (match params
-    [(hash-table ['textDocument (DocIdentifier-js #:uri uri)]
-                 ['position (as-Pos pos)]
+    [(hash-table ['textDocument (^TextDocumentIdentifier #:uri uri)]
+                 ['position (jsexpr Pos pos)]
                  ['context (hash-table ['includeDeclaration include-decl?])])
      (define safe-doc (lsp-get-doc uri))
      (define document-result
@@ -135,8 +136,8 @@
 ;; Document Highlight request
 (define (document-highlight id params)
   (match params
-    [(hash-table ['textDocument (DocIdentifier-js #:uri uri)]
-                 ['position (as-Pos pos)])
+    [(hash-table ['textDocument (^TextDocumentIdentifier #:uri uri)]
+                 ['position (jsexpr Pos pos)])
      (success-from-doc id uri (λ (doc) (doc-highlights doc pos)))]
     [_
      (error-response id ErrorCode-InvalidParams "textDocument/documentHighlight failed")]))
@@ -144,8 +145,8 @@
 ;; Rename request
 (define (_rename id params)
   (match params
-    [(hash-table ['textDocument (DocIdentifier-js #:uri uri)]
-                 ['position (as-Pos pos)]
+    [(hash-table ['textDocument (^TextDocumentIdentifier #:uri uri)]
+                 ['position (jsexpr Pos pos)]
                  ['newName new-name])
      (success-from-doc id uri (λ (doc) (doc-rename doc uri pos new-name)))]
     [_
@@ -154,8 +155,8 @@
 ;; Prepare rename
 (define (prepareRename id params)
   (match params
-    [(hash-table ['textDocument (DocIdentifier-js #:uri uri)]
-                 ['position (as-Pos pos)])
+    [(hash-table ['textDocument (^TextDocumentIdentifier #:uri uri)]
+                 ['position (jsexpr Pos pos)])
      (success-from-doc id uri (λ (doc) (doc-prepare-rename doc pos)))]
     [_
      (error-response id ErrorCode-InvalidParams "textDocument/prepareRename failed")]))
@@ -163,7 +164,7 @@
 ;; Document Symbol request
 (define (document-symbol id params)
   (match params
-    [(hash-table ['textDocument (DocIdentifier-js #:uri uri)])
+    [(hash-table ['textDocument (^TextDocumentIdentifier #:uri uri)])
      (success-from-doc
        id uri
        (λ (doc)
@@ -181,8 +182,8 @@
 ;; again. Wait for the run, as semantic tokens do.
 (define (inlay-hint id params)
   (match params
-    [(hash-table ['textDocument (DocIdentifier-js #:uri uri)]
-                 ['range (as-Range range)])
+    [(hash-table ['textDocument (^TextDocumentIdentifier #:uri uri)]
+                 ['range (jsexpr Range range)])
      (define safe-doc (lsp-get-doc uri))
 
      (visual-query safe-doc id 'inlay-hints (lambda (doc) (doc-inlay-hints doc range)))]
@@ -191,8 +192,8 @@
 ;; Full document formatting request
 (define (formatting! id params)
   (match params
-    [(hash-table ['textDocument (DocIdentifier-js #:uri uri)]
-                 ['options (as-FormattingOptions opts)])
+    [(hash-table ['textDocument (^TextDocumentIdentifier #:uri uri)]
+                 ['options (jsexpr FormattingOptions opts)])
 
      (with-handlers ([exn:fail:fmt?
                       (lambda (exn)
@@ -216,9 +217,9 @@
 ;; Range Formatting request
 (define (range-formatting! id params)
   (match params
-    [(hash-table ['textDocument (DocIdentifier-js #:uri uri)]
-                 ['range (as-Range range)]
-                 ['options (as-FormattingOptions opts)])
+    [(hash-table ['textDocument (^TextDocumentIdentifier #:uri uri)]
+                 ['range (jsexpr Range range)]
+                 ['options (jsexpr FormattingOptions opts)])
      (define backend
        (Formatting-Settings-indentation-formatter current-formatting-settings))
      (success-from-doc
@@ -234,13 +235,13 @@
 ;; On-type formatting request
 (define (on-type-formatting! id params)
   (match params
-    [(hash-table ['textDocument (DocIdentifier-js #:uri uri)]
+    [(hash-table ['textDocument (^TextDocumentIdentifier #:uri uri)]
                  ;; LSP `position` is the cursor after inserted `ch`.
                  ;; `doc-on-type-format-edits` maps that to the character.
                  ;; https://github.com/jeapostrophe/racket-langserver/issues/111
-                 ['position (as-Pos pos)]
+                 ['position (jsexpr Pos pos)]
                  ['ch ch]
-                 ['options (as-FormattingOptions opts)])
+                 ['options (jsexpr FormattingOptions opts)])
      (define backend
        (Formatting-Settings-indentation-formatter current-formatting-settings))
      (success-from-doc
@@ -254,14 +255,14 @@
 
 (define (full-semantic-tokens id params)
   (match params
-    [(hash-table ['textDocument (DocIdentifier-js #:uri uri)])
+    [(hash-table ['textDocument (^TextDocumentIdentifier #:uri uri)])
      (semantic-tokens id (lsp-get-doc uri) 'full)]
     [_ (error-response id ErrorCode-InvalidParams "textDocument/semanticTokens/full failed")]))
 
 (define (range-semantic-tokens id params)
   (match params
-    [(hash-table ['textDocument (DocIdentifier-js #:uri uri)]
-                 ['range (as-Range range)])
+    [(hash-table ['textDocument (^TextDocumentIdentifier #:uri uri)]
+                 ['range (jsexpr Range range)])
      (semantic-tokens id (lsp-get-doc uri) range)]
     [_ (error-response id ErrorCode-InvalidParams "textDocument/semanticTokens/range failed")]))
 

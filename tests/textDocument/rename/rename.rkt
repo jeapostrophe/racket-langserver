@@ -29,7 +29,7 @@ END
                        (json {#:position (->jsexpr (Pos 5 2))
                               #:newName "new-x"})))
         (check-equal?
-          (jsexpr->WorkspaceEdit rename-result)
+          (jsexpr-> WorkspaceEdit rename-result)
           (WorkspaceEdit
             (hasheq (string->symbol uri)
                     (list (TextEdit (Range (Pos 4 7) (Pos 4 8)) "new-x")
@@ -40,5 +40,5 @@ END
                        "textDocument/prepareRename"
                        uri
                        (json {#:position (->jsexpr (Pos 5 2))})))
-        (check-equal? (jsexpr->Range prepare-result)
+        (check-equal? (jsexpr-> Range prepare-result)
                       (Range (Pos 5 2) (Pos 5 3)))))))
