@@ -14,7 +14,7 @@
     (with-document uri code
       (lambda (lsp)
         (define hover
-          (jsexpr->Hover
-            (lsp-result! lsp "textDocument/hover" uri (json {#:position (->jsexpr (Pos 2 1))}))))
+          (jsexpr-> Hover
+                    (lsp-result! lsp "textDocument/hover" uri (json {#:position (->jsexpr (Pos 2 1))}))))
         (check-false (string=? "" (Hover-contents hover)))
         (check-equal? (Hover-range hover) (Range (Pos 2 1) (Pos 2 5)))))))

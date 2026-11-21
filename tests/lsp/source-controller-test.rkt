@@ -100,7 +100,7 @@
                                    #:contentChanges [(->jsexpr
                                                        (ContentChangeEvent-Incremental
                                                          (Range (Pos 3 0) (Pos 3 0))
-                                                         (Nothing)
+                                                         omitted
                                                          "\n"))]}))
                     (request! session 101 "textDocument/definition" a
                               (json {#:position (->jsexpr (Pos 2 0))}))

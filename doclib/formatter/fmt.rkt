@@ -45,10 +45,10 @@
 
 ;; No flags. `raco fmt` uses its own defaults for omitted knobs.
 (define empty-fmt-settings
-  (jsexpr->Fmt-Settings (hasheq)))
+  (Fmt-Settings))
 
 (define (fmt-flag flag value)
-  (if (Nothing? value)
+  (if (omitted? value)
       '()
       (list flag (number->string value))))
 

@@ -4,6 +4,7 @@
          rackunit
          racket/class
          "../../common/interfaces.rkt"
+         "../../common/json-util.rkt"
          "../../doclib/editor.rkt"
          "../../doclib/formatting.rkt"
          "../../doclib/formatter/fmt.rkt")
@@ -73,21 +74,21 @@
       (set! calls (list arguments text))
       (values 0 "#lang racket/base\n(define\n   x\n   1)\n" ""))
     (define options
-      (jsexpr->FormattingOptions
-        (hasheq 'tabSize 8
-                'insertSpaces #f
-                'trimTrailingWhitespace #t
-                'insertFinalNewline #t
-                'trimFinalNewlines #t
-                'width 40
-                'indent 8
-                'limit 40
-                'maxBlankLines 9
-                'unsupported "ignored")))
+      (jsexpr-> FormattingOptions
+                (hasheq 'tabSize 8
+                        'insertSpaces #f
+                        'trimTrailingWhitespace #t
+                        'insertFinalNewline #t
+                        'trimFinalNewlines #t
+                        'width 40
+                        'indent 8
+                        'limit 40
+                        'maxBlankLines 9
+                        'unsupported "ignored")))
     (define fmt-settings
-      (jsexpr->Fmt-Settings (hasheq 'width 91
-                                    'indent 3
-                                    'maxBlankLines 2)))
+      (jsexpr-> Fmt-Settings (hasheq 'width 91
+                                     'indent 3
+                                     'maxBlankLines 2)))
     (check-true (FormattingOptions? options))
     (parameterize ([current-fmt-runner runner])
       (check-equal?
@@ -111,7 +112,7 @@
       (set! calls (list arguments text))
       (values 0 text ""))
     (define zero-indent
-      (jsexpr->Fmt-Settings (hasheq 'indent 0)))
+      (jsexpr-> Fmt-Settings (hasheq 'indent 0)))
     (parameterize ([current-fmt-runner runner])
       (check-equal?
         (formatting (editor-with racket-text)

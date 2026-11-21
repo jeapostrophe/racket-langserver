@@ -25,7 +25,7 @@ END
       #:capabilities (json {#:textDocument {#:documentSymbol {#:hierarchicalDocumentSymbolSupport #t}}})
       (lambda (lsp)
         (check-equal?
-          (map jsexpr->DocumentSymbol (lsp-result! lsp "textDocument/documentSymbol" uri))
+          (jsexpr-> (listof DocumentSymbol) (lsp-result! lsp "textDocument/documentSymbol" uri))
           (list
             (DocumentSymbol "x"
                             SymbolKind-Variable

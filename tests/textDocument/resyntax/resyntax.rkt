@@ -33,8 +33,8 @@
 
           (define action-span (Range (Pos 2 0) (Pos 2 11)))
           (check-equal?
-            (map jsexpr->CodeAction
-                 (lsp-result! lsp "textDocument/codeAction" uri code-action-params))
+            (jsexpr-> (listof CodeAction)
+                      (lsp-result! lsp "textDocument/codeAction" uri code-action-params))
             (list
               (CodeAction
                 "Apply rule [format-identity]"

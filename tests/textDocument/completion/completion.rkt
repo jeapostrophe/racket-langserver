@@ -28,7 +28,7 @@
                        uri
                        (json {#:position (->jsexpr (Pos 1 1))
                               #:context {#:triggerCharacter "(" #:triggerKind 2}})))
-        (define completion-list (jsexpr->CompletionList result))
+        (define completion-list (jsexpr-> CompletionList result))
         (define items (CompletionList-items completion-list))
         (check-false (null? items))
         (for ([item (in-list items)])

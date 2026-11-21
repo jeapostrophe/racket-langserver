@@ -36,7 +36,7 @@
                        #:contentChanges [(->jsexpr
                                            (ContentChangeEvent-Incremental
                                              (Range (Pos 1 14) (Pos 1 15))
-                                             (Nothing)
+                                             omitted
                                              "2"))]}))
         (define edited (await probes))
         (check-equal? (Source-Snapshot-id (Gate-input initial))

@@ -15,61 +15,62 @@
          "json-util.rkt")
 
 (provide (struct-out CharRange)
-         (json-type-out Pos)
-         (json-type-out Range)
          char-range-intersect?
-         (json-type-out TextEdit)
-         (json-type-out WorkspaceEdit)
-         (json-type-out CodeAction)
-         (json-type-out DiagnosticSeverity)
-         (json-type-out ErrorCode)
-         (json-type-out Diagnostic)
-         (json-type-out Location)
-         (json-type-out DocumentHighlight)
-         (json-type-out SymbolKind)
-         (json-type-out SymbolInformation)
-         (json-type-out DocumentSymbol)
-         (json-type-out Hover)
-         (json-type-out SignatureInformation)
-         (json-type-out SignatureHelp)
-         (json-type-out CompletionItem)
-         (json-type-out CompletionList)
-         (json-type-out TextDocumentSyncKind)
-         (json-type-out ContentChangeEvent-Incremental)
-         (json-type-out ContentChangeEvent-Full)
-         (json-type-out ContentChangeEvent)
-         (json-type-out DocIdentifier)
-         (json-type-out DocItem)
-         (json-type-out InlayHintKind)
-         (json-type-out InlayHint)
-         (json-type-out ConfigurationItem)
-         (json-type-out ConfigurationParams)
-         (json-type-out Resyntax-Settings)
-         (json-type-out Document-Formatter)
-         (json-type-out Indentation-Formatter)
-         (json-type-out Fmt-Settings)
-         (json-type-out Formatting-Configuration)
-         (json-type-out Langserver-Settings)
-         (json-type-out Langserver-Settings-Update)
-         (json-type-out FileRename)
-         (json-type-out RenameFilesParams)
-         (json-type-out WorkspaceFolder)
-         (json-type-out WorkspaceFoldersChangeEvent)
-         (json-type-out DidChangeWorkspaceFoldersParams)
-         (json-type-out FileChangeType)
-         (json-type-out FileEvent)
-         (json-type-out DidChangeWatchedFilesParams)
-         (json-type-out FormattingOptions)
          (struct-out LexerEntry)
-         (json-type-out SemanticTokenType)
-         (json-type-out SemanticTokenModifier)
          (struct-out SemanticToken)
          *semantic-token-types*
          *semantic-token-modifiers*
          abs-pos->Pos
          char-utf16-length
          string-utf16-length
-         (json-type-out Resyntax-Result))
+         (json-out Pos
+                   Range
+                   TextEdit
+                   WorkspaceEdit
+                   CodeAction
+                   DiagnosticSeverity
+                   ErrorCode
+                   Diagnostic
+                   Location
+                   DocumentHighlight
+                   SymbolKind
+                   SymbolInformation
+                   DocumentSymbol
+                   Hover
+                   SignatureInformation
+                   SignatureHelp
+                   CompletionItem
+                   CompletionList
+                   TextDocumentSyncKind
+                   ContentChangeEvent-Incremental
+                   ContentChangeEvent-Full
+                   ContentChangeEvent
+                   TextDocumentIdentifier
+                   DocIdentifier
+                   DocItem
+                   InlayHintKind
+                   InlayHint
+                   ConfigurationItem
+                   ConfigurationParams
+                   Resyntax-Settings
+                   Document-Formatter
+                   Indentation-Formatter
+                   Fmt-Settings
+                   Formatting-Configuration
+                   Langserver-Settings
+                   Langserver-Settings-Update
+                   FileRename
+                   RenameFilesParams
+                   WorkspaceFolder
+                   WorkspaceFoldersChangeEvent
+                   DidChangeWorkspaceFoldersParams
+                   FileChangeType
+                   FileEvent
+                   DidChangeWatchedFilesParams
+                   FormattingOptions
+                   SemanticTokenType
+                   SemanticTokenModifier
+                   Resyntax-Result))
 
 (define-json-struct Pos
   [line exact-nonnegative-integer?]
@@ -103,7 +104,7 @@
   [newText string?])
 
 (define-json-struct WorkspaceEdit
-  [changes (hashof symbol? (listof TextEdit))])
+  [changes (hashof (listof TextEdit))])
 
 (define-json-enum DiagnosticSeverity
   [Error 1]
@@ -222,6 +223,10 @@
 (define-json-union ContentChangeEvent
   ContentChangeEvent-Incremental
   ContentChangeEvent-Full)
+
+;; TextDocumentIdentifier
+(define-json-struct TextDocumentIdentifier
+  [uri string?])
 
 ;; VersionedTextDocumentIdentifier
 (define-json-struct DocIdentifier

@@ -30,17 +30,17 @@ END
       (lambda (lsp)
         (define def-result
           (lsp-result! lsp "textDocument/definition" uri (json {#:position (->jsexpr (Pos 5 2))})))
-        (check-equal? (jsexpr->Location def-result)
+        (check-equal? (jsexpr-> Location def-result)
                       (Location uri (pos-range 4 7 4 8)))
 
         (define highlight-result
           (lsp-result! lsp "textDocument/documentHighlight" uri (json {#:position (->jsexpr (Pos 5 2))})))
-        (check-equal? (map jsexpr->DocumentHighlight highlight-result)
+        (check-equal? (jsexpr-> (listof DocumentHighlight) highlight-result)
                       (list (DocumentHighlight (pos-range 4 7 4 8))
                             (DocumentHighlight (pos-range 5 2 5 3))))
 
         (check-equal?
-          (map jsexpr->SymbolInformation (lsp-result! lsp "textDocument/documentSymbol" uri))
+          (jsexpr-> (listof SymbolInformation) (lsp-result! lsp "textDocument/documentSymbol" uri))
           (list (symbol-entry "define" SymbolKind-Variable 2 1 2 7)
                 (symbol-entry "x" SymbolKind-Variable 2 8 2 9)
                 (symbol-entry "0" SymbolKind-Constant 2 10 2 11)
@@ -55,6 +55,6 @@ END
                        uri
                        (json {#:position (->jsexpr (Pos 4 7))
                               #:context {#:includeDeclaration #t}})))
-        (check-equal? (map jsexpr->Location ref-result)
+        (check-equal? (jsexpr-> (listof Location) ref-result)
                       (list (Location uri (pos-range 4 7 4 8))
                             (Location uri (pos-range 5 2 5 3))))))))

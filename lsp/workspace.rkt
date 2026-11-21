@@ -72,7 +72,7 @@
     settings)
   (set-resyntax-enabled!
     (match resyntax
-      [(Resyntax-Settings #:enable (and enable (not (? Nothing?)))) enable]
+      [(Resyntax-Settings #:enable (and enable (not (? omitted?)))) enable]
       [_ default-resyntax-enabled]))
   (match formatting
     [(Formatting-Configuration
@@ -81,13 +81,13 @@
        #:fmt-settings fmt-settings)
      (set-formatting-settings!
        (Formatting-Settings
-         (if (Nothing? document-formatter)
+         (if (omitted? document-formatter)
              (Formatting-Settings-document-formatter default-formatting-settings)
              (Document-Formatter-v document-formatter))
-         (if (Nothing? indentation-formatter)
+         (if (omitted? indentation-formatter)
              (Formatting-Settings-indentation-formatter default-formatting-settings)
              (Indentation-Formatter-v indentation-formatter))
-         (if (Nothing? fmt-settings)
+         (if (omitted? fmt-settings)
              (Formatting-Settings-fmt-settings default-formatting-settings)
              fmt-settings)))]
     [_ (set-formatting-settings! default-formatting-settings)]))
@@ -105,7 +105,7 @@
     (map normalize-configuration-item
          (if (list? settings) settings (list settings))))
   (match items
-    [(as-Langserver-Settings-Update value)
+    [(jsexpr Langserver-Settings-Update value)
      (for ([item (in-list value)])
        (apply-langserver-settings item))]
     [_ (void)]))
@@ -113,7 +113,7 @@
 (define client-capability-workspace/configuration? (make-parameter #f))
 
 ;; `scopeUri` is optional; the callback applies process-wide either way.
-(define (fetch-configuration request-client [uri (Nothing)])
+(define (fetch-configuration request-client [uri omitted])
   (when (client-capability-workspace/configuration?)
     (request-client "workspace/configuration"
                     (->jsexpr

@@ -29,5 +29,5 @@
                        (json {#:position (->jsexpr (Pos 3 0))
                               #:ch "\n"
                               #:options {#:tabSize 4 #:insertSpaces #t}})))
-        (check-equal? (map jsexpr->TextEdit result)
+        (check-equal? (jsexpr-> (listof TextEdit) result)
                       (list (TextEdit (Range (Pos 3 0) (Pos 3 0)) "  ")))))))

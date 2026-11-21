@@ -1,24 +1,29 @@
 #lang racket/base
 
-(module export-test racket/base
+;; Verify standard `(struct-out ...)` works across module boundaries alongside `(json-out ...)`.
+(module export-struct-out racket/base
   (require "../common/json-util.rkt")
-  (define-json-struct Exported [x exact-integer?])
-  (provide (json-type-out Exported)))
+  (define-json-struct ExportedStructOut [x exact-integer?])
+  (provide (struct-out ExportedStructOut)))
+
+(module export-json-out racket/base
+  (require "../common/json-util.rkt")
+  (define-json-struct ExportedJsonOut [x exact-integer?])
+  (provide (json-out ExportedJsonOut)))
 
 (module+ test
-  (require racket/list
+  (require json
+           racket/list
            racket/match
            rackunit
            syntax/macro-testing
            "../common/json-util.rkt"
-           (submod ".." export-test))
+           (submod ".." export-struct-out)
+           (submod ".." export-json-out))
 
   (define-json-struct Pos
     [line exact-integer?]
     [char exact-integer? #:json character])
-
-  (define p1 (Pos 1 10))
-  (define p2 (Pos #:char 20 #:line 2))
 
   (define-json-struct Range
     [start Pos]
@@ -31,7 +36,7 @@
     [items (listof Pos)])
 
   (define-json-struct PosHashHolder
-    [items (hashof symbol? Pos)])
+    [items (hashof Pos)])
 
   (define-json-struct OrPosHolder
     [item (union string? Pos)])
@@ -45,6 +50,10 @@
   (define-json-struct CustomContractHolder
     [item (contract integer?)])
 
+  (define-json-struct NestedOptionalHolder
+    [xs (listof (optional string?))]
+    [u (union string? (optional exact-integer?))])
+
   (define-json-struct TreeNode
     [value string?]
     [children (listof TreeNode)])
@@ -54,266 +63,278 @@
     [enabled (optional boolean?)]
     #:rest extras)
 
+  (define pos-1 (Pos 1 10))
+  (define pos-2 (Pos #:char 20 #:line 2))
   (define p-hash (hasheq 'line 10 'character 5))
   (define p-hash-2 (hasheq 'line 3 'character 30))
   (define p-hash-invalid (hasheq 'line "not-an-int" 'character 5))
-  (define r (Range p1 p2))
+  (define range-val (Range pos-1 pos-2))
   (define r-hash (hasheq 'start p-hash 'end (hasheq 'line 20 'character 15)))
 
-  (test-case "construction: positional and keyword"
-    (check-equal? (Pos-line p1) 1)
-    (check-equal? (Pos-char p1) 10)
-    (check-equal? (Pos-line p2) 2)
-    (check-equal? (Pos-char p2) 20))
-
-  (test-case "construction: contract enforcement"
+  (test-case "construction: positional, keyword, 0-arg all-optional, and first-class procedure"
+    (check-equal? (Pos-line pos-1) 1)
+    (check-equal? (Pos-char pos-1) 10)
+    (check-equal? (Pos-line pos-2) 2)
+    (check-equal? (Pos-char pos-2) 20)
+    (check-true (procedure? Pos))
+    (check-equal? (map Pos '(1 2) '(10 20)) (list (Pos 1 10) (Pos 2 20)))
+    (check-equal? (MaybePosHolder) (MaybePosHolder omitted))
     (check-exn exn:fail:contract? (lambda () (Pos "1" 10)))
-    (check-exn exn:fail:contract? (lambda () (Pos #:line 1 #:char "10"))))
+    (check-exn exn:fail:contract? (lambda () (Pos #:line 1 #:char "10")))
+    (check-exn exn:fail:contract? (lambda () (map Pos '("bad") '(1))))
+    (check-exn
+      (lambda (e)
+        (and (exn:fail:contract:arity? e)
+             (regexp-match? #rx"^Pos:" (exn-message e))))
+      (lambda () (Pos 1))))
 
-  (test-case "construction: syntax errors for mixed and duplicate keywords"
+  (test-case "keyword arguments evaluate once in caller order"
+    (define observed '())
+    (define (observe label value)
+      (set! observed (append observed (list label)))
+      value)
+    (define value (Pos #:char (observe 'char 20) #:line (observe 'line 2)))
+    (check-equal? observed '(char line))
+    (check-equal? value (Pos 2 20)))
+
+  (test-case "keyword constructors default omitted optional and rest fields"
+    (define ext (Extensible #:name "tool"))
+    (check-equal? ext (Extensible "tool" omitted (hasheq)))
+    (check-equal? (->jsexpr ext) (hasheq 'name "tool"))
+    (define ext2 (Extensible #:name "tool" #:enabled #f))
+    (check-equal? ext2 (Extensible "tool" #f (hasheq)))
+    (check-equal? (->jsexpr ext2) (hasheq 'name "tool" 'enabled #f)))
+
+  (test-case "construction: syntax errors for invalid keyword usage and duplicates"
     (check-exn
       (lambda (e)
         (and (exn:fail:syntax? e)
-             (regexp-match? #rx"mixed positional and keyword arguments are not allowed"
-                            (exn-message e))))
-      (lambda ()
-        (convert-compile-time-error
-          (Pos 1 #:char 2))))
+             (regexp-match? #rx"missing keyword argument #:char" (exn-message e))))
+      (lambda () (convert-compile-time-error (Pos #:line 1))))
     (check-exn
       (lambda (e)
         (and (exn:fail:syntax? e)
-             (regexp-match? #rx"duplicate keyword argument #:line"
-                            (exn-message e))))
-      (lambda ()
-        (convert-compile-time-error
-          (Pos #:line 1 #:line 2 #:char 3)))))
-
-  (test-case "type specs: arbitrary contracts require contract form"
+             (regexp-match? #rx"unknown keyword argument" (exn-message e))))
+      (lambda () (convert-compile-time-error (Pos #:line 1 #:char 2 #:other 3))))
     (check-exn
-      exn:fail:syntax?
+      (lambda (e)
+        (and (exn:fail:syntax? e)
+             (regexp-match? #rx"mixed or malformed keyword arguments are not allowed" (exn-message e))))
+      (lambda () (convert-compile-time-error (Pos 1 #:char 2))))
+    (check-exn
+      (lambda (e)
+        (and (exn:fail:syntax? e)
+             (regexp-match? #rx"duplicate keyword argument #:line" (exn-message e))))
+      (lambda () (convert-compile-time-error (Pos #:line 1 #:line 2 #:char 3))))
+    (check-exn
+      (lambda (e)
+        (and (exn:fail:syntax? e)
+             (regexp-match? #rx"duplicate field" (exn-message e))))
       (lambda ()
         (convert-compile-time-error
-          (define-json-struct BadContract
-            [x (or/c string? exact-integer?)])))))
+          (define-json-struct DupField [x string?] [x exact-integer?]))))
+    (check-exn
+      (lambda (e)
+        (and (exn:fail:syntax? e)
+             (regexp-match? #rx"duplicate field" (exn-message e))))
+      (lambda ()
+        (convert-compile-time-error
+          (define-json-struct DupRest [x string?] #:rest x))))
+    (check-exn
+      (lambda (e)
+        (and (exn:fail:syntax? e)
+             (regexp-match? #rx"duplicate json key" (exn-message e))))
+      (lambda ()
+        (convert-compile-time-error
+          (define-json-struct DupJsonKey [a string? #:json k] [b string? #:json k])))))
 
-  (test-case "matching: Pos matches structs only"
-    (check-equal? (match p1 [(Pos #:line l) l] [_ #f]) 1)
-    (check-equal? (match p2 [(Pos l c) (list l c)] [_ #f]) '(2 20))
-    (check-false (match p-hash [(Pos #:line l) l] [_ #f])))
-
-  (test-case "matching: Pos-js matches hashes"
-    (check-equal? (match p-hash [(Pos-js #:line l) l] [_ #f]) 10)
-    (check-equal? (match p-hash-2 [(Pos-js l c) (list l c)] [_ #f]) '(3 30))
-    (check-false (match p1 [(Pos-js l c) (list l c)] [_ #f])))
-
-  (test-case "validation: Pos-js? validates JSON hash only"
-    (check-true (Pos-js? p-hash))
-    (check-false (Pos-js? p1))
-    (check-false (Pos-js? p-hash-invalid)))
-
-  (test-case "matching: as-Pos decodes valid JSON hash"
-    (check-equal? (match p-hash [(as-Pos pos) (Pos-line pos)] [_ #f]) 10)
-    (check-false (match p-hash-invalid [(as-Pos _pos) #t] [_ #f]))
-    (check-false (match p1 [(as-Pos _pos) #t] [_ #f])))
-
-  (test-case "matching: jsexpr styles for Pos"
-    (check-equal? (match p-hash [(? Pos-js? (Pos-js #:line l)) l] [_ #f]) 10)
-    (check-equal? (match p-hash [(as-Pos (Pos #:line l #:char c)) (list l c)] [_ #f]) '(10 5))
-    (check-equal? (match p-hash [(^Pos #:line l #:char c) (list l c)] [_ #f]) '(10 5))
-    (check-equal? (match p-hash [(^Pos l c) (list l c)] [_ #f]) '(10 5)))
-
-  (test-case "encoding: simple and recursive"
-    (check-equal? (->jsexpr p1) (hasheq 'line 1 'character 10))
-    (check-equal? (->jsexpr r)
+  (test-case "encoding: simple, nested, optional, rest, and containers"
+    (check-equal? (->jsexpr pos-1) (hasheq 'line 1 'character 10))
+    (check-equal? (->jsexpr range-val)
                   (hasheq 'start (hasheq 'line 1 'character 10)
-                          'end (hasheq 'line 2 'character 20))))
-
-  (test-case "rest fields decode and encode as direct object properties"
-    (define json
-      (hasheq 'name "tool"
-              'enabled #t
-              'count 3
-              'metadata (hasheq 'stable #t)))
-    (define decoded (jsexpr->Extensible json))
-    (check-equal? (Extensible-extras decoded)
-                  (hasheq 'count 3 'metadata (hasheq 'stable #t)))
-    (check-equal? (->jsexpr decoded) json)
+                          'end (hasheq 'line 2 'character 20)))
+    (define-json-struct TagList [tags (listof string?)])
+    (define tags (list "a" "b"))
+    (check-eq? (hash-ref (->jsexpr (TagList tags)) 'tags) tags)
+    (check-equal? (->jsexpr (PosListHolder (list pos-1 pos-2)))
+                  (hasheq 'items (list (hasheq 'line 1 'character 10)
+                                       (hasheq 'line 2 'character 20))))
+    (check-equal? (->jsexpr (PosHashHolder (hasheq 'a pos-1)))
+                  (hasheq 'items (hasheq 'a (hasheq 'line 1 'character 10))))
+    ;; Nested optional values encode `omitted` to `(json-null)`, never leaking the sentinel.
+    (define nested-encoded
+      (->jsexpr (NestedOptionalHolder (list omitted "hi") omitted)))
+    (check-true (jsexpr? nested-encoded))
+    (check-equal? nested-encoded
+                  (hasheq 'xs (list (json-null) "hi") 'u (json-null)))
+    ;; Declared required fields override #:rest; omitted optional fields strip stale #:rest keys.
     (check-equal?
-      (->jsexpr
-        (Extensible #:name "declared"
-                    #:enabled (Nothing)
-                    #:extras (hasheq 'name "extra" 'count 1)))
+      (->jsexpr (Extensible #:name "declared"
+                            #:enabled omitted
+                            #:extras (hasheq 'name "extra" 'enabled "bogus" 'count 1)))
       (hasheq 'name "declared" 'count 1)))
 
-  (test-case "rest fields participate in decoded struct matching"
-    (check-equal?
-      (match (hasheq 'name "tool" 'count 3)
-        [(^Extensible #:name name #:extras extras)
-         (list name extras)]
-        [_ #f])
-      (list "tool" (hasheq 'count 3))))
-
-  (test-case "decoding: recursive jsexpr->Range"
-    (define decoded (jsexpr->Range r-hash))
-    (check-true (Range? decoded))
-    (check-true (Pos? (Range-start decoded)))
-    (check-equal? (Pos-line (Range-start decoded)) 10)
-    (check-equal? (Pos-char (Range-end decoded)) 15))
-
-  (test-case "validation: Range-js? validates nested json shape"
-    (check-true (Range-js? r-hash))
-    (check-false (Range-js? (hasheq 'start p1 'end p2)))
-    (check-false (Range-js? (hasheq 'start p-hash))))
-
-  (test-case "decoding: optional field can be absent"
-    (define holder (jsexpr->MaybePosHolder (hasheq)))
-    (check-true (Nothing? (MaybePosHolder-pos holder)))
-    (define holder2 (jsexpr->MaybePosHolder (hasheq 'pos p-hash)))
-    (check-true (Pos? (MaybePosHolder-pos holder2))))
-
-  (test-case "decoding: listof decodes compound entries"
-    (define holder (jsexpr->PosListHolder (hasheq 'items (list p-hash p-hash-2))))
-    (check-true (Pos? (first (PosListHolder-items holder))))
-    (check-equal? (Pos-line (second (PosListHolder-items holder))) 3))
-
-  (test-case "decoding: hashof decodes compound values"
-    (define holder (jsexpr->PosHashHolder (hasheq 'items (hasheq 'a p-hash))))
-    (define decoded-pos (hash-ref (PosHashHolder-items holder) 'a))
-    (check-true (Pos? decoded-pos))
-    (check-equal? (Pos-char decoded-pos) 5))
-
-  (test-case "decoding: union chooses string variant"
-    (define from-str (jsexpr->OrPosHolder (hasheq 'item "hello")))
-    (check-equal? (OrPosHolder-item from-str) "hello"))
-
-  (test-case "decoding: union chooses decoded struct variant"
-    (define from-pos (jsexpr->OrPosHolder (hasheq 'item p-hash)))
-    (check-equal? (Pos-line (OrPosHolder-item from-pos)) 10))
-
-  (test-case "decoding: union failure reports field, value, and expected union"
-    (check-exn
-      (lambda (e)
-        (and (exn:fail? e)
-             (regexp-match? #rx"failed to decode field" (exn-message e))
-             (regexp-match? #rx"no union alternative matched value: 42" (exn-message e))
-             (regexp-match? #rx"expected: '\\(union string\\? Pos\\)" (exn-message e))))
-      (lambda ()
-        (jsexpr->OrPosHolder (hasheq 'item 42)))))
-
-  (test-case "validation: union json predicate"
-    (check-true (OrPosHolder-js? (hasheq 'item "s")))
-    (check-true (OrPosHolder-js? (hasheq 'item p-hash)))
-    (check-false (OrPosHolder-js? (hasheq 'item 42))))
-
-  (test-case "decoding: optional with union"
-    (define missing (jsexpr->MaybeOrPosHolder (hasheq)))
-    (check-true (Nothing? (MaybeOrPosHolder-item missing)))
-    (define from-str (jsexpr->MaybeOrPosHolder (hasheq 'item "ok")))
-    (check-equal? (MaybeOrPosHolder-item from-str) "ok")
-    (define from-pos (jsexpr->MaybeOrPosHolder (hasheq 'item p-hash-2)))
-    (check-true (Pos? (MaybeOrPosHolder-item from-pos)))
-    (check-equal? (Pos-char (MaybeOrPosHolder-item from-pos)) 30))
-
-  (test-case "decoding: listof with union"
-    (define holder
-      (jsexpr->OrPosListHolder (hasheq 'items (list "a" p-hash "b" p-hash-2))))
-    (define items (OrPosListHolder-items holder))
-    (check-equal? (first items) "a")
-    (check-true (Pos? (second items)))
-    (check-equal? (third items) "b")
-    (check-true (Pos? (fourth items)))
-    (check-exn exn:fail?
-               (lambda ()
-                 (jsexpr->OrPosListHolder (hasheq 'items (list "a" 99))))))
-
-  (test-case "decoding: explicit contract field passes through raw value"
-    (define holder (jsexpr->CustomContractHolder (hasheq 'item 1.0)))
-    (check-equal? (CustomContractHolder-item holder) 1.0)
+  (test-case "contract: supports flat contracts and guards narrow-domain predicates"
+    (define-json-struct FlatContracts
+      [tag (contract 'ready)]
+      [num (contract positive?)])
+    (check-equal? (jsexpr-> FlatContracts (hasheq 'tag 'ready 'num 3))
+                  (FlatContracts 'ready 3))
+    (check-false (jsexpr-> FlatContracts (hasheq 'tag 'ready 'num "bad") #f))
+    (check-false (match (hasheq 'tag 'ready 'num "bad") [(^FlatContracts _ _) #t] [_ #f]))
     (check-exn exn:fail:contract?
+               (lambda () (jsexpr-> FlatContracts (hasheq 'tag 'other 'num 3)))))
+
+  (test-case "decoding: jsexpr-> (strict, default, and 1-arg decoder) on structs and combinators"
+    (check-equal? (jsexpr-> Pos p-hash) (Pos 10 5))
+    (check-false (jsexpr-> Pos p-hash-invalid #f))
+    (check-equal? (jsexpr-> Pos p-hash-invalid 'fallback) 'fallback)
+    (define default-ran? #f)
+    (check-equal? (jsexpr-> Pos p-hash (begin (set! default-ran? #t) 'unused))
+                  (Pos 10 5))
+    (check-false default-ran?)
+
+    (define decode-pos (jsexpr-> Pos))
+    (check-equal? (decode-pos p-hash) (Pos 10 5))
+    (check-false (decode-pos p-hash-invalid #f))
+    (check-equal? (decode-pos p-hash-invalid 'fallback) 'fallback)
+    (check-equal? (map decode-pos (list p-hash p-hash-2))
+                  (list (Pos 10 5) (Pos 3 30)))
+
+    (check-equal? (jsexpr-> Range r-hash)
+                  (Range (Pos 10 5) (Pos 20 15)))
+    (check-equal? (jsexpr-> (listof Pos) (list p-hash p-hash-2))
+                  (list (Pos 10 5) (Pos 3 30)))
+    (check-false (jsexpr-> (listof Pos) (list p-hash "bad") #f))
+
+    (check-equal? (jsexpr-> MaybePosHolder (hasheq)) (MaybePosHolder omitted))
+    (check-equal? (jsexpr-> MaybePosHolder (hasheq 'pos p-hash)) (MaybePosHolder (Pos 10 5)))
+    (check-equal? (jsexpr-> PosListHolder (hasheq 'items (list p-hash p-hash-2)))
+                  (PosListHolder (list (Pos 10 5) (Pos 3 30))))
+    (check-equal? (jsexpr-> PosHashHolder (hasheq 'items (hasheq 'a p-hash)))
+                  (PosHashHolder (hasheq 'a (Pos 10 5))))
+    (check-exn exn:fail:contract?
+               (lambda () (->jsexpr (hash "foo" 42))))
+    (check-exn exn:fail:contract?
+               (lambda () (jsexpr-> (hashof exact-integer?) (hash "foo" 42))))
+    (check-false (jsexpr-> (hashof exact-integer?) (hash "foo" 42) #f))
+    (check-exn exn:fail:syntax?
                (lambda ()
-                 (jsexpr->CustomContractHolder (hasheq 'item "bad")))))
+                 (convert-compile-time-error
+                   (jsexpr-> (hashof string? exact-integer?) (hash "foo" 42)))))
+    (check-exn exn:fail:contract?
+               (lambda () (PosHashHolder (make-hasheq (list (cons 'a pos-1))))))
 
-  (test-case "decoding: recursive type decodes nested structs"
-    (define tree-json
-      (hasheq 'value "root"
-              'children (list (hasheq 'value "leaf"
-                                      'children '()))))
-    (define tree (jsexpr->TreeNode tree-json))
-    (check-true (TreeNode? tree))
-    (check-true (TreeNode? (first (TreeNode-children tree))))
-    (check-equal? (TreeNode-value (first (TreeNode-children tree))) "leaf"))
+    (check-equal? (jsexpr-> OrPosHolder (hasheq 'item "hello")) (OrPosHolder "hello"))
+    (check-equal? (jsexpr-> OrPosHolder (hasheq 'item p-hash)) (OrPosHolder (Pos 10 5)))
+    (check-equal? (jsexpr-> MaybeOrPosHolder (hasheq)) (MaybeOrPosHolder omitted))
+    (check-equal? (jsexpr-> OrPosListHolder (hasheq 'items (list "a" p-hash)))
+                  (OrPosListHolder (list "a" (Pos 10 5))))
+    (check-equal? (jsexpr-> CustomContractHolder (hasheq 'item 1.0))
+                  (CustomContractHolder 1.0)))
 
-  (test-case "decoding: field errors include type, field, expected, value, and cause"
+  (test-case "decoding: strict error paths for missing, invalid, non-hash, rest, and hashof"
     (check-exn
       (lambda (e)
         (and (exn:fail:contract? e)
-             (regexp-match? #rx"jsexpr->TreeNode: failed to decode field" (exn-message e))
+             (regexp-match? #rx"failed to decode JSON value" (exn-message e))))
+      (lambda () (jsexpr-> Pos 42)))
+    (check-exn
+      (lambda (e)
+        (and (exn:fail:contract? e)
+             (regexp-match? #rx"missing required field" (exn-message e))
+             (regexp-match? #rx"field: 'char" (exn-message e))))
+      (lambda () (jsexpr-> Pos (hasheq 'line 1))))
+    (check-exn
+      (lambda (e)
+        (and (exn:fail:contract? e)
+             (regexp-match? #rx"failed to decode field" (exn-message e))
+             (regexp-match? #rx"field: 'pos" (exn-message e))))
+      (lambda () (jsexpr-> MaybePosHolder (hasheq 'pos "bad"))))
+    (check-exn exn:fail:contract?
+               (lambda () (jsexpr-> CustomContractHolder (hasheq 'item "bad"))))
+    (check-exn exn:fail:contract?
+               (lambda () (jsexpr-> PosHashHolder (hasheq 'items "not-a-hash"))))
+    (check-exn exn:fail:contract?
+               (lambda () (Extensible "ok" omitted "not-a-hash"))))
+
+  (test-case "decoding: rest fields and recursive structs"
+    (define json (hasheq 'name "tool" 'enabled #t 'count 3 'metadata (hasheq 'stable #t)))
+    (define decoded (jsexpr-> Extensible json))
+    (check-equal? decoded
+                  (Extensible "tool" #t (hasheq 'count 3 'metadata (hasheq 'stable #t))))
+    (check-equal? (->jsexpr decoded) json)
+
+    (define tree-json (hasheq 'value "root" 'children (list (hasheq 'value "leaf" 'children '()))))
+    (check-equal? (jsexpr-> TreeNode tree-json)
+                  (TreeNode "root" (list (TreeNode "leaf" '()))))
+    (check-exn
+      (lambda (e)
+        (and (exn:fail:contract? e)
+             (regexp-match? #rx"failed to decode field" (exn-message e))
              (regexp-match? #rx"type: 'TreeNode" (exn-message e))
-             (regexp-match? #rx"field: 'children" (exn-message e))
-             (regexp-match? #rx"expected: '\\(listof TreeNode\\)" (exn-message e))
-             (regexp-match? #rx"value: '\\(\"bad\"\\)" (exn-message e))
-             (regexp-match? #rx"cause:" (exn-message e))))
+             (regexp-match? #rx"field: 'children" (exn-message e))))
       (lambda ()
-        (jsexpr->TreeNode (hasheq 'value "root"
-                                  'children (list "bad"))))))
+        (jsexpr-> TreeNode (hasheq 'value "root" 'children (list "bad"))))))
 
-  (test-case "matching: nested Range-js hash"
-    (match r-hash
-      [(Range-js #:start (Pos-js #:line l))
-       (check-equal? l 10)]))
+  (test-case "matching: struct patterns, jsexpr, and ^Name match expanders"
+    (check-equal? (match pos-1 [(Pos #:line l) l] [_ #f]) 1)
+    (check-equal? (match pos-2 [(Pos l c) (list l c)] [_ #f]) '(2 20))
+    (check-false (match p-hash [(Pos #:line l) l] [_ #f]))
 
-  (test-case "matching: explicit schema guard for invalid hash"
-    (match p-hash-invalid
-      [(? Pos-js? (Pos-js _l _c)) (fail "Should not match invalid types")]
-      [_ (void)]))
-
-  (test-case "matching: variable capture against hash returns hash"
-    (match r-hash
-      [(Range-js s _e)
-       (check-true (hash? s))
-       (check-equal? (hash-ref s 'line) 10)]))
-
-  (test-case "matching: native struct destructuring"
-    (match (Range (Pos 10 5) (Pos 20 15))
-      [(Range (Pos l1 _c1) (Pos _l2 c2))
-       (check-equal? l1 10)
-       (check-equal? c2 15)]))
-
-  (test-case "matching: variable capture against struct returns struct"
-    (match (Range (Pos 10 5) (Pos 20 15))
-      [(Range s _e)
-       (check-true (Pos? s))
-       (check-equal? (Pos-line s) 10)]))
-
-  (test-case "matching: nested decode pattern with as-Range"
+    (check-equal? (match p-hash [(jsexpr Pos pos) (Pos-line pos)] [_ #f]) 10)
+    (check-equal? (match p-hash [(^Pos #:line l #:char c) (list l c)] [_ #f]) '(10 5))
+    (check-equal? (match p-hash [(^Pos l c) (list l c)] [_ #f]) '(10 5))
+    (check-false (match p-hash-invalid [(^Pos _ _) #t] [_ #f]))
+    (check-false (match p-hash-invalid [(jsexpr Pos _) #t] [_ #f]))
+    (check-exn exn:fail:syntax?
+               (lambda ()
+                 (convert-compile-time-error
+                   (match p-hash [(^Pos pos) pos] [_ #f]))))
+    (check-exn exn:fail:syntax?
+               (lambda ()
+                 (convert-compile-time-error
+                   (match pos-1 [(Pos #:line l #:char) l] [_ #f]))))
+    (check-exn exn:fail:syntax?
+               (lambda ()
+                 (convert-compile-time-error
+                   (match p-hash [(^Pos #:line) #t] [_ #f]))))
+    (check-false (match pos-1 [(jsexpr Pos _) #t] [_ #f]))
     (check-equal?
       (match r-hash
-        [(as-Range (Range #:start (Pos #:line sl #:char sc)
-                          #:end (Pos #:line el #:char ec)))
+        [(jsexpr Range (Range #:start (Pos #:line sl #:char sc)
+                              #:end (Pos #:line el #:char ec)))
          (list sl sc el ec)]
         [_ #f])
-      '(10 5 20 15)))
-
-  (test-case "Verify json-type-out exports"
-    (define e (Exported 10))
-    (check-true (Exported? e))
-    (check-equal? (Exported-x e) 10)
-
-    (define e-kw (Exported #:x 20))
-    (check-equal? (Exported-x e-kw) 20)
-
-    (check-match (hasheq 'x 30) (Exported-js 30))
-
-    (check-false (Exported-js? e))
-    (check-true (Exported-js? (hasheq 'x 40)))
-
+      '(10 5 20 15))
     (check-equal?
-      (match (hasheq 'x 41)
-        [(as-Exported ex) (Exported-x ex)]
+      (match (hasheq 'name "tool" 'count 3)
+        [(^Extensible #:name name #:extras extras) (list name extras)]
         [_ #f])
-      41)
+      (list "tool" (hasheq 'count 3)))
     (check-equal?
-      (match (hasheq 'x 42)
-        [(^Exported x) x]
+      (match (list p-hash p-hash-2)
+        [(jsexpr (listof Pos) ps) (map Pos-line ps)]
         [_ #f])
-      42)))
+      '(10 3)))
+
+  (test-case "jsexpr-has-key? handles non-hash intermediates safely"
+    (check-true (jsexpr-has-key? (hasheq 'a (hasheq 'b 1)) '(a b)))
+    (check-false (jsexpr-has-key? (hasheq 'a 1) '(a b)))
+    (check-false (jsexpr-has-key? 42 '(a)))
+    (check-true (jsexpr-has-key? 42 '())))
+
+  (test-case "cross-module exports work with both struct-out and json-out"
+    (check-equal? (ExportedStructOut-x (ExportedStructOut 10)) 10)
+    (check-equal? (ExportedStructOut-x (ExportedStructOut #:x 20)) 20)
+    (check-equal? (jsexpr-> ExportedStructOut (hasheq 'x 30)) (ExportedStructOut 30))
+    (check-equal? (match (hasheq 'x 40) [(jsexpr ExportedStructOut (ExportedStructOut #:x x)) x] [_ #f])
+                  40)
+
+    (check-equal? (ExportedJsonOut-x (ExportedJsonOut 11)) 11)
+    (check-equal? (jsexpr-> ExportedJsonOut (hasheq 'x 31)) (ExportedJsonOut 31))
+    (check-false (jsexpr-> ExportedJsonOut (hasheq 'x "bad") #f))
+    (check-equal? (match (hasheq 'x 41) [(jsexpr ExportedJsonOut ex) (ExportedJsonOut-x ex)] [_ #f])
+                  41)
+    (check-equal? (match (hasheq 'x 41) [(^ExportedJsonOut x) x] [_ #f]) 41)
+    (check-equal? (match (hasheq 'x 41) [(^ExportedJsonOut #:x x) x] [_ #f]) 41)))

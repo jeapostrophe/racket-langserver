@@ -105,7 +105,7 @@
   (test-case "omitted fmtSettings use shipped defaults"
     (with-clean-settings
       (lambda ()
-        (define fmt-settings (Fmt-Settings (Nothing) (Nothing) 80))
+        (define fmt-settings (Fmt-Settings omitted omitted 80))
         (set-formatting-settings! (Formatting-Settings 'fmt 'drracket fmt-settings))
         (update-configuration
           (json {#:formatting {#:documentFormatter "fmt"}}))

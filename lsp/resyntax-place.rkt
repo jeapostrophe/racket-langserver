@@ -72,7 +72,7 @@
                         (lambda (_event) (error 'run-resyntax/in-place "worker exited")))))
     (when (Resyntax-Failure? result)
       (error 'run-resyntax/in-place "~a" (Resyntax-Failure-message result)))
-    (map jsexpr->Resyntax-Result result)))
+    (jsexpr-> (listof Resyntax-Result) result)))
 
 (define (run-resyntax/in-place text uri)
   ;; A timeout can kill the caller without unwinding its locks. A nested helper
