@@ -49,15 +49,14 @@
         (set! token-map (token-list->interval-map (collect-tokens stx expanded styles src doc-text)))))
 
     (define (token-list->interval-map lst)
-      (define im (make-interval-map))
       (define interned-styles (make-hash))
       (define (intern-style type modifiers)
         (define key (cons type modifiers))
         (hash-ref! interned-styles key (lambda () key)))
-      (for ([tok (in-list lst)])
-        (define style (intern-style (SemanticToken-type tok) (SemanticToken-modifiers tok)))
-        (interval-map-set! im (SemanticToken-start tok) (SemanticToken-end tok) style))
-      im)
+      (make-interval-map
+        (for/list ([tok (in-list lst)])
+          (define style (intern-style (SemanticToken-type tok) (SemanticToken-modifiers tok)))
+          (cons (cons (SemanticToken-start tok) (SemanticToken-end tok)) style))))
 
     (define (rope->token-list im)
       (for/list ([(start end style) (in-interval-map im)])
