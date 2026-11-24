@@ -29,7 +29,7 @@
     [else start]))
 
 ;; An insert extends a range only when it starts strictly inside that range,
-;; matching #:interior 'extend.
+;; matching interval-rope-expand/extend.
 (define (expand-char-range range start end)
   (define increase (- end start))
   (define range-start (CharRange-start range))

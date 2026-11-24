@@ -26,16 +26,14 @@
 
 (require "interface.rkt"
          "char-range-edit.rkt"
-         "interval-map-edit.rkt"
          "position-journal.rkt"
          "../../common/interfaces.rkt"
          "../../common/path-util.rkt"
          (only-in "../../common/source.rkt" source-file-path)
          "../internal-types.rkt"
-         data/interval-map
+         "../../common/interval-map.rkt"
          drracket/check-syntax
          racket/class
-         racket/dict
          racket/list
          racket/match)
 
@@ -213,11 +211,11 @@
     ;; leftover `#lang` uses are omitted; those names must not leave this
     ;; document.
     (define/public (module-binding-uses)
-      (for*/list ([(range use-id) (in-dict use-at-position)]
+      (for*/list ([(use-start use-end use-id) (in-interval-map use-at-position)]
                   [def (in-value (hash-ref use->def use-id #f))]
                   [module-binding (in-value (and def (def->module-binding def)))]
                   #:when module-binding)
-        (cons (CharRange (car range) (cdr range)) module-binding)))
+        (cons (CharRange use-start use-end) module-binding)))
 
     ;; Each result is (cons live-definition-range Module-Binding). Local-only
     ;; definitions are omitted; those names must not leave this document.
@@ -270,8 +268,8 @@
     (define/override (expand start end)
       ;; Typing inside a name must stay one occurrence. Do not use the
       ;; interval-map default, which splits the range.
-      (interval-map-expand/policy! def-at-position start end #:interior 'extend)
-      (interval-map-expand/policy! use-at-position start end #:interior 'extend)
+      (interval-map-expand! def-at-position start end #:interior 'extend)
+      (interval-map-expand! use-at-position start end #:interior 'extend)
       (position-journal-record-expand! range-journal start end))
 
     (define/override (contract start end)

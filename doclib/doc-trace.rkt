@@ -108,7 +108,7 @@
       ;; inferred types included.
       (send inlay-hints build!))
 
-    ;; Named reads for services. Do not add getters that expose interval-maps.
+    ;; Named reads for services. Do not add getters that expose interval ropes.
     (define/public (get-hover) hovers)
     (define/public (get-declaration) decls)
     (define/public (get-typed-racket) typed-racket)

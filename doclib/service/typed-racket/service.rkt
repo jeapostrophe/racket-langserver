@@ -13,7 +13,7 @@
          racket/class
          racket/match
          racket/set
-         data/interval-map)
+         "../../../common/interval-map.rkt")
 
 (provide typed-racket%)
 
@@ -29,8 +29,8 @@
     (define diagnostics
       (mutable-seteq))
 
-    ;; Return start/end/text only. Callers must not hold or mutate the
-    ;; interval-map while expand/contract shifts ranges during an edit.
+    ;; Return the current bounds and text rather than a rope snapshot that
+    ;; callers could retain after edits replace the service's rope.
     (define/public (inferred-type-at pos)
       (interval-map-ref/bounds type-by-range pos #f))
 

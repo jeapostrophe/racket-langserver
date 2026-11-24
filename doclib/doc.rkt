@@ -34,7 +34,7 @@
          racket/set
          racket/list
          racket/string
-         data/interval-map
+         "../common/interval-map.rkt"
          "check-syntax.rkt"
          "hover.rkt"
          "service/hover/types.rkt"
@@ -327,35 +327,6 @@
   (-> Doc? (is-a?/c lsp-editor%))
   (send (Doc-text doc) copy))
 
-(define (interval-map-iterate-least/end>?/fallback intervals end)
-  (let loop ([iter (interval-map-iterate-first intervals)])
-    (cond
-      [(not iter) #f]
-      [else
-       (match-define (cons _ interval-end)
-         (interval-map-iterate-key intervals iter))
-       (if (> interval-end end)
-           iter
-           (loop (interval-map-iterate-next intervals iter)))])))
-
-(define maybe-interval-map-iterate-least/end>?
-  (dynamic-require 'data/interval-map
-                   'interval-map-iterate-least/end>?
-                   (lambda () interval-map-iterate-least/end>?/fallback)))
-
-(define (interval-map-overlap-values intervals start end)
-  (let loop ([iter (maybe-interval-map-iterate-least/end>? intervals start)]
-             [values (list)])
-    (cond
-      [(not iter) (reverse values)]
-      [else
-       (match-define (cons interval-start _)
-         (interval-map-iterate-key intervals iter))
-       (if (>= interval-start end)
-           (reverse values)
-           (loop (interval-map-iterate-next intervals iter)
-                 (cons (interval-map-iterate-value intervals iter) values)))])))
-
 ;; Return the absolute position of the opening delimiter of the innermost form
 ;; that contains `pos`, or #f when `pos` is outside any parsed form.
 (define/contract (doc-find-containing-paren doc pos)
@@ -562,7 +533,7 @@
 ;; docs map, build a `Hover-Card`, then render. Lookup stays here so
 ;; `hover.rkt` stays testable without expansion.
 ;;
-;; Performance: hot path is interval-map lookup plus limited reads from the
+;; Performance: hot path is interval rope lookup plus limited reads from the
 ;; live buffer. No re-lex, expand, or cross-file load. Do not wait for
 ;; `doc-trace-latest?`; shifted source detail and retained types may be wrong
 ;; or incomplete while a trace is old.

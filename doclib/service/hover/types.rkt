@@ -1,7 +1,7 @@
 #lang racket/base
 
 ;; Named hover-detail values from the hover service.
-;; Do not expose raw interval-maps from hover%.
+;; Do not expose raw interval ropes from hover%.
 ;;
 ;; Store absolute ranges only. Do not copy snippet text. `doc-hover` reads the
 ;; live buffer from those ranges, even when a trace is old. The snippet can be

@@ -7,9 +7,8 @@
          racket/class
          racket/list
          racket/bool
-         racket/dict
          racket/match
-         data/interval-map
+         "../../common/interval-map.rkt"
          "interface.rkt")
 
 (provide highlight%)
@@ -22,7 +21,7 @@
     (define token-map (make-interval-map))
 
     (define/override (get)
-      (interval-map->token-lst token-map))
+      (rope->token-list token-map))
 
     (define/override (reset)
       (set! styles '())
@@ -50,14 +49,19 @@
         (set! token-map (token-list->interval-map (collect-tokens stx expanded styles src doc-text)))))
 
     (define (token-list->interval-map lst)
-      (define interval-map (make-interval-map))
-      (for ([tok lst])
-        (interval-map-set! interval-map (SemanticToken-start tok) (SemanticToken-end tok) tok))
-      interval-map)
+      (define im (make-interval-map))
+      (define interned-styles (make-hash))
+      (define (intern-style type modifiers)
+        (define key (cons type modifiers))
+        (hash-ref! interned-styles key (lambda () key)))
+      (for ([tok (in-list lst)])
+        (define style (intern-style (SemanticToken-type tok) (SemanticToken-modifiers tok)))
+        (interval-map-set! im (SemanticToken-start tok) (SemanticToken-end tok) style))
+      im)
 
-    (define (interval-map->token-lst token-map)
-      (for/list ([(k v) (in-dict token-map)])
-        (SemanticToken (car k) (cdr k) (SemanticToken-type v) (SemanticToken-modifiers v))))
+    (define (rope->token-list im)
+      (for/list ([(start end style) (in-interval-map im)])
+        (SemanticToken start end (car style) (cdr style))))
     ))
 
 ;; A temporary structure to hold tokens
