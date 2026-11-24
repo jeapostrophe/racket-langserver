@@ -60,35 +60,17 @@
                (lambda () (rope:check-interval-rope! malformed-with-empty-child))))
 
   ;; ---------------------------------------------------------------------------
-  ;; 2. Bulk Snapshot Adoption & Validation
+  ;; 2. Sequence Iteration & Argument Validation
   ;; ---------------------------------------------------------------------------
-  (test-case "adopt-interval-snapshot construction and validation"
-    ;; Empty snapshot
-    (define empty-adopted (rope:adopt-interval-snapshot #() #()))
-    (check-true (rope:interval-rope-empty? empty-adopted))
-    (check-equal? (rope:interval-rope-count empty-adopted) 0)
-    (rope:check-interval-rope! empty-adopted)
-
-    ;; Single interval snapshot
-    (define single-adopted
-      (rope:adopt-interval-snapshot #(10 20 0) #(item-a)))
-    (check-equal? (rope:interval-rope->list single-adopted) '(((10 . 20) . item-a)))
-    (check-equal? (rope:interval-rope-count single-adopted) 1)
-    (rope:check-interval-rope! single-adopted)
-
-    ;; Multiple intervals with gaps and negative coordinates
-    (define multi-adopted
-      (rope:adopt-interval-snapshot #(-50 -20 0 -10 10 1 25 30 0) #(shared specific)))
-    (check-equal? (rope:interval-rope->list multi-adopted)
-                  '(((-50 . -20) . shared)
-                    ((-10 . 10) . specific)
-                    ((25 . 30) . shared)))
-    (check-equal? (rope:interval-rope-count multi-adopted) 3)
-    (rope:check-interval-rope! multi-adopted)
+  (test-case "in-interval-rope sequence and argument validation"
+    (define multi
+      (rope:interval-rope '(((-50 . -20) . shared)
+                            ((-10 . 10) . specific)
+                            ((25 . 30) . shared))))
 
     ;; in-interval-rope sequence yields 3 values: start end value
     (check-equal?
-      (for/list ([(start end val) (rope:in-interval-rope multi-adopted)])
+      (for/list ([(start end val) (rope:in-interval-rope multi)])
         (list start end val))
       '((-50 -20 shared)
         (-10 10 specific)
@@ -102,43 +84,35 @@
 
     ;; Early termination only evaluates needed elements
     (check-equal?
-      (for/first ([(start end val) (rope:in-interval-rope multi-adopted)]
+      (for/first ([(start end val) (rope:in-interval-rope multi)]
                   #:when (> start -20))
         (list start end val))
       '(-10 10 specific))
 
-    ;; in-interval-rope rejects non-IntervalRope
-    (check-exn exn:fail:contract?
-               (lambda () (rope:in-interval-rope 'not-a-rope)))
-
-    ;; Validation errors on malformed snapshots
-    (check-exn exn:fail:contract?
-               (lambda () (rope:adopt-interval-snapshot 'not-vector #())))
-    (check-exn exn:fail:contract?
-               (lambda () (rope:adopt-interval-snapshot #() 'not-vector)))
-    ;; Length not a multiple of 3
-    (check-exn #rx"multiple of 3"
-               (lambda () (rope:adopt-interval-snapshot #(0 5) #(v))))
-    ;; Non-integer start or end
-    (check-exn #rx"invalid sorted disjoint snapshot"
-               (lambda () (rope:adopt-interval-snapshot #(0 5.5 0) #(v))))
-    ;; Inverted interval (start >= end)
-    (check-exn #rx"invalid sorted disjoint snapshot"
-               (lambda () (rope:adopt-interval-snapshot #(5 5 0) #(v))))
-    (check-exn #rx"invalid sorted disjoint snapshot"
-               (lambda () (rope:adopt-interval-snapshot #(10 5 0) #(v))))
-    ;; Overlapping intervals (start < previous end)
-    (check-exn #rx"invalid sorted disjoint snapshot"
-               (lambda () (rope:adopt-interval-snapshot #(0 10 0 8 15 0) #(v))))
-    ;; Out-of-bounds decoded ID
-    (check-exn #rx"invalid sorted disjoint snapshot"
-               (lambda () (rope:adopt-interval-snapshot #(0 5 1) #(v)))))
+    ;; Public operations reject non-IntervalRope arguments with contract errors
+    (check-exn exn:fail:contract? (lambda () (rope:interval-rope-empty? 'not-a-rope)))
+    (check-exn exn:fail:contract? (lambda () (rope:interval-rope-origin 'not-a-rope)))
+    (check-exn exn:fail:contract? (lambda () (rope:interval-rope-span 'not-a-rope)))
+    (check-exn exn:fail:contract? (lambda () (rope:interval-rope-count 'not-a-rope)))
+    (check-exn exn:fail:contract? (lambda () (rope:interval-rope-ref 'not-a-rope 0)))
+    (check-exn exn:fail:contract? (lambda () (rope:interval-rope-ref/bounds 'not-a-rope 0)))
+    (check-exn exn:fail:contract? (lambda () (rope:interval-rope-overlap-values 'not-a-rope 0 1)))
+    (check-exn exn:fail:contract? (lambda () (rope:interval-rope-set 'not-a-rope 0 1 'v)))
+    (check-exn exn:fail:contract? (lambda () (rope:interval-rope-remove 'not-a-rope 0 1)))
+    (check-exn exn:fail:contract? (lambda () (rope:interval-rope-expand 'not-a-rope 0 1)))
+    (check-exn exn:fail:contract? (lambda () (rope:interval-rope-expand/extend 'not-a-rope 0 1)))
+    (check-exn exn:fail:contract? (lambda () (rope:interval-rope-contract 'not-a-rope 0 1)))
+    (check-exn exn:fail:contract? (lambda () (rope:interval-rope-update 'not-a-rope 0 1 add1 0)))
+    (check-exn exn:fail:contract? (lambda () (rope:interval-rope-cons 'not-a-rope 0 1 'v)))
+    (check-exn exn:fail:contract? (lambda () (rope:interval-rope->list 'not-a-rope)))
+    (check-exn exn:fail:contract? (lambda () (rope:interval-rope-for-each 'not-a-rope void)))
+    (check-exn exn:fail:contract? (lambda () (rope:in-interval-rope 'not-a-rope))))
 
   ;; ---------------------------------------------------------------------------
   ;; 3. Point Queries (ref and ref/bounds)
   ;; ---------------------------------------------------------------------------
   (test-case "point lookup: interval-rope-ref and interval-rope-ref/bounds"
-    (define r (rope:adopt-interval-snapshot #(10 20 0 30 40 1) #(first second)))
+    (define r (rope:interval-rope '(((10 . 20) . first) ((30 . 40) . second))))
 
     ;; Hit cases
     (check-equal? (rope:interval-rope-ref r 10) 'first)
@@ -178,7 +152,7 @@
   ;; 4. Range Overlap Queries (interval-rope-overlap-values)
   ;; ---------------------------------------------------------------------------
   (test-case "range overlap: interval-rope-overlap-values"
-    (define r (rope:adopt-interval-snapshot #(10 20 0 30 40 1 50 60 2) #(a b c)))
+    (define r (rope:interval-rope '(((10 . 20) . a) ((30 . 40) . b) ((50 . 60) . c))))
 
     ;; Range before origin: empty
     (check-equal? (rope:interval-rope-overlap-values r 0 5) '())
@@ -525,7 +499,7 @@
       (check-rope-equivalence current-rope ref)))
 
   (test-case "interval-rope iteration: for-each"
-    (define r (rope:adopt-interval-snapshot #(10 20 0 30 40 1 50 60 2) #(a b c)))
+    (define r (rope:interval-rope '(((10 . 20) . a) ((30 . 40) . b) ((50 . 60) . c))))
     (define collected '())
     (define ret
       (rope:interval-rope-for-each r
@@ -544,25 +518,97 @@
         (rope:interval-rope-for-each r (lambda (_s _e _v) (values 1 2 3))))))
 
   (test-case "interval-rope interior expand policies"
-    (define r (rope:adopt-interval-snapshot #(10 20 0) #(sym)))
+    (define r (rope:interval-rope '(((10 . 20) . sym))))
     ;; Interior split: splits into two pieces with gap
     (define r-split (rope:interval-rope-expand r 14 17 #:interior 'split))
+    (rope:check-interval-rope! r-split)
     (check-equal? (rope:interval-rope->list r-split)
                   '(((10 . 14) . sym) ((17 . 23) . sym)))
 
     ;; Interior extend: extends existing interval
     (define r-ext (rope:interval-rope-expand r 14 17 #:interior 'extend))
+    (rope:check-interval-rope! r-ext)
     (check-equal? (rope:interval-rope->list r-ext)
                   '(((10 . 23) . sym)))
 
     ;; Helper interval-rope-expand/extend
-    (check-equal? (rope:interval-rope->list (rope:interval-rope-expand/extend r 14 17))
+    (define r-ext-helper (rope:interval-rope-expand/extend r 14 17))
+    (rope:check-interval-rope! r-ext-helper)
+    (check-equal? (rope:interval-rope->list r-ext-helper)
                   '(((10 . 23) . sym)))
 
     ;; Boundary insertion: preserves split policy
     (define r-start (rope:interval-rope-expand/extend r 10 13))
+    (rope:check-interval-rope! r-start)
     (check-equal? (rope:interval-rope->list r-start)
                   '(((13 . 23) . sym)))
     (define r-end (rope:interval-rope-expand/extend r 20 23))
+    (rope:check-interval-rope! r-end)
     (check-equal? (rope:interval-rope->list r-end)
-                  '(((10 . 20) . sym)))))
+                  '(((10 . 20) . sym)))
+
+    ;; Exact boundary between two touching mapped intervals inserts gap without extending either
+    (define touching (rope:interval-rope '(((10 . 20) . left) ((20 . 30) . right))))
+    (define touching-exp (rope:interval-rope-expand/extend touching 20 23))
+    (rope:check-interval-rope! touching-exp)
+    (check-equal? (rope:interval-rope->list touching-exp)
+                  '(((10 . 20) . left) ((23 . 33) . right)))
+
+    ;; Insertion inside a gap or at a gap/interval boundary widens the gap without coalescing errors
+    (define with-gap (rope:interval-rope '(((10 . 20) . left) ((30 . 40) . right))))
+    (define gap-mid (rope:interval-rope-expand/extend with-gap 25 28))
+    (rope:check-interval-rope! gap-mid)
+    (check-equal? (rope:interval-rope->list gap-mid)
+                  '(((10 . 20) . left) ((33 . 43) . right)))
+    (define gap-start (rope:interval-rope-expand/extend with-gap 20 23))
+    (rope:check-interval-rope! gap-start)
+    (check-equal? (rope:interval-rope->list gap-start)
+                  '(((10 . 20) . left) ((33 . 43) . right)))
+    (define gap-end (rope:interval-rope-expand/extend with-gap 30 33))
+    (rope:check-interval-rope! gap-end)
+    (check-equal? (rope:interval-rope->list gap-end)
+                  '(((10 . 20) . left) ((33 . 43) . right)))
+
+    ;; Split expansion inside a gap widens the gap cleanly
+    (define gap-split (rope:interval-rope-expand with-gap 25 28 #:interior 'split))
+    (rope:check-interval-rope! gap-split)
+    (check-equal? (rope:interval-rope->list gap-split)
+                  '(((10 . 20) . left) ((33 . 43) . right))))
+
+  (test-case "boundary gap trimming and canonical equality"
+    (define base
+      (rope:interval-rope '(((0 . 10) . left) ((20 . 30) . mid) ((40 . 50) . right))))
+    (define trimmed-left (rope:interval-rope-remove base 0 10))
+    (rope:check-interval-rope! trimmed-left)
+    (check-equal? (rope:interval-rope-origin trimmed-left) 20)
+    (check-equal? (rope:interval-rope-span trimmed-left) 30)
+
+    (define trimmed-both (rope:interval-rope-remove trimmed-left 40 50))
+    (rope:check-interval-rope! trimmed-both)
+    (check-equal? (rope:interval-rope-origin trimmed-both) 20)
+    (check-equal? (rope:interval-rope-span trimmed-both) 10)
+
+    (define direct (rope:interval-rope '(((20 . 30) . mid))))
+    (check-equal? trimmed-both direct)
+
+    ;; Contraction exposing boundary gap also trims origin/span
+    (define contracted-left (rope:interval-rope-contract base 0 10))
+    (rope:check-interval-rope! contracted-left)
+    (check-equal? (rope:interval-rope-origin contracted-left) 10)
+    (check-equal? (rope:interval-rope-span contracted-left) 30))
+
+  (test-case "procedure validation on empty rope and constructor edge cases"
+    (check-exn exn:fail:contract?
+               (lambda () (rope:interval-rope-for-each rope:empty-interval-rope 'not-proc)))
+    (check-exn exn:fail:contract?
+               (lambda () (rope:interval-rope-update rope:empty-interval-rope 0 5 'not-proc 0)))
+    (check-exn exn:fail:contract?
+               (lambda () (rope:interval-rope 'not-a-list)))
+
+    ;; Out-of-order and overlapping constructor entries fall back cleanly
+    (define entries '(((20 . 30) . b) ((0 . 10) . a) ((5 . 25) . c) ((40 . 50) . d)))
+    (define r-mixed (rope:interval-rope entries))
+    (define ref (native:make-interval-map))
+    (for ([entry (in-list entries)])
+      (native:interval-map-set! ref (caar entry) (cdar entry) (cdr entry)))
+    (check-rope-equivalence r-mixed ref)))
