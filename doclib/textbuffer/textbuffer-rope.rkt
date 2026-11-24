@@ -10,7 +10,8 @@
          rope-line-end-offset
          rope-offset->line)
 
-(require racket/match
+(require "../../common/avl-operations.rkt"
+         racket/match
          (for-syntax racket/base))
 
 ;; Immutable rope with string leaves.
@@ -102,18 +103,6 @@
       (if (zero? (RopeLeaf-chars rope)) 0 1)
       (RopeNode-height rope)))
 
-;; For a balanced internal node, the balance factor is one of -1, 0, or 1.
-;; During a local AVL update, it can temporarily become -2 or 2 before
-;; `rebalance` restores the invariant.
-;; For arbitrary pairs of ropes ,the difference can be larger;
-;; `rope-concat` handles those cases recursively.
-(define (rope-balance-factor left right)
-  (- (rope-height right) (rope-height left)))
-
-(define (rope-node-balance-factor node)
-  (match-define (RopeNode* left right) node)
-  (rope-balance-factor left right))
-
 (define (rope-empty? rope)
   (zero? (rope-chars rope)))
 
@@ -164,58 +153,56 @@
      (make-leaf (string-append (RopeLeaf-text left) (RopeLeaf-text right)))]
     [else (make-node left right)]))
 
-(define (rotate-left l r)
-  (match-define (RopeNode* rl rr) r)
-  (join-ropes (join-ropes l rl) rr))
+(define-avl-operations
+  #:node-match RopeNode*
+  #:make-node make-node
+  #:height rope-height
+  #:empty? rope-empty?
+  #:tree-concat rope-concat-raw)
 
-(define (rotate-right l r)
-  (match-define (RopeNode* ll lr) l)
-  (join-ropes ll (join-ropes lr r)))
+(define (rope-leftmost-leaf rope)
+  (if (RopeLeaf? rope)
+      rope
+      (rope-leftmost-leaf (RopeNode-left rope))))
 
-(define (rotate-left-right l r)
-  (match-define (RopeNode* ll (RopeNode* lrl lrr)) l)
-  (join-ropes (join-ropes ll lrl) (join-ropes lrr r)))
+(define (rope-rightmost-leaf rope)
+  (if (RopeLeaf? rope)
+      rope
+      (rope-rightmost-leaf (RopeNode-right rope))))
 
-(define (rotate-right-left l r)
-  (match-define (RopeNode* (RopeNode* rll rlr) rr) r)
-  (join-ropes (join-ropes l rll) (join-ropes rlr rr)))
+;; (-> Rope? (values Rope? RopeLeaf?))
+;; Extracts the leftmost leaf from `rope`, returning the remaining rope and the leaf.
+(define (rope-pop-leftmost-leaf rope)
+  (if (RopeLeaf? rope)
+      (values empty-rope rope)
+      (let-values ([(rest leaf) (rope-pop-leftmost-leaf (RopeNode-left rope))])
+        (values (rope-concat-raw rest (RopeNode-right rope)) leaf))))
 
-;; Rebuild a rope from `left` and `right`, applying the needed AVL rotation if
-;; one side is taller by more than 1. In the imbalanced cases, the heavier side
-;; must already be a `RopeNode`, so the rotation helpers can destructure it
-;; without an extra type check.
-(define (rebalance left right)
-  (define balance-factor (rope-balance-factor left right))
-  (cond
-    [(< balance-factor -1)
-     (if (<= (rope-node-balance-factor left) 0)
-         (rotate-right left right)
-         (rotate-left-right left right))]
-    [(> balance-factor 1)
-     (if (>= (rope-node-balance-factor right) 0)
-         (rotate-left left right)
-         (rotate-right-left left right))]
-    [else (join-ropes left right)]))
+;; (-> Rope? (values Rope? RopeLeaf?))
+;; Extracts the rightmost leaf from `rope`, returning the remaining rope and the leaf.
+(define (rope-pop-rightmost-leaf rope)
+  (if (RopeLeaf? rope)
+      (values empty-rope rope)
+      (let-values ([(rest leaf) (rope-pop-rightmost-leaf (RopeNode-right rope))])
+        (values (rope-concat-raw (RopeNode-left rope) rest) leaf))))
 
-;; Concatenate two balanced ropes while preserving the balance invariant.
-;; The two input ropes may differ in height by more than 2. In that case, this
-;; descends into the heavier side until the join becomes local, then rebuilds
-;; and rebalances on the way back up.
-;; In the recursive case, the returned
-;; subtree can grow by at most 1 in height relative to the boundary subtree it
-;; replaces, so one local `rebalance` at the parent is sufficient.
+;; Concatenate two balanced ropes while preserving AVL invariants and coalescing
+;; mergeable boundary leaves at the seam.
+;;
+;; Leaf merging is performed at the seam prior to calling structural concatenation
+;; (`rope-concat-raw`). Merging during rotations could shrink subtrees and
+;; violate the structural AVL constructor invariant (height = 1 + max(hL, hR)).
 (define (rope-concat left right)
-  (define balance-factor (rope-balance-factor left right))
   (cond
     [(rope-empty? left) right]
     [(rope-empty? right) left]
-    [(< balance-factor -1)
-     (match-define (RopeNode* left-left left-right) left)
-     (rebalance left-left (rope-concat left-right right))]
-    [(> balance-factor 1)
-     (match-define (RopeNode* right-left right-right) right)
-     (rebalance (rope-concat left right-left) right-right)]
-    [else (join-ropes left right)]))
+    [(mergeable-leaves? (rope-rightmost-leaf left) (rope-leftmost-leaf right))
+     (define-values (prefix last-leaf) (rope-pop-rightmost-leaf left))
+     (define-values (suffix first-leaf) (rope-pop-leftmost-leaf right))
+     (define merged-leaf
+       (make-leaf (string-append (RopeLeaf-text last-leaf) (RopeLeaf-text first-leaf))))
+     (rope-concat-raw (rope-concat-raw prefix merged-leaf) suffix)]
+    [else (rope-concat-raw left right)]))
 
 ;; Build a balanced rope from the half-open leaf slice [start, end).
 ;; The input leaves are assumed to already be valid rope leaves.
@@ -263,11 +250,13 @@
        [(< offset left-chars)
         (define-values (split-left split-right)
           (rope-split-at-offset left offset))
-        (values split-left (rope-concat split-right right))]
+        ;; Reassemble using rope-concat-raw: split-right and right were already
+        ;; adjacent in the balanced tree, so no boundary leaves need merging.
+        (values split-left (rope-concat-raw split-right right))]
        [else
         (define-values (split-left split-right)
           (rope-split-at-offset right (- offset left-chars)))
-        (values (rope-concat left split-left) split-right)])]))
+        (values (rope-concat-raw left split-left) split-right)])]))
 
 ;; Return the absolute character offset of the `newline-index`th newline.
 ;; `newline-index` is zero-based over the newline characters in the rope.
@@ -368,3 +357,56 @@
 (define (rope-offset->line rope offset)
   (count-newlines-before-offset rope offset))
 
+(module+ test
+  (require rackunit)
+
+  ;; Content checks alone cannot detect height drift or unbalanced subtrees.
+  (define (check-rope rope)
+    (cond
+      [(RopeLeaf? rope)
+       (check-true (<= (rope-chars rope) limit-leaf-size))]
+      [else
+       (match-define (RopeNode* left right) rope)
+       (check-false (rope-empty? left))
+       (check-false (rope-empty? right))
+       (check-true (<= (abs (- (rope-height left) (rope-height right))) 1))
+       (check-equal? (rope-height rope)
+                     (add1 (max (rope-height left) (rope-height right))))
+       (check-equal? (rope-chars rope) (+ (rope-chars left) (rope-chars right)))
+       (check-equal? (rope-newlines rope) (+ (rope-newlines left) (rope-newlines right)))
+       (check-rope left)
+       (check-rope right)]))
+
+  (test-case "Boundary leaf coalescing in rope-concat"
+    (define r1 (rope-from-string "hello "))
+    (define r2 (rope-from-string "world"))
+    (define merged (rope-concat r1 r2))
+    (check-true (RopeLeaf? merged) "eligible small leaves coalesce into a single leaf")
+    (check-equal? (rope->string merged) "hello world")
+    (check-rope merged)
+    ;; Empty rope identity
+    (check-equal? (rope-concat empty-rope r1) r1)
+    (check-equal? (rope-concat r1 empty-rope) r1))
+
+  (test-case "Leaves exceeding limit-leaf-size remain distinct nodes"
+    (define big1 (make-leaf (make-string 600 #\a)))
+    (define big2 (make-leaf (make-string 600 #\b)))
+    (define big-combined (rope-concat big1 big2))
+    (check-true (RopeNode? big-combined) "leaves exceeding limit-leaf-size stay separate nodes")
+    (check-equal? (rope-chars big-combined) 1200)
+    (check-rope big-combined))
+
+  (test-case "AVL invariants survive boundary merging and repeated edits"
+    (define generator (make-pseudo-random-generator))
+    (parameterize ([current-pseudo-random-generator generator])
+      (random-seed 20261102)
+      (define text (make-string 20000 #\a))
+      (define rope (rope-from-string text))
+      (for ([step (in-range 500)])
+        (define start (random (add1 (string-length text))))
+        (define end (+ start (random (add1 (min 1000 (- (string-length text) start))))))
+        (define replacement (make-string (random 700) (if (even? step) #\newline #\b)))
+        (set! text (string-append (substring text 0 start) replacement (substring text end)))
+        (set! rope (rope-replace rope start end replacement))
+        (check-equal? (rope->string rope) text)
+        (check-rope rope)))))
