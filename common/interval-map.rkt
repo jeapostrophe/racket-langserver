@@ -3,8 +3,8 @@
 ;; Mutable interval-map abstraction backed by an immutable AVL interval rope.
 ;;
 ;; Provides an opaque mutable interval-map interface with logarithmic search and
-;; edit performance, O(1) snapshot capture for multi-pass iteration and concurrency,
-;; and compact flat-vector serialization for place and thread boundaries.
+;; edit performance and O(1) snapshot capture for multi-pass iteration and
+;; read concurrency.
 ;;
 ;; Architecture & Invariants:
 ;; - Encapsulation: interval-map wraps an immutable IntervalRope. Mutations
@@ -13,13 +13,10 @@
 ;; - Safe Concurrency & Stable Iteration: Point and range queries read the current
 ;;   rope reference without locking. Iteration via in-interval-map snapshots the
 ;;   rope at call time, allowing multi-pass traversal unaffected by subsequent
-;;   mutations to the container.
-;; - Value Identity Preservation: Snapshots deduplicate values using pointer
-;;   identity (hasheq) so adjacent intervals sharing identical values preserve
-;;   coalescing behavior across serialization and deserialization.
+;;   mutations to the container. Mutations are single-writer only (no internal
+;;   locking around set-interval-map-rope!), matching the single-owner Doc model.
 
-(require (prefix-in rope: "interval-rope.rkt")
-         racket/match)
+(require (prefix-in rope: "interval-rope.rkt"))
 
 (provide make-interval-map
          interval-map?
@@ -37,12 +34,9 @@
          interval-map-update*!
          ;; Conversion and iteration
          interval-map->list
-         in-interval-map
-         ;; Snapshot serialization
-         interval-map->snapshot
-         snapshot->interval-map)
+         in-interval-map)
 
-(struct interval-map ([rope #:mutable]))
+(struct interval-map ([rope #:mutable]) #:authentic)
 
 (define (check-interval-map! who v)
   (unless (interval-map? v)
@@ -52,9 +46,11 @@
 ;; Constructors & Predicates
 ;; -----------------------------------------------------------------------------
 
-;; (-> interval-map?)
-(define (make-interval-map)
-  (interval-map rope:empty-interval-rope))
+;; (->* () ((listof (cons/c (cons/c exact-integer? exact-integer?) any/c))) interval-map?)
+(define (make-interval-map [entries '()])
+  (interval-map (if (null? entries)
+                    rope:empty-interval-rope
+                    (rope:interval-rope entries))))
 
 ;; (-> interval-map? exact-nonnegative-integer?)
 (define (interval-map-count im)
@@ -90,6 +86,9 @@
      (check-interval-map! 'interval-map-ref/bounds im)
      (rope:interval-rope-ref/bounds (interval-map-rope im) pos default)]))
 
+;; Returns all mapped values overlapping [start, end) in order.
+;; When start = end = pos (cursor-only query), selects strictly containing
+;; intervals (interval-start < pos < interval-end), excluding boundary starts.
 ;; (-> interval-map? exact-integer? exact-integer? (listof any/c))
 (define (interval-map-overlap-values im start end)
   (check-interval-map! 'interval-map-overlap-values im)
@@ -137,62 +136,3 @@
 (define (in-interval-map im)
   (check-interval-map! 'in-interval-map im)
   (rope:in-interval-rope (interval-map-rope im)))
-
-;; -----------------------------------------------------------------------------
-;; Snapshot Serialization & Deserialization
-;; -----------------------------------------------------------------------------
-
-;; Serializes the interval-map into a flat [start, end, id] entries vector and
-;; an array of deduplicated encoded values.
-;;
-;; Value identity rationale:
-;; Deduplication uses hasheq to preserve value identity (eq?) across serialization.
-;; This ensures that adjacent intervals sharing the same value identity continue
-;; to coalesce on subsequent edits after deserialization.
-;;
-;; (->* (interval-map?) ((-> any/c any/c)) (list/c (vectorof exact-integer?) (vectorof any/c)))
-(define (interval-map->snapshot im [encode values])
-  (check-interval-map! 'interval-map->snapshot im)
-  (unless (procedure? encode)
-    (raise-argument-error 'interval-map->snapshot "procedure?" encode))
-
-  (define r (interval-map-rope im))
-  (define count (rope:interval-rope-count r))
-  (define entries (make-vector (* 3 count)))
-  (define ids (make-hasheq))
-  (define encoded '())
-  (define offset 0)
-
-  (rope:interval-rope-for-each
-    r
-    (lambda (start end value)
-      (define id
-        (hash-ref! ids value
-                   (lambda ()
-                     (define new-id (hash-count ids))
-                     (set! encoded (cons (encode value) encoded))
-                     new-id)))
-      (vector-set! entries offset start)
-      (vector-set! entries (+ offset 1) end)
-      (vector-set! entries (+ offset 2) id)
-      (set! offset (+ offset 3))))
-
-  (list entries (list->vector (reverse encoded))))
-
-;; Reconstructs an interval-map from a snapshot pair (list entries encoded-values).
-;;
-;; (->* ((list/c (vectorof exact-integer?) (vectorof any/c))) ((-> any/c any/c)) interval-map?)
-(define (snapshot->interval-map snapshot [decode values])
-  (unless (procedure? decode)
-    (raise-argument-error 'snapshot->interval-map "procedure?" decode))
-
-  (match snapshot
-    [(list (? vector? entries) (? vector? encoded))
-     (define decoded
-       (if (eq? decode values)
-           encoded
-           (for/vector ([value (in-vector encoded)])
-             (decode value))))
-     (interval-map (rope:adopt-interval-snapshot entries decoded))]
-    [_
-     (raise-argument-error 'snapshot->interval-map "(list/c vector? vector?)" snapshot)]))
