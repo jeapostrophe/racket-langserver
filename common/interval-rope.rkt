@@ -35,6 +35,7 @@
 
 (provide empty-interval-rope
          interval-rope
+         interval-rope-from-sorted
          interval-rope?
          interval-rope-empty?
          interval-rope-count
@@ -94,48 +95,50 @@
 ;; Constructors & Predicates
 ;; -----------------------------------------------------------------------------
 
+(define (build-balanced-leaves leaves from to)
+  (cond
+    [(= from to) empty-tree]
+    [(= (add1 from) to) (vector-ref leaves from)]
+    [else
+     (define mid (quotient (+ from to) 2))
+     (make-node (build-balanced-leaves leaves from mid)
+                (build-balanced-leaves leaves mid to))]))
+
 ;; (->* () ((listof (cons/c (cons/c exact-integer? exact-integer?) any/c))) IntervalRope?)
 (define (interval-rope [entries '()])
   (unless (list? entries)
     (raise-argument-error 'interval-rope "list?" entries))
+  (for/fold ([rope empty-interval-rope])
+            ([entry (in-list entries)])
+    (define-values (start end val) (parse-entry 'interval-rope entry))
+    (set-core rope start end val)))
+
+;; (-> (listof (cons/c (cons/c exact-integer? exact-integer?) any/c)) IntervalRope?)
+(define (interval-rope-from-sorted entries)
+  (unless (list? entries)
+    (raise-argument-error 'interval-rope-from-sorted "list?" entries))
   (cond
     [(null? entries) empty-interval-rope]
     [else
-     (define-values (first-start first-end first-val)
-       (parse-entry 'interval-rope (car entries)))
      (define leaves (make-vector (* 2 (length entries)) #f))
-     (vector-set! leaves 0 (IntervalLeaf (- first-end first-start) first-val))
-     (define used 1)
-     (define prev-end first-end)
-     (define remainder
-       (let loop ([rest (cdr entries)])
-         (cond
-           [(null? rest) '()]
-           [else
-            (define-values (start end val)
-              (parse-entry 'interval-rope (car rest)))
-            (cond
-              [(<= prev-end start)
-               (when (> start prev-end)
-                 (vector-set! leaves used (IntervalLeaf (- start prev-end) *gap*))
-                 (set! used (add1 used)))
-               (vector-set! leaves used (IntervalLeaf (- end start) val))
-               (set! used (add1 used))
-               (set! prev-end end)
-               (loop (cdr rest))]
-              [else rest])])))
-     (define (build-slice from to)
-       (cond
-         [(= from to) empty-tree]
-         [(= (add1 from) to) (vector-ref leaves from)]
-         [else
-          (define mid (quotient (+ from to) 2))
-          (make-node (build-slice from mid) (build-slice mid to))]))
-     (define prefix-rope (IntervalRope first-start (build-slice 0 used)))
-     (for/fold ([rope prefix-rope])
-               ([entry (in-list remainder)])
-       (define-values (start end val) (parse-entry 'interval-rope entry))
-       (set-core rope start end val))]))
+     (define-values (first-start _prev-end used)
+       (for/fold ([first-start #f] [prev-end #f] [used 0])
+                 ([entry (in-list entries)])
+         (define-values (start end val) (parse-entry 'interval-rope-from-sorted entry))
+         (when (and prev-end (< start prev-end))
+           (raise-arguments-error 'interval-rope-from-sorted
+                                  "entries are not sorted and non-overlapping"
+                                  "previous end" prev-end
+                                  "start" start))
+         (define next-used
+           (cond
+             [(and prev-end (> start prev-end))
+              (vector-set! leaves used (IntervalLeaf (- start prev-end) *gap*))
+              (add1 used)]
+             [else used]))
+         (vector-set! leaves next-used (IntervalLeaf (- end start) val))
+         (values (or first-start start) end (add1 next-used))))
+     (IntervalRope first-start (build-balanced-leaves leaves 0 used))]))
 
 ;; (-> any/c boolean?)
 (define (interval-rope? v)

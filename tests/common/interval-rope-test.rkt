@@ -618,10 +618,38 @@
     (check-exn #rx"interval-rope:"
                (lambda () (rope:interval-rope '(((20 . 30) . b) ((0 . 10) . a) ((15 . 15) . bad)))))
 
-    ;; Out-of-order and overlapping constructor entries fall back cleanly
+    ;; Out-of-order and overlapping constructor entries use set semantics
     (define entries '(((20 . 30) . b) ((0 . 10) . a) ((5 . 25) . c) ((40 . 50) . d)))
     (define r-mixed (rope:interval-rope entries))
     (define ref (native:make-interval-map))
     (for ([entry (in-list entries)])
       (native:interval-map-set! ref (caar entry) (cdar entry) (cdr entry)))
-    (check-rope-equivalence r-mixed ref)))
+    (check-rope-equivalence r-mixed ref))
+
+  (test-case "interval-rope-from-sorted bulk constructor and validation"
+    (define r-empty (rope:interval-rope-from-sorted '()))
+    (check-eq? r-empty rope:empty-interval-rope)
+    (rope:check-interval-rope! r-empty)
+
+    ;; Sorted disjoint entries with both touching boundaries and gaps
+    (define sorted-entries
+      '(((0 . 5) . a) ((5 . 10) . b) ((20 . 30) . c) ((30 . 35) . d) ((50 . 60) . e)))
+    (define r-sorted (rope:interval-rope-from-sorted sorted-entries))
+    (define ref-sorted (native:make-interval-map))
+    (for ([entry (in-list sorted-entries)])
+      (native:interval-map-set! ref-sorted (caar entry) (cdar entry) (cdr entry)))
+    (check-rope-equivalence r-sorted ref-sorted)
+
+    ;; Rejects non-list, malformed entries, invalid bounds, out-of-order, and overlapping entries
+    (check-exn #rx"interval-rope-from-sorted:"
+               (lambda () (rope:interval-rope-from-sorted 'not-a-list)))
+    (check-exn #rx"interval-rope-from-sorted:"
+               (lambda () (rope:interval-rope-from-sorted '(bad))))
+    (check-exn #rx"interval-rope-from-sorted:"
+               (lambda () (rope:interval-rope-from-sorted '((10 . 20)))))
+    (check-exn #rx"interval-rope-from-sorted:"
+               (lambda () (rope:interval-rope-from-sorted '(((0 . 5) . a) ((10 . 10) . bad)))))
+    (check-exn #rx"interval-rope-from-sorted:"
+               (lambda () (rope:interval-rope-from-sorted '(((10 . 20) . a) ((0 . 5) . b)))))
+    (check-exn #rx"interval-rope-from-sorted:"
+               (lambda () (rope:interval-rope-from-sorted '(((0 . 10) . a) ((5 . 15) . b)))))))
