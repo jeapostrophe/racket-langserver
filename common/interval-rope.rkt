@@ -7,7 +7,7 @@
 ;; Design:
 ;; 1. Immutability:
 ;;    IntervalRope is a pure value. All transformation functions (set, remove,
-;;    expand, contract, update, cons) return a new IntervalRope without mutating
+;;    expand, contract, update) return a new IntervalRope without mutating
 ;;    existing nodes or wrappers. Snapshots and concurrent place reads require
 ;;    zero copying or synchronization.
 ;;
@@ -381,9 +381,7 @@
            (>= base end))
        acc]
       [(IntervalLeaf? tree)
-       (if (eq? (IntervalLeaf-value tree) *gap*)
-           acc
-           (cons (IntervalLeaf-value tree) acc))]
+       (cons (IntervalLeaf-value tree) acc)]
       [else
        (define left (IntervalNode-left tree))
        (define right (IntervalNode-right tree))
@@ -604,11 +602,9 @@
     (cond
       [(zero? (tree-count tree)) acc]
       [(IntervalLeaf? tree)
-       (if (eq? (IntervalLeaf-value tree) *gap*)
-           acc
-           (cons (cons (cons base (+ base (IntervalLeaf-span tree)))
-                       (IntervalLeaf-value tree))
-                 acc))]
+       (cons (cons (cons base (+ base (IntervalLeaf-span tree)))
+                   (IntervalLeaf-value tree))
+             acc)]
       [else
        (define left (IntervalNode-left tree))
        (define right (IntervalNode-right tree))
@@ -625,9 +621,8 @@
     (cond
       [(zero? (tree-count tree)) (void)]
       [(IntervalLeaf? tree)
-       (unless (eq? (IntervalLeaf-value tree) *gap*)
-         (proc base (+ base (IntervalLeaf-span tree)) (IntervalLeaf-value tree))
-         (void))]
+       (proc base (+ base (IntervalLeaf-span tree)) (IntervalLeaf-value tree))
+       (void)]
       [else
        (define left (IntervalNode-left tree))
        (define right (IntervalNode-right tree))

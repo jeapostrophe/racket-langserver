@@ -48,9 +48,7 @@
 
 ;; (->* () ((listof (cons/c (cons/c exact-integer? exact-integer?) any/c))) interval-map?)
 (define (make-interval-map [entries '()])
-  (interval-map (if (null? entries)
-                    rope:empty-interval-rope
-                    (rope:interval-rope entries))))
+  (interval-map (rope:interval-rope entries)))
 
 ;; (-> interval-map? exact-nonnegative-integer?)
 (define (interval-map-count im)
