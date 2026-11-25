@@ -76,7 +76,7 @@
      (check-interval-map! 'interval-map-ref im)
      (rope:interval-rope-ref (interval-map-rope im) pos default)]))
 
-;; (->* (interval-map? exact-integer?) (any/c) (values exact-integer? exact-integer? any/c))
+;; (->* (interval-map? exact-integer?) (any/c) (values (or/c exact-integer? #f) (or/c exact-integer? #f) any/c))
 (define interval-map-ref/bounds
   (case-lambda
     [(im pos)
@@ -119,9 +119,14 @@
   (set-interval-map-rope! im (rope:interval-rope-contract (interval-map-rope im) start end)))
 
 ;; (->* (interval-map? exact-integer? exact-integer? (-> any/c any/c)) (any/c) void?)
-(define (interval-map-update*! im start end updater [default null])
-  (check-interval-map! 'interval-map-update*! im)
-  (set-interval-map-rope! im (rope:interval-rope-update (interval-map-rope im) start end updater default)))
+(define interval-map-update*!
+  (case-lambda
+    [(im start end updater)
+     (check-interval-map! 'interval-map-update*! im)
+     (set-interval-map-rope! im (rope:interval-rope-update (interval-map-rope im) start end updater))]
+    [(im start end updater default)
+     (check-interval-map! 'interval-map-update*! im)
+     (set-interval-map-rope! im (rope:interval-rope-update (interval-map-rope im) start end updater default))]))
 
 ;; -----------------------------------------------------------------------------
 ;; Conversion & Iteration

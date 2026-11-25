@@ -533,7 +533,7 @@
 ;; docs map, build a `Hover-Card`, then render. Lookup stays here so
 ;; `hover.rkt` stays testable without expansion.
 ;;
-;; Performance: hot path is interval rope lookup plus limited reads from the
+;; Performance: hot path is interval-map lookup plus limited reads from the
 ;; live buffer. No re-lex, expand, or cross-file load. Do not wait for
 ;; `doc-trace-latest?`; shifted source detail and retained types may be wrong
 ;; or incomplete while a trace is old.
@@ -812,9 +812,11 @@
   (define req-start (doc-pos->abs-pos doc (Range-start range)))
   (define req-end (doc-pos->abs-pos doc (Range-end range)))
   (define trace-actions
-    (interval-map-overlap-values (send doc-trace get-quickfixs)
-                                 req-start
-                                 req-end))
+    (if (<= req-start req-end)
+        (interval-map-overlap-values (send doc-trace get-quickfixs)
+                                     req-start
+                                     req-end)
+        '()))
 
   (define resyntax-actions
     (for/list ([res (in-list (doc-get-resyntax-results doc))]

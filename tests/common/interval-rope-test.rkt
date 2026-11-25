@@ -3,6 +3,7 @@
 (require rackunit
          (prefix-in native: data/interval-map)
          racket/dict
+         racket/match
          (prefix-in rope: "../../common/interval-rope.rkt")
          (prefix-in rope: (submod "../../common/interval-rope.rkt" test-support)))
 
@@ -51,13 +52,18 @@
     (check-equal? (rope:interval-rope-span init-rope) 25)
     (rope:check-interval-rope! init-rope)
 
-    ;; Invariant checker properly rejects malformed nodes with empty children
+    ;; Invariant checker rejects malformed nodes and unnormalized zero-count roots
     (define malformed-with-empty-child
       (rope:IntervalRope 0 (rope:IntervalNode rope:empty-tree
                                               (rope:IntervalLeaf 10 'v)
                                               10 2 1)))
     (check-exn #rx"internal node has empty child"
-               (lambda () (rope:check-interval-rope! malformed-with-empty-child))))
+               (lambda () (rope:check-interval-rope! malformed-with-empty-child)))
+    (match-define (rope:IntervalLeaf _ gap-val) rope:empty-tree)
+    (define unnormalized-gap
+      (rope:IntervalRope 0 (rope:IntervalLeaf 10 gap-val)))
+    (check-exn #rx"zero-count rope has non-empty root"
+               (lambda () (rope:check-interval-rope! unnormalized-gap))))
 
   ;; ---------------------------------------------------------------------------
   ;; 2. Sequence Iteration & Argument Validation
@@ -100,10 +106,8 @@
     (check-exn exn:fail:contract? (lambda () (rope:interval-rope-set 'not-a-rope 0 1 'v)))
     (check-exn exn:fail:contract? (lambda () (rope:interval-rope-remove 'not-a-rope 0 1)))
     (check-exn exn:fail:contract? (lambda () (rope:interval-rope-expand 'not-a-rope 0 1)))
-    (check-exn exn:fail:contract? (lambda () (rope:interval-rope-expand/extend 'not-a-rope 0 1)))
     (check-exn exn:fail:contract? (lambda () (rope:interval-rope-contract 'not-a-rope 0 1)))
     (check-exn exn:fail:contract? (lambda () (rope:interval-rope-update 'not-a-rope 0 1 add1 0)))
-    (check-exn exn:fail:contract? (lambda () (rope:interval-rope-cons 'not-a-rope 0 1 'v)))
     (check-exn exn:fail:contract? (lambda () (rope:interval-rope->list 'not-a-rope)))
     (check-exn exn:fail:contract? (lambda () (rope:interval-rope-for-each 'not-a-rope void)))
     (check-exn exn:fail:contract? (lambda () (rope:in-interval-rope 'not-a-rope))))
@@ -134,10 +138,10 @@
     (define-values (ms me mv) (rope:interval-rope-ref/bounds r 25 'miss))
     (check-equal? (list ms me mv) '(#f #f miss))
 
-    ;; Unmapped key with absent default raises error
-    (check-exn #rx"no mapping found"
+    ;; Unmapped key with absent default raises error blaming the called function
+    (check-exn #rx"interval-rope-ref: no mapping found"
                (lambda () (rope:interval-rope-ref r 25)))
-    (check-exn #rx"no mapping found"
+    (check-exn #rx"interval-rope-ref/bounds: no mapping found"
                (lambda () (rope:interval-rope-ref/bounds r 25)))
 
     ;; Argument contract violations (non-integers and inexact numbers)
@@ -397,20 +401,20 @@
     (check-equal? (rope:interval-rope-count r-neq-contracted) 2))
 
   ;; ---------------------------------------------------------------------------
-  ;; 8. Pure In-Place Updates (update and cons)
+  ;; 8. Pure In-Place Updates (update)
   ;; ---------------------------------------------------------------------------
-  (test-case "interval-rope-update and interval-rope-cons"
+  (test-case "interval-rope-update"
     (define r0 (rope:interval-rope-set (rope:interval-rope) 10 20 '(a)))
     (define ref (native:make-interval-map))
     (native:interval-map-set! ref 10 20 '(a))
 
-    ;; cons over existing interval
-    (define r1 (rope:interval-rope-cons r0 12 18 'b))
+    ;; update over existing interval
+    (define r1 (rope:interval-rope-update r0 12 18 (lambda (old) (cons 'b old))))
     (native:interval-map-cons*! ref 12 18 'b)
     (check-rope-equivalence r1 ref)
 
-    ;; cons across unmapped gaps using default
-    (define r2 (rope:interval-rope-cons r1 5 25 'c '()))
+    ;; update across unmapped gaps using default
+    (define r2 (rope:interval-rope-update r1 5 25 (lambda (old) (cons 'c old)) '()))
     (native:interval-map-cons*! ref 5 25 'c '())
     (check-rope-equivalence r2 ref)
 
@@ -531,40 +535,43 @@
     (check-equal? (rope:interval-rope->list r-ext)
                   '(((10 . 23) . sym)))
 
-    ;; Helper interval-rope-expand/extend
-    (define r-ext-helper (rope:interval-rope-expand/extend r 14 17))
-    (rope:check-interval-rope! r-ext-helper)
-    (check-equal? (rope:interval-rope->list r-ext-helper)
-                  '(((10 . 23) . sym)))
+    ;; Extend expansion supports false interval values
+    (define r-false
+      (rope:interval-rope-expand (rope:interval-rope-set (rope:interval-rope) 10 20 #f)
+                                 15 18
+                                 #:interior 'extend))
+    (rope:check-interval-rope! r-false)
+    (check-equal? (rope:interval-rope->list r-false)
+                  '(((10 . 23) . #f)))
 
     ;; Boundary insertion: preserves split policy
-    (define r-start (rope:interval-rope-expand/extend r 10 13))
+    (define r-start (rope:interval-rope-expand r 10 13 #:interior 'extend))
     (rope:check-interval-rope! r-start)
     (check-equal? (rope:interval-rope->list r-start)
                   '(((13 . 23) . sym)))
-    (define r-end (rope:interval-rope-expand/extend r 20 23))
+    (define r-end (rope:interval-rope-expand r 20 23 #:interior 'extend))
     (rope:check-interval-rope! r-end)
     (check-equal? (rope:interval-rope->list r-end)
                   '(((10 . 20) . sym)))
 
     ;; Exact boundary between two touching mapped intervals inserts gap without extending either
     (define touching (rope:interval-rope '(((10 . 20) . left) ((20 . 30) . right))))
-    (define touching-exp (rope:interval-rope-expand/extend touching 20 23))
+    (define touching-exp (rope:interval-rope-expand touching 20 23 #:interior 'extend))
     (rope:check-interval-rope! touching-exp)
     (check-equal? (rope:interval-rope->list touching-exp)
                   '(((10 . 20) . left) ((23 . 33) . right)))
 
     ;; Insertion inside a gap or at a gap/interval boundary widens the gap without coalescing errors
     (define with-gap (rope:interval-rope '(((10 . 20) . left) ((30 . 40) . right))))
-    (define gap-mid (rope:interval-rope-expand/extend with-gap 25 28))
+    (define gap-mid (rope:interval-rope-expand with-gap 25 28 #:interior 'extend))
     (rope:check-interval-rope! gap-mid)
     (check-equal? (rope:interval-rope->list gap-mid)
                   '(((10 . 20) . left) ((33 . 43) . right)))
-    (define gap-start (rope:interval-rope-expand/extend with-gap 20 23))
+    (define gap-start (rope:interval-rope-expand with-gap 20 23 #:interior 'extend))
     (rope:check-interval-rope! gap-start)
     (check-equal? (rope:interval-rope->list gap-start)
                   '(((10 . 20) . left) ((33 . 43) . right)))
-    (define gap-end (rope:interval-rope-expand/extend with-gap 30 33))
+    (define gap-end (rope:interval-rope-expand with-gap 30 33 #:interior 'extend))
     (rope:check-interval-rope! gap-end)
     (check-equal? (rope:interval-rope->list gap-end)
                   '(((10 . 20) . left) ((33 . 43) . right)))
@@ -604,6 +611,12 @@
                (lambda () (rope:interval-rope-update rope:empty-interval-rope 0 5 'not-proc 0)))
     (check-exn exn:fail:contract?
                (lambda () (rope:interval-rope 'not-a-list)))
+    (check-exn #rx"interval-rope:"
+               (lambda () (rope:interval-rope '(bad))))
+    (check-exn #rx"interval-rope:"
+               (lambda () (rope:interval-rope '((10 . 20)))))
+    (check-exn #rx"interval-rope:"
+               (lambda () (rope:interval-rope '(((20 . 30) . b) ((0 . 10) . a) ((15 . 15) . bad)))))
 
     ;; Out-of-order and overlapping constructor entries fall back cleanly
     (define entries '(((20 . 30) . b) ((0 . 10) . a) ((5 . 25) . c) ((40 . 50) . d)))

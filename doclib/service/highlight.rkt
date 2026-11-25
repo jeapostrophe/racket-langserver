@@ -21,7 +21,7 @@
     (define token-map (make-interval-map))
 
     (define/override (get)
-      (rope->token-list token-map))
+      (interval-map->token-list token-map))
 
     (define/override (reset)
       (set! styles '())
@@ -58,7 +58,7 @@
           (define style (intern-style (SemanticToken-type tok) (SemanticToken-modifiers tok)))
           (cons (cons (SemanticToken-start tok) (SemanticToken-end tok)) style))))
 
-    (define (rope->token-list im)
+    (define (interval-map->token-list im)
       (for/list ([(start end style) (in-interval-map im)])
         (SemanticToken start end (car style) (cdr style))))
     ))

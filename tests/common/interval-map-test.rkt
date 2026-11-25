@@ -94,6 +94,8 @@
 
   (test-case "update*!"
     (define im (make-interval-map))
+    (check-exn #rx"no mapping found"
+               (lambda () (interval-map-update*! im 0 10 add1)))
     (interval-map-update*! im 20 30 (lambda (old) (string-append old "!")) "init")
     (check-equal? (interval-map-ref im 25) "init!")
     (interval-map-update*! im 20 30 (lambda (old) (string-append old "?")) "fallback")

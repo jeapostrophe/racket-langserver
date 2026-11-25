@@ -140,13 +140,11 @@
            (<= (RopeLeaf-chars right) small-leaf-size)
            (<= combined-chars good-leaf-size))))
 
-;; Combine two ropes without recursive rebalancing.
-;; Empty ropes are ignored, and adjacent mergeable leaves are coalesced into a
-;; single leaf to avoid unnecessary internal nodes.
+;; Combine two non-empty ropes without recursive rebalancing.
+;; Adjacent mergeable leaves are coalesced into a single leaf to avoid
+;; unnecessary internal nodes.
 (define (join-ropes left right)
   (cond
-    [(rope-empty? left) right]
-    [(rope-empty? right) left]
     [(and (RopeLeaf? left)
           (RopeLeaf? right)
           (mergeable-leaves? left right))

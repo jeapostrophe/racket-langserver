@@ -68,7 +68,7 @@
     (define fence-language
       (if (eq? source-kind 'rhombus) "rhombus" "racket"))
 
-    ;; Do not expose interval ropes. Bounds are the atomic range over which this
+    ;; Do not expose interval-maps. Bounds are the atomic range over which this
     ;; exact winner remains active.
     (define/public (annotation-at pos)
       (define-values (start end stored-annotation)
@@ -78,7 +78,7 @@
               (and stored-annotation
                    (Stored-Hover-Annotation-annotation stored-annotation))))
 
-    ;; Do not expose interval ropes. Returns start, end, Hover-Detail, or #f #f #f.
+    ;; Do not expose interval-maps. Returns start, end, Hover-Detail, or #f #f #f.
     ;; Replay may return #f when a deletion broke the detail. Treat that as a miss.
     (define/public (source-detail-at pos)
       (define-values (start end stored-detail)
