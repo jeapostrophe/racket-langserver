@@ -49,18 +49,13 @@
         (set! token-map (token-list->interval-map (collect-tokens stx expanded styles src doc-text)))))
 
     (define (token-list->interval-map lst)
-      (define interned-styles (make-hash))
-      (define (intern-style type modifiers)
-        (define key (cons type modifiers))
-        (hash-ref! interned-styles key (lambda () key)))
       (make-interval-map
         (for/list ([tok (in-list lst)])
-          (define style (intern-style (SemanticToken-type tok) (SemanticToken-modifiers tok)))
-          (cons (cons (SemanticToken-start tok) (SemanticToken-end tok)) style))))
+          (cons (cons (SemanticToken-start tok) (SemanticToken-end tok)) tok))))
 
     (define (interval-map->token-list im)
-      (for/list ([(start end style) (in-interval-map im)])
-        (SemanticToken start end (car style) (cdr style))))
+      (for/list ([(start end tok) (in-interval-map im)])
+        (SemanticToken start end (SemanticToken-type tok) (SemanticToken-modifiers tok))))
     ))
 
 ;; A temporary structure to hold tokens
