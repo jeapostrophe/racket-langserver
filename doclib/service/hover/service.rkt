@@ -18,7 +18,7 @@
          "../position-journal.rkt"
          racket/class
          racket/set
-         data/interval-map
+         "../../../common/interval-map.rkt"
          drracket/check-syntax
          (only-in "../../lexer.rkt"
                   LexerState-language-policy

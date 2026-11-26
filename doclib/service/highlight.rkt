@@ -7,9 +7,8 @@
          racket/class
          racket/list
          racket/bool
-         racket/dict
          racket/match
-         data/interval-map
+         "../../common/interval-map.rkt"
          "interface.rkt")
 
 (provide highlight%)
@@ -22,7 +21,7 @@
     (define token-map (make-interval-map))
 
     (define/override (get)
-      (interval-map->token-lst token-map))
+      (interval-map->token-list token-map))
 
     (define/override (reset)
       (set! styles '())
@@ -50,14 +49,13 @@
         (set! token-map (token-list->interval-map (collect-tokens stx expanded styles src doc-text)))))
 
     (define (token-list->interval-map lst)
-      (define interval-map (make-interval-map))
-      (for ([tok lst])
-        (interval-map-set! interval-map (SemanticToken-start tok) (SemanticToken-end tok) tok))
-      interval-map)
+      (make-interval-map
+        (for/list ([tok (in-list lst)])
+          (cons (cons (SemanticToken-start tok) (SemanticToken-end tok)) tok))))
 
-    (define (interval-map->token-lst token-map)
-      (for/list ([(k v) (in-dict token-map)])
-        (SemanticToken (car k) (cdr k) (SemanticToken-type v) (SemanticToken-modifiers v))))
+    (define (interval-map->token-list im)
+      (for/list ([(start end tok) (in-interval-map im)])
+        (SemanticToken start end (SemanticToken-type tok) (SemanticToken-modifiers tok))))
     ))
 
 ;; A temporary structure to hold tokens

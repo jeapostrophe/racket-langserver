@@ -11,10 +11,9 @@
 (require "../common/source.rkt"
          "check-syntax-compat.rkt"
          "../common/interfaces.rkt"
+         "../common/interval-map.rkt"
          racket/contract
-         racket/dict
-         racket/logging
-         data/interval-map)
+         racket/logging)
 
 (provide
   ExpandResult
@@ -104,6 +103,6 @@
     `(interval-map-of ,(contract-name value-flat/c))
     (lambda (m)
       (and (interval-map? m)
-           (for/and ([(k value) (in-dict m)])
+           (for/and ([(start end value) (in-interval-map m)])
              (value? value))))))
 

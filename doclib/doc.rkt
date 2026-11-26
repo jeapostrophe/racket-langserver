@@ -34,7 +34,7 @@
          racket/set
          racket/list
          racket/string
-         data/interval-map
+         "../common/interval-map.rkt"
          "check-syntax.rkt"
          "hover.rkt"
          "service/hover/types.rkt"
@@ -326,35 +326,6 @@
 (define/contract (doc-copy-text-buffer doc)
   (-> Doc? (is-a?/c lsp-editor%))
   (send (Doc-text doc) copy))
-
-(define (interval-map-iterate-least/end>?/fallback intervals end)
-  (let loop ([iter (interval-map-iterate-first intervals)])
-    (cond
-      [(not iter) #f]
-      [else
-       (match-define (cons _ interval-end)
-         (interval-map-iterate-key intervals iter))
-       (if (> interval-end end)
-           iter
-           (loop (interval-map-iterate-next intervals iter)))])))
-
-(define maybe-interval-map-iterate-least/end>?
-  (dynamic-require 'data/interval-map
-                   'interval-map-iterate-least/end>?
-                   (lambda () interval-map-iterate-least/end>?/fallback)))
-
-(define (interval-map-overlap-values intervals start end)
-  (let loop ([iter (maybe-interval-map-iterate-least/end>? intervals start)]
-             [values (list)])
-    (cond
-      [(not iter) (reverse values)]
-      [else
-       (match-define (cons interval-start _)
-         (interval-map-iterate-key intervals iter))
-       (if (>= interval-start end)
-           (reverse values)
-           (loop (interval-map-iterate-next intervals iter)
-                 (cons (interval-map-iterate-value intervals iter) values)))])))
 
 ;; Return the absolute position of the opening delimiter of the innermost form
 ;; that contains `pos`, or #f when `pos` is outside any parsed form.
@@ -841,9 +812,11 @@
   (define req-start (doc-pos->abs-pos doc (Range-start range)))
   (define req-end (doc-pos->abs-pos doc (Range-end range)))
   (define trace-actions
-    (interval-map-overlap-values (send doc-trace get-quickfixs)
-                                 req-start
-                                 req-end))
+    (if (<= req-start req-end)
+        (interval-map-overlap-values (send doc-trace get-quickfixs)
+                                     req-start
+                                     req-end)
+        '()))
 
   (define resyntax-actions
     (for/list ([res (in-list (doc-get-resyntax-results doc))]

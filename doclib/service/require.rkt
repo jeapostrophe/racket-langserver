@@ -2,7 +2,7 @@
 
 (require "interface.rkt"
          racket/class
-         data/interval-map
+         "../../common/interval-map.rkt"
          drracket/check-syntax)
 
 (provide require%)
@@ -25,5 +25,6 @@
       (interval-map-contract! requires start end))
 
     (define/override (syncheck:add-require-open-menu _text start finish file)
-      (interval-map-set! requires start finish file))))
+      (when (< start finish)
+        (interval-map-set! requires start finish file)))))
 

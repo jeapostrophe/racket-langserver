@@ -1,10 +1,10 @@
 #lang racket/base
 
-(require scribble/blueboxes
+(require "../common/interval-map.rkt"
+         scribble/blueboxes
          setup/xref
          racket/class
          racket/list
-         racket/dict
          setup/collects
          racket/string
          scribble/xref
@@ -32,16 +32,13 @@
   ;; partial reimplementation of private method compute-tag+rng
   ;; in drracket/private/syncheck/blueboxes-gui.rkt
   (define xref (load-collections-xref))
-  (define mps
-    (for/list ([(k require-candidate) (in-dict (send trace get-requires))])
-      (path->module-path require-candidate #:cache pkg-cache)))
-  (for/or ([mp (in-list mps)])
-    (define definition-tag (xref-binding->definition-tag xref (list mp (string->symbol id)) #f))
-    (cond
-      [definition-tag
-       (define-values (path url-tag) (xref-tag->path+anchor xref definition-tag))
-       (if path definition-tag #f)]
-      [else #f])))
+  (for/or ([(start end require-candidate) (in-interval-map (send trace get-requires))])
+    (define mp (path->module-path require-candidate #:cache pkg-cache))
+    (define definition-tag
+      (xref-binding->definition-tag xref (list mp (string->symbol id)) #f))
+    (and definition-tag
+         (let-values ([(path _url-tag) (xref-tag->path+anchor xref definition-tag)])
+           (and path definition-tag)))))
 
 (define (get-docs-for-tag tag)
   (define bb-strs (fetch-blueboxes-strs tag #:blueboxes-cache the-bluebox-cache))

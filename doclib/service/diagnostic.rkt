@@ -7,7 +7,7 @@
          racket/match
          racket/list
          setup/path-to-relative
-         data/interval-map
+         "../../common/interval-map.rkt"
          "../../common/interfaces.rkt"
          "../internal-types.rkt"
          (only-in "../lexer.rkt"

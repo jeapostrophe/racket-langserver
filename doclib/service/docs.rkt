@@ -3,7 +3,7 @@
 (require "interface.rkt"
          racket/class
          "../docs-helpers.rkt"
-         data/interval-map
+         "../../common/interval-map.rkt"
          net/url
          drracket/check-syntax)
 
